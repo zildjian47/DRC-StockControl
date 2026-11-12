@@ -1,0 +1,115 @@
+import defaultTheme from 'tailwindcss/defaultTheme';
+import forms from '@tailwindcss/forms';
+
+/** @type {import('tailwindcss').Config} */
+export default {
+    content: [
+        './vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php',
+        './storage/framework/views/*.php',
+        './resources/views/**/*.blade.php',
+    ],
+
+    theme: {
+        extend: {
+            fontFamily: {
+                sans: ['var(--font-body)', ...defaultTheme.fontFamily.sans],
+                mono: ['var(--font-mono)', ...defaultTheme.fontFamily.mono],
+            },
+            colors: {
+                slate: {
+                    50: '#F5F7FA',
+                    100: '#EEF1F5',
+                    200: '#DDE3EA',
+                    300: '#C3CCD7',
+                    400: '#8D9AAB',
+                    500: '#6A788A',
+                    600: '#46566A',
+                    700: '#34465C',
+                    800: '#1F2E40',
+                    900: '#14202E',
+                    950: '#0F1E33',
+                },
+                emerald: {
+                    50: '#E2F3EA',
+                    100: '#CFE9DB',
+                    200: '#A9D4BD',
+                    300: '#7DBB9A',
+                    400: '#4FA177',
+                    500: '#2E8B5E',
+                    600: '#1F7A4D',
+                    700: '#17653F',
+                    800: '#124F32',
+                    900: '#0D3B26',
+                },
+                rose: {
+                    50: '#FBE4E1',
+                    100: '#F6D0CB',
+                    200: '#EBAFA8',
+                    300: '#DE8A80',
+                    400: '#D2665A',
+                    500: '#C4473C',
+                    600: '#B53A2F',
+                    700: '#A82A20',
+                    800: '#86221A',
+                    900: '#661A14',
+                    950: '#45100C',
+                },
+                amber: {
+                    50: '#FBEFD2',
+                    100: '#F6E2B2',
+                    200: '#EBCB85',
+                    300: '#DDB257',
+                    400: '#CB9530',
+                    500: '#B87A0A',
+                    600: '#9C6700',
+                    700: '#8A5A00',
+                    800: '#6F4800',
+                    900: '#583800',
+                },
+                blue: {
+                    50: '#E4EEF8',
+                    100: '#CFE0F2',
+                    200: '#A7C6E6',
+                    300: '#7AA8D6',
+                    400: '#4C8BC6',
+                    500: '#2877BC',
+                    600: '#0B5CAD',
+                    700: '#094D90',
+                    800: '#073D73',
+                    900: '#052E57',
+                },
+                cyan: {
+                    50: '#E4EEF8',
+                    100: '#CFE0F2',
+                    200: '#A7C6E6',
+                    500: '#2877BC',
+                    600: '#0B5CAD',
+                    700: '#094D90',
+                    800: '#073D73',
+                    900: '#052E57',
+                },
+                accent: {
+                    DEFAULT: '#0B5CAD',
+                    hover: '#094D90',
+                    soft: '#E4EEF8',
+                },
+            },
+            borderRadius: {
+                DEFAULT: '4px',
+                sm: '3px',
+                md: '4px',
+                lg: '4px',
+                xl: '4px',
+                '2xl': '6px',
+            },
+            boxShadow: {
+                sm: 'none',
+                DEFAULT: 'none',
+                md: '0 1px 2px rgba(20,32,46,.08)',
+                lg: '0 8px 24px rgba(20,32,46,.14)',
+            },
+        },
+    },
+
+    plugins: [forms],
+};
