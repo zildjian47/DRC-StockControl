@@ -14,59 +14,22 @@ class InboundController extends Controller
     public function index(Request $request)
     {
         if ($request->query('mode') === 'scanner') {
-            $recentScans = Inbound::with(['item.company', 'user'])
-                ->whereDate('date_time', today())
+            $allScans = Inbound::with(['item.company', 'user'])
+                ->orderBy('date_time', 'desc')
                 ->orderBy('id', 'desc')
                 ->get();
 
-            return view('inbounds.scanner', compact('recentScans'));
+            $todayScans = $allScans->filter(fn ($s) => \Carbon\Carbon::parse($s->date_time)->isToday())->values();
+            $recentScans = $todayScans;
+            $items = Item::with(['company', 'inventoryStock'])->get();
+
+            return view('inbounds.scanner', compact('allScans', 'todayScans', 'recentScans', 'items'));
         }
 
-        $query = Inbound::with(['item.company', 'user']);
-
-        if ($request->filled('search')) {
-            $s = trim($request->search);
-            $query->where(function ($q) use ($s) {
-                $q->whereHas('item', function ($iq) use ($s) {
-                    $iq->where('part_no', 'like', "%{$s}%")
-                       ->orWhere('part_name', 'like', "%{$s}%");
-                })->orWhereHas('user', function ($uq) use ($s) {
-                    $uq->where('name', 'like', "%{$s}%")
-                       ->orWhere('username', 'like', "%{$s}%");
-                });
-            });
-        }
-
-        if ($request->filled('type')) {
-            $query->whereHas('item', fn($iq) => $iq->where('type', $request->type));
-        }
-
-        if ($request->filled('start_date')) {
-            $query->whereDate('date_time', '>=', $request->start_date);
-        }
-
-        if ($request->filled('end_date')) {
-            $query->whereDate('date_time', '<=', $request->end_date);
-        }
-
-        if ($request->filled('start_time')) {
-            $query->whereTime('date_time', '>=', $request->start_time . ':00');
-        }
-
-        if ($request->filled('end_time')) {
-            $query->whereTime('date_time', '<=', $request->end_time . ':59');
-        }
-
-        if ($request->filled('qty_check')) {
-            $statusFilter = strtoupper(trim($request->qty_check));
-            if ($statusFilter === 'DIKOREKSI' || $statusFilter === 'TIDAK SESUAI') {
-                $query->where('qty_check', 'TIDAK SESUAI');
-            } elseif ($statusFilter === 'TERCATAT' || $statusFilter === 'SESUAI' || $statusFilter === 'PENDING') {
-                $query->whereIn('qty_check', ['PENDING', 'SESUAI']);
-            }
-        }
-
-        $inbounds = $query->orderBy('id', 'desc')->get();
+        $inbounds = Inbound::with(['item.company', 'user'])
+            ->orderBy('date_time', 'desc')
+            ->orderBy('id', 'desc')
+            ->get();
 
         return view('inbounds.index', compact('inbounds'));
     }
@@ -83,8 +46,13 @@ class InboundController extends Controller
 
         $request->validate([
             'item_id' => 'required|exists:items,id',
-            'qty'     => 'required|numeric|gt:0',
+            'qty'     => 'required',
         ]);
+
+        $qty = BomController::evaluateMath($request->qty);
+        if ($qty <= 0) {
+            return back()->withInput()->with('error', 'Qty Inbound harus lebih besar dari 0.');
+        }
 
         $item = Item::with('company')->findOrFail($request->item_id);
 
@@ -95,8 +63,6 @@ class InboundController extends Controller
         if (!$item->company || $item->company->type_company !== 'SUPPLIER') {
             return back()->with('error', "Ditolak: Perusahaan {$item->part_name} bukan bertipe SUPPLIER.");
         }
-
-        $qty = (float) $request->qty;
 
         DB::transaction(function () use ($item, $qty) {
             Inbound::create([

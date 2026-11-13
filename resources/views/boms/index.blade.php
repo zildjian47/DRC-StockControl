@@ -46,17 +46,17 @@
 
             <div class="flex flex-wrap items-center gap-2">
                 <input type="text" x-model="q" @input="recalc()"
-                       placeholder="Cari Material Input / Target Output..."
-                       class="h-8 text-xs px-2.5 w-56">
+                       placeholder="Cari Input / Output..."
+                       class="h-8 text-xs px-2.5 w-48">
 
-                <select x-model="fProcess" @change="recalc()" class="h-8 text-xs py-0 pl-2.5 pr-7">
+                <select x-model="fProcess" @change="recalc()" class="h-8 text-xs py-0 pl-2 pr-7">
                     <option value="">Semua Proses</option>
                     @foreach($processes as $proc)
                         <option value="{{ $proc->id }}">{{ $proc->process_name }}</option>
                     @endforeach
                 </select>
 
-                <select x-model="fBomType" @change="recalc()" class="h-8 text-xs py-0 pl-2.5 pr-7">
+                <select x-model="fBomType" @change="recalc()" class="h-8 text-xs py-0 pl-2 pr-7">
                     <option value="">Semua Tipe BOM</option>
                     <option value="SINGLE">SINGLE</option>
                     <option value="MULTI-INPUT">MULTI-INPUT</option>
@@ -111,19 +111,19 @@
                                 <div class="divide-y divide-slate-200">
                                     @foreach($grp['inputs'] as $inRow)
                                         @php $inIt = $inRow['item']; @endphp
-                                        <div class="px-3 py-2 flex items-center justify-between gap-2 {{ $inRow['is_trigger'] ? '' : 'bg-slate-50/60' }}">
-                                            <div>
-                                                <div class="flex items-center gap-1.5">
-                                                    @if($inRow['is_trigger'])
-                                                        <span class="pill pill-good text-[10px] h-4 px-1.5">Trigger Utama</span>
-                                                    @else
-                                                        <span class="pill pill-neu text-[10px] h-4 px-1.5">Pendamping</span>
-                                                    @endif
-                                                    <span class="num text-xs font-semibold text-slate-700">{{ $inIt->part_no ?: '-' }}</span>
+                                        <div class="px-3 py-2.5 flex items-center justify-between gap-2 {{ $inRow['is_trigger'] ? '' : 'bg-slate-50/60' }}">
+                                            <div class="flex items-center gap-2.5 min-w-0">
+                                                @if($inRow['is_trigger'])
+                                                    <span class="pill pill-good w-[88px] justify-center flex-none text-[10px] h-5 px-1.5">Trigger Utama</span>
+                                                @else
+                                                    <span class="pill pill-neu w-[88px] justify-center flex-none text-[10px] h-5 px-1.5">Pendamping</span>
+                                                @endif
+                                                <div class="min-w-0 leading-tight">
+                                                    <div class="num text-[11.5px] font-bold text-slate-600 truncate">{{ $inIt->part_no ?: '-' }}</div>
+                                                    <div class="text-xs font-semibold text-slate-900 truncate">{{ $inIt->part_name ?? '-' }}</div>
                                                 </div>
-                                                <div class="text-xs font-semibold text-slate-900 mt-0.5">{{ $inIt->part_name ?? '-' }}</div>
                                             </div>
-                                            <span class="pill pill-neu text-[10.5px]">{{ $inIt->uom ?? '' }}</span>
+                                            <span class="pill pill-neu text-[10.5px] flex-none">{{ $inIt->uom ?? '' }}</span>
                                         </div>
                                     @endforeach
                                 </div>
@@ -133,7 +133,7 @@
                                 <div class="divide-y divide-slate-200">
                                     @foreach($grp['outputs'] as $outRow)
                                         @php $outIt = $outRow['item']; @endphp
-                                        <div class="px-3 py-2">
+                                        <div class="px-3 py-2.5">
                                             <div class="flex items-center justify-between">
                                                 <div>
                                                     <span class="num text-xs font-bold text-accent">{{ $outIt->part_no ?: '-' }}</span>
@@ -155,12 +155,12 @@
                             </td>
 
                             <td class="text-center">
-                                <form action="{{ route('boms.destroy', $grp['first_id']) }}" method="POST"
+                                <form action="{{ route('boms.destroy', $grp['first_id']) }}" method="POST" class="inline"
                                       @submit.prevent="$dispatch('open-confirm', { form: $el, title: 'Hapus Kelompok BOM', message: 'Hapus seluruh resep BOM pada kelompok {{ $grp['group_key'] }}?' })">
                                     @csrf
                                     @method('DELETE')
-                                    <button type="submit" class="act-icon act-icon-danger" title="Hapus Kelompok BOM">
-                                        <x-icon name="trash" class="w-4 h-4" />
+                                    <button type="submit" class="act-btn danger" title="Hapus Kelompok BOM">
+                                        <x-icon name="trash" />
                                     </button>
                                 </form>
                             </td>
@@ -174,7 +174,7 @@
 
         {{-- POP-UP MODAL BUAT BOM 2 KOLOM (KIRI = INPUT, KANAN = OUTPUT) --}}
         <div x-show="addOpen" x-cloak
-             class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 !mt-0"
+             class="modal-backdrop"
              @click.self="addOpen = false">
             <div class="panel w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden">
                 <div class="panel-head">
@@ -182,7 +182,9 @@
                         <h3 class="panel-title">Buat Resep BOM Baru</h3>
                         <span class="pill pill-info" x-text="'Deteksi Otomatis: ' + detectedType"></span>
                     </div>
-                    <button type="button" class="btn btn-sm" @click="addOpen = false">Tutup</button>
+                    <button type="button" class="act-btn" @click="addOpen = false">
+                        <x-icon name="x" />
+                    </button>
                 </div>
 
                 <form action="{{ route('boms.store') }}" method="POST" class="flex-1 overflow-y-auto">
