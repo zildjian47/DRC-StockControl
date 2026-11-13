@@ -13,40 +13,7 @@
     <x-flash />
 
     <div class="panel"
-         x-data="{
-            q: '',
-            fType: '',
-            addOpen: {{ $errors->any() ? 'true' : 'false' }},
-            editOpen: false,
-            editId: null,
-            editCode: '',
-            editName: '',
-            editType: 'SUPPLIER',
-            visibleCount: {{ $companies->count() }},
-            openEditModal(id, code, name, type) {
-                this.editId = id;
-                this.editCode = code;
-                this.editName = name;
-                this.editType = type;
-                this.editOpen = true;
-            },
-            matchRow(el) {
-                const s = (el.dataset.search || '').toLowerCase();
-                const t = el.dataset.type || '';
-                if (this.q && !s.includes(this.q.toLowerCase())) return false;
-                if (this.fType && t !== this.fType) return false;
-                return true;
-            },
-            recalc() {
-                this.$nextTick(() => {
-                    let c = 0;
-                    this.$el.querySelectorAll('tbody tr[data-comp-row]').forEach(tr => {
-                        if (this.matchRow(tr)) c++;
-                    });
-                    this.visibleCount = c;
-                });
-            }
-         }"
+         x-data="companyPage({{ $companies->count() }}, {{ $errors->any() ? 'true' : 'false' }})"
          @open-add-company.window="addOpen = true"
          x-init="recalc()">
 
@@ -144,11 +111,11 @@
                             <div>
                                 <label class="lbl">Kode Perusahaan (Otomatis Kapital)</label>
                                 <input type="text" name="company_code" required placeholder="Contoh: DPM"
-                                       oninput="this.value = this.value.toUpperCase()" class="num uppercase w-full h-10">
+                                       oninput="this.value = this.value.toUpperCase()" class="num uppercase w-full h-9">
                             </div>
                             <div>
                                 <label class="lbl">Tipe Perusahaan</label>
-                                <select name="type_company" required class="w-full h-10">
+                                <select name="type_company" required class="w-full h-9">
                                     <option value="SUPPLIER">SUPPLIER</option>
                                     <option value="INTERNAL">INTERNAL</option>
                                     <option value="CUSTOMER">CUSTOMER</option>
@@ -157,7 +124,7 @@
                         </div>
                         <div>
                             <label class="lbl">Nama Lengkap Perusahaan</label>
-                            <input type="text" name="company_name" required placeholder="Contoh: PT. DHARMA POLIMETAL Tbk." class="w-full h-10">
+                            <input type="text" name="company_name" required placeholder="Contoh: PT. DHARMA POLIMETAL Tbk." class="w-full h-9">
                         </div>
                     </div>
                     <div class="panel-foot">
@@ -185,11 +152,11 @@
                             <div>
                                 <label class="lbl">Kode Perusahaan</label>
                                 <input type="text" name="company_code" x-model="editCode" required
-                                       oninput="this.value = this.value.toUpperCase()" class="num uppercase w-full h-10">
+                                       oninput="this.value = this.value.toUpperCase()" class="num uppercase w-full h-9">
                             </div>
                             <div>
                                 <label class="lbl">Tipe Perusahaan</label>
-                                <select name="type_company" x-model="editType" required class="w-full h-10">
+                                <select name="type_company" x-model="editType" required class="w-full h-9">
                                     <option value="SUPPLIER">SUPPLIER</option>
                                     <option value="INTERNAL">INTERNAL</option>
                                     <option value="CUSTOMER">CUSTOMER</option>
@@ -198,7 +165,7 @@
                         </div>
                         <div>
                             <label class="lbl">Nama Lengkap Perusahaan</label>
-                            <input type="text" name="company_name" x-model="editName" required class="w-full h-10">
+                            <input type="text" name="company_name" x-model="editName" required class="w-full h-9">
                         </div>
                     </div>
                     <div class="panel-foot">
@@ -209,4 +176,43 @@
             </div>
         </div>
     </div>
+
+    <script>
+        function companyPage(initialCount, openInitially) {
+            return {
+                q: '',
+                fType: '',
+                addOpen: openInitially,
+                editOpen: false,
+                editId: null,
+                editCode: '',
+                editName: '',
+                editType: 'SUPPLIER',
+                visibleCount: initialCount,
+                openEditModal(id, code, name, type) {
+                    this.editId = id;
+                    this.editCode = code;
+                    this.editName = name;
+                    this.editType = type;
+                    this.editOpen = true;
+                },
+                matchRow(el) {
+                    const s = (el.dataset.search || '').toLowerCase();
+                    const t = el.dataset.type || '';
+                    if (this.q && !s.includes(this.q.toLowerCase())) return false;
+                    if (this.fType && t !== this.fType) return false;
+                    return true;
+                },
+                recalc() {
+                    this.$nextTick(() => {
+                        let c = 0;
+                        this.$el.querySelectorAll('tbody tr[data-comp-row]').forEach(tr => {
+                            if (this.matchRow(tr)) c++;
+                        });
+                        this.visibleCount = c;
+                    });
+                }
+            };
+        }
+    </script>
 </x-app-layout>

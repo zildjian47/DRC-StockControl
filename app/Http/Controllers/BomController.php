@@ -3,14 +3,45 @@
 namespace App\Http\Controllers;
 
 use App\Models\Bom;
+use App\Models\InventoryStock;
 use App\Models\Item;
 use App\Models\Process;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class BomController extends Controller
 {
-    public function index(Request $request)
+    public static function evaluateMath($expr): float
+    {
+        if (is_numeric($expr)) {
+            return round((float) $expr, 8);
+        }
+
+        $clean = str_replace(',', '.', trim((string) $expr));
+        $clean = preg_replace('/\s+/', '', $clean);
+
+        if ($clean === '' || !preg_match('/^[0-9\.\+\-\*\/\(\)]+$/', $clean)) {
+            return 0.0;
+        }
+
+        if (preg_match('/[\+\-\*\/]{2,}/', $clean)) {
+            return 0.0;
+        }
+
+        try {
+            $result = eval("return ($clean);");
+            if (is_numeric($result) && is_finite((float) $result)) {
+                return round((float) $result, 8);
+            }
+        } catch (\Throwable $e) {
+            return 0.0;
+        }
+
+        return 0.0;
+    }
+
+    public function index()
     {
         $processes = Process::orderBy('process_name', 'asc')->get();
 
@@ -26,277 +57,211 @@ class BomController extends Controller
 
         $boms = Bom::with(['process', 'outputItem.company', 'inputItem.company'])
             ->orderBy('process_id', 'asc')
-            ->orderBy('bom_group', 'asc')
-            ->orderByDesc('is_trigger')
             ->orderBy('id', 'asc')
             ->get();
 
-        $groupedBoms = $boms->groupBy(function ($bom) {
-            return $bom->bom_group ?: ('SG-' . $bom->process_id . '-' . $bom->output_item_id);
+        $groupedBoms = $boms->groupBy(function ($b) {
+            return !empty($b->bom_group)
+                ? $b->bom_group
+                : ('LEGACY-' . $b->process_id . '-' . $b->output_item_id);
         })->map(function ($rows, $groupKey) {
             $first = $rows->first();
-            $uniqueInputs = $rows->pluck('input_item_id')->unique()->count();
-            $uniqueOutputs = $rows->pluck('output_item_id')->unique()->count();
+            $uIn = $rows->pluck('input_item_id')->unique()->count();
+            $uOut = $rows->pluck('output_item_id')->unique()->count();
 
-            if (str_starts_with($groupKey, 'CB-') || ($uniqueInputs > 1 && $uniqueOutputs > 1)) {
-                $type = 'KOMBINASI';
-            } elseif (str_starts_with($groupKey, 'MO-') || ($uniqueInputs === 1 && $uniqueOutputs > 1)) {
-                $type = 'MULTI-OUTPUT';
-            } elseif (str_starts_with($groupKey, 'MI-') || ($uniqueInputs > 1 && $uniqueOutputs === 1)) {
-                $type = 'MULTI-INPUT';
+            if (str_starts_with($groupKey, 'CB-') || ($uIn > 1 && $uOut > 1)) {
+                $bomType = 'KOMBINASI';
+            } elseif (str_starts_with($groupKey, 'MO-') || ($uIn === 1 && $uOut > 1)) {
+                $bomType = 'MULTI-OUTPUT';
+            } elseif (str_starts_with($groupKey, 'MI-') || ($uIn > 1 && $uOut === 1)) {
+                $bomType = 'MULTI-INPUT';
             } else {
-                $type = 'SINGLE';
+                $bomType = 'SINGLE';
             }
 
-            $outputs = $rows->groupBy('output_item_id')->map(function ($outRows) {
-                $outItem = $outRows->first()->outputItem;
-                $triggerRow = $outRows->firstWhere('is_trigger', true) ?? $outRows->first();
+            $inputsSummary = $rows->groupBy('input_item_id')->map(function ($inRows) {
+                $f = $inRows->first();
                 return [
-                    'output_item' => $outItem,
-                    'trigger_row' => $triggerRow,
-                    'inputs'      => $outRows->values(),
-                ];
-            })->values();
-
-            $inputs = $rows->groupBy('input_item_id')->map(function ($inRows) {
-                $inItem = $inRows->first()->inputItem;
-                $isTrigger = (bool) $inRows->contains('is_trigger', true);
-                return [
-                    'input_item' => $inItem,
-                    'is_trigger' => $isTrigger,
-                    'usages'     => $inRows->values(),
+                    'item'       => $f->inputItem,
+                    'is_trigger' => (bool) $inRows->contains('is_trigger', true),
+                    'usages'     => $inRows->map(fn ($r) => [
+                        'output_part_no'   => $r->outputItem->part_no ?: '-',
+                        'output_part_name' => $r->outputItem->part_name ?? '-',
+                        'output_uom'       => $r->outputItem->uom ?? 'PCS',
+                        'qty_usage'        => (float) $r->qty_usage,
+                    ])->values(),
                 ];
             })->sortByDesc('is_trigger')->values();
 
-            $searchIndex = strtolower(
-                ($first->process->process_name ?? '') . ' ' .
-                $type . ' ' .
+            $outputsSummary = $rows->groupBy('output_item_id')->map(function ($outRows) {
+                $f = $outRows->first();
+                return [
+                    'item'   => $f->outputItem,
+                    'inputs' => $outRows->map(fn ($r) => [
+                        'input_part_no'   => $r->inputItem->part_no ?: '-',
+                        'input_part_name' => $r->inputItem->part_name ?? '-',
+                        'input_uom'       => $r->inputItem->uom ?? '',
+                        'is_trigger'      => (bool) $r->is_trigger,
+                        'qty_usage'       => (float) $r->qty_usage,
+                    ])->sortByDesc('is_trigger')->values(),
+                ];
+            })->values();
+
+            $searchStr = strtolower(
                 $groupKey . ' ' .
+                $bomType . ' ' .
+                ($first->process->process_name ?? '') . ' ' .
                 $rows->map(fn ($r) => ($r->inputItem->part_no ?? '') . ' ' . ($r->inputItem->part_name ?? '') . ' ' . ($r->outputItem->part_no ?? '') . ' ' . ($r->outputItem->part_name ?? ''))->implode(' ')
             );
 
             return [
                 'group_key'    => $groupKey,
-                'type'         => $type,
+                'bom_type'     => $bomType,
+                'first_id'     => $first->id,
                 'process_id'   => $first->process_id,
                 'process_name' => $first->process->process_name ?? '-',
-                'rows'         => $rows->values(),
-                'inputs'       => $inputs,
-                'outputs'      => $outputs,
-                'first_id'     => $first->id,
-                'search_index' => $searchIndex,
+                'rows'         => $rows,
+                'inputs'       => $inputsSummary,
+                'outputs'      => $outputsSummary,
+                'search_index' => $searchStr,
             ];
         })->values();
 
         $groups = $groupedBoms;
 
-        return view('boms.index', compact(
-            'boms',
-            'groupedBoms',
-            'groups',
-            'processes',
-            'outputItems',
-            'inputItems'
-        ));
-    }
-
-    public static function evaluateMath($expression): float
-    {
-        $expr = str_replace([',', ' '], ['.', ''], trim((string) $expression));
-        if ($expr === '') {
-            return 0;
-        }
-        if (is_numeric($expr)) {
-            return round((float) $expr, 8);
-        }
-        if (!preg_match('/^[0-9\.\+\-\*\/\(\)]+$/', $expr)) {
-            return -1;
-        }
-        try {
-            $tokens = preg_split('/([\+\-\*\/\(\)])/', $expr, -1, PREG_SPLIT_DELIM_CAPTURE | PREG_SPLIT_NO_EMPTY);
-            $outputQueue = [];
-            $operatorStack = [];
-            $precedence = ['+' => 1, '-' => 1, '*' => 2, '/' => 2];
-
-            foreach ($tokens as $idx => $token) {
-                if (is_numeric($token)) {
-                    $outputQueue[] = (float) $token;
-                } elseif (isset($precedence[$token])) {
-                    if ($token === '-' && ($idx === 0 || in_array($tokens[$idx - 1], ['+', '-', '*', '/', '('], true))) {
-                        $outputQueue[] = 0.0;
-                    }
-                    while (
-                        !empty($operatorStack) &&
-                        end($operatorStack) !== '(' &&
-                        ($precedence[end($operatorStack)] ?? 0) >= $precedence[$token]
-                    ) {
-                        $outputQueue[] = array_pop($operatorStack);
-                    }
-                    $operatorStack[] = $token;
-                } elseif ($token === '(') {
-                    $operatorStack[] = $token;
-                } elseif ($token === ')') {
-                    while (!empty($operatorStack) && end($operatorStack) !== '(') {
-                        $outputQueue[] = array_pop($operatorStack);
-                    }
-                    if (!empty($operatorStack) && end($operatorStack) === '(') {
-                        array_pop($operatorStack);
-                    }
-                }
-            }
-
-            while (!empty($operatorStack)) {
-                $op = array_pop($operatorStack);
-                if ($op === '(' || $op === ')') {
-                    return -1;
-                }
-                $outputQueue[] = $op;
-            }
-
-            $evalStack = [];
-            foreach ($outputQueue as $item) {
-                if (is_float($item) || is_int($item)) {
-                    $evalStack[] = (float) $item;
-                } else {
-                    if (count($evalStack) < 2) {
-                        return -1;
-                    }
-                    $b = array_pop($evalStack);
-                    $a = array_pop($evalStack);
-                    if ($item === '+') {
-                        $evalStack[] = $a + $b;
-                    } elseif ($item === '-') {
-                        $evalStack[] = $a - $b;
-                    } elseif ($item === '*') {
-                        $evalStack[] = $a * $b;
-                    } elseif ($item === '/') {
-                        if ($b == 0) {
-                            return -1;
-                        }
-                        $evalStack[] = $a / $b;
-                    }
-                }
-            }
-
-            return count($evalStack) === 1 ? round((float) $evalStack[0], 8) : -1;
-        } catch (\Throwable $e) {
-            return -1;
-        }
+        return view('boms.index', compact('boms', 'groupedBoms', 'groups', 'processes', 'outputItems', 'inputItems'));
     }
 
     public function store(Request $request)
     {
         $request->validate([
-            'process_id'               => 'required|exists:processes,id',
-            'trigger_index'            => 'required|integer|min:0',
-            'inputs'                   => 'required|array|min:1',
-            'inputs.*.input_item_id'   => 'required|exists:items,id',
-            'outputs'                  => 'required|array|min:1',
-            'outputs.*.output_item_id' => 'required|exists:items,id',
+            'process_id' => 'required|exists:processes,id',
+            'inputs'     => 'required|array|min:1',
+            'outputs'    => 'required|array|min:1',
         ]);
 
         $processId = (int) $request->process_id;
-        $triggerIdx = (int) $request->trigger_index;
-        $inputs = array_values($request->inputs);
-        $outputs = array_values($request->outputs);
+        $rawInputs = collect($request->input('inputs', []))
+            ->filter(fn ($i) => !empty($i['item_id']))
+            ->values();
 
-        if (!isset($inputs[$triggerIdx])) {
-            return back()->withInput()->with('error', 'Pilih tepat 1 Material Input sebagai Trigger Utama.');
+        $rawOutputs = collect($request->input('outputs', []))
+            ->filter(fn ($o) => !empty($o['item_id']))
+            ->values();
+
+        if ($rawInputs->isEmpty() || $rawOutputs->isEmpty()) {
+            return back()->withInput()->with('error', 'Minimal wajib memilih 1 Material Input dan 1 Target Output.');
         }
 
-        $inputIds = array_column($inputs, 'input_item_id');
-        if (count($inputIds) !== count(array_unique($inputIds))) {
-            return back()->withInput()->with('error', 'Terdapat Material Input yang dipilih ganda dalam 1 resep BOM.');
+        if ($rawInputs->pluck('item_id')->unique()->count() !== $rawInputs->count()) {
+            return back()->withInput()->with('error', 'Terdapat Material Input yang dipilih ganda dalam 1 resep.');
         }
 
-        $outputIds = array_column($outputs, 'output_item_id');
-        if (count($outputIds) !== count(array_unique($outputIds))) {
-            return back()->withInput()->with('error', 'Terdapat Target Output yang dipilih ganda dalam 1 resep BOM.');
+        if ($rawOutputs->pluck('item_id')->unique()->count() !== $rawOutputs->count()) {
+            return back()->withInput()->with('error', 'Terdapat Target Output yang dipilih ganda dalam 1 resep.');
         }
 
-        foreach ($inputIds as $inId) {
-            if (in_array($inId, $outputIds)) {
-                return back()->withInput()->with('error', 'Item Input dan Output tidak boleh menggunakan barang yang sama.');
-            }
+        $triggerIndex = (int) $request->input('trigger_index', 0);
+        if (!isset($rawInputs[$triggerIndex])) {
+            $triggerIndex = 0;
         }
 
-        $numInputs = count($inputs);
-        $numOutputs = count($outputs);
+        $inCount = $rawInputs->count();
+        $outCount = $rawOutputs->count();
 
-        if ($numInputs === 1 && $numOutputs === 1) {
+        if ($inCount === 1 && $outCount === 1) {
             $prefix = 'SG';
-        } elseif ($numInputs > 1 && $numOutputs === 1) {
+        } elseif ($inCount > 1 && $outCount === 1) {
             $prefix = 'MI';
-        } elseif ($numInputs === 1 && $numOutputs > 1) {
+        } elseif ($inCount === 1 && $outCount > 1) {
             $prefix = 'MO';
         } else {
             $prefix = 'CB';
         }
 
-        $groupCode = $prefix . '-' . $processId . '-' . now()->format('His') . '-' . rand(10, 99);
-        $recordsToInsert = [];
+        $bomGroup = $prefix . '-' . $processId . '-' . strtoupper(Str::random(5));
+        $rowsToInsert = [];
 
-        foreach ($outputs as $oIdx => $outData) {
-            $outId = (int) $outData['output_item_id'];
-
-            foreach ($inputs as $iIdx => $inData) {
-                $inId = (int) $inData['input_item_id'];
-                $isTrigger = ($iIdx === $triggerIdx);
-
-                if ($numOutputs === 1) {
-                    $rawFormula = $inData['qty_usage'] ?? '';
-                } else {
-                    $rawFormula = $outData['usages'][$iIdx] ?? ($inData['qty_usage'] ?? '');
+        if ($outCount === 1) {
+            $outItemId = (int) $rawOutputs[0]['item_id'];
+            foreach ($rawInputs as $idx => $inData) {
+                $inItemId = (int) $inData['item_id'];
+                if ($inItemId === $outItemId) {
+                    return back()->withInput()->with('error', 'Material Input dan Target Output tidak boleh item yang sama.');
                 }
 
-                $rawTrimmed = trim((string) $rawFormula);
-
-                // Pada KOMBINASI, komponen pendamping (bukan trigger) boleh diisi 0 atau dikosongkan jika tidak dipakai oleh salah satu Output
-                if (!$isTrigger && $numOutputs > 1 && ($rawTrimmed === '' || $rawTrimmed === '0')) {
-                    continue;
-                }
-
-                $qtyVal = self::evaluateMath($rawTrimmed);
+                $qtyVal = self::evaluateMath($inData['qty_usage'] ?? 0);
                 if ($qtyVal <= 0) {
-                    $inName = Item::find($inId)->part_name ?? 'Input';
-                    $outName = Item::find($outId)->part_name ?? 'Output';
-                    return back()->withInput()->with('error', "Qty Usage untuk [{$inName} -> {$outName}] tidak valid atau bernilai 0.");
+                    return back()->withInput()->with('error', 'Qty Usage pada setiap Material Input wajib lebih besar dari 0.');
                 }
 
-                $recordsToInsert[] = [
-                    'bom_group'      => $groupCode,
+                $rowsToInsert[] = [
+                    'bom_group'      => $bomGroup,
                     'process_id'     => $processId,
-                    'output_item_id' => $outId,
-                    'input_item_id'  => $inId,
+                    'output_item_id' => $outItemId,
+                    'input_item_id'  => $inItemId,
                     'qty_usage'      => $qtyVal,
-                    'is_trigger'     => $isTrigger,
+                    'is_trigger'     => ($idx === $triggerIndex),
+                    'created_at'     => now(),
+                    'updated_at'     => now(),
                 ];
+            }
+        } else {
+            foreach ($rawOutputs as $oIdx => $outData) {
+                $outItemId = (int) $outData['item_id'];
+                $usagesMap = $outData['usages'] ?? [];
+
+                foreach ($rawInputs as $iIdx => $inData) {
+                    $inItemId = (int) $inData['item_id'];
+                    if ($inItemId === $outItemId) {
+                        return back()->withInput()->with('error', 'Material Input dan Target Output tidak boleh item yang sama.');
+                    }
+
+                    $isTrigger = ($iIdx === $triggerIndex);
+                    $rawExpr = $usagesMap[$iIdx] ?? ($inData['qty_usage'] ?? 0);
+                    $qtyVal = self::evaluateMath($rawExpr);
+
+                    if ($isTrigger && $qtyVal <= 0) {
+                        return back()->withInput()->with('error', 'Qty Usage untuk Material Trigger wajib lebih besar dari 0 pada setiap Target Output.');
+                    }
+
+                    if ($qtyVal > 0) {
+                        $rowsToInsert[] = [
+                            'bom_group'      => $bomGroup,
+                            'process_id'     => $processId,
+                            'output_item_id' => $outItemId,
+                            'input_item_id'  => $inItemId,
+                            'qty_usage'      => $qtyVal,
+                            'is_trigger'     => $isTrigger,
+                            'created_at'     => now(),
+                            'updated_at'     => now(),
+                        ];
+                    }
+                }
             }
         }
 
-        DB::transaction(function () use ($recordsToInsert, $numOutputs, $processId) {
-            foreach ($recordsToInsert as $rec) {
-                if ($numOutputs === 1) {
-                    Bom::where('process_id', $processId)
-                        ->where('output_item_id', $rec['output_item_id'])
-                        ->where('input_item_id', $rec['input_item_id'])
-                        ->delete();
-                }
-                Bom::create($rec);
-            }
+        DB::transaction(function () use ($rowsToInsert) {
+            Bom::insert($rowsToInsert);
+            InventoryStock::with('item')->get()->each(fn ($s) => $s->updateDynamicStatus());
         });
 
-        return redirect()->route('boms.index')->with('success', 'Resep BOM berhasil disimpan.');
+        return redirect()->route('boms.index')->with('success', "Resep BOM ({$bomGroup}) berhasil disimpan.");
     }
 
     public function destroy(Bom $bom)
     {
-        if (!empty($bom->bom_group)) {
-            Bom::where('bom_group', $bom->bom_group)->delete();
-            return redirect()->route('boms.index')->with('success', 'Seluruh kelompok resep BOM berhasil dihapus.');
-        }
+        DB::transaction(function () use ($bom) {
+            if (!empty($bom->bom_group)) {
+                Bom::where('bom_group', $bom->bom_group)->delete();
+            } else {
+                Bom::where('process_id', $bom->process_id)
+                    ->where('output_item_id', $bom->output_item_id)
+                    ->delete();
+            }
+            InventoryStock::with('item')->get()->each(fn ($s) => $s->updateDynamicStatus());
+        });
 
-        $bom->delete();
-        return redirect()->route('boms.index')->with('success', 'Baris BOM berhasil dihapus.');
+        return redirect()->route('boms.index')->with('success', 'Kelompok resep BOM berhasil dihapus.');
     }
 }

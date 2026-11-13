@@ -104,8 +104,8 @@
             <a href="{{ route('profile.edit') }}" class="user-chip" title="Profil Pengguna">
                 <span class="avatar">{{ strtoupper(substr($uname, 0, 2)) }}</span>
                 <span class="hidden sm:flex flex-col leading-tight">
-                    <b class="text-[13px] font-semibold" style="color:var(--ink)">{{ $uname }}</b>
-                    <small class="text-xs" style="color:var(--mut)">{{ $u->role }}</small>
+                    <b class="text-[12.5px] font-semibold" style="color:var(--ink)">{{ $uname }}</b>
+                    <small class="text-[11px]" style="color:var(--mut)">{{ $u->role }}</small>
                 </span>
             </a>
         </header>
@@ -128,7 +128,7 @@
             <h3 class="panel-title" x-text="confirmTitle"></h3>
         </div>
         <div class="panel-body">
-            <p class="text-sm text-slate-700 leading-relaxed" x-text="confirmMessage"></p>
+            <p class="text-xs text-slate-700 leading-relaxed" x-text="confirmMessage"></p>
         </div>
         <div class="panel-foot">
             <button type="button" class="btn" @click="confirmOpen = false">Batal</button>

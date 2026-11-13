@@ -4,6 +4,7 @@
         $outputToday = \App\Models\Production::whereDate('date_time', $today)->sum('qty');
         $totalStock = \App\Models\InventoryStock::whereHas('item', fn($q) => $q->whereNull('deleted_at'))->sum('current_stock');
         $inboundToday = \App\Models\Inbound::whereDate('date_time', $today)->count();
+        $pendingInbound = \App\Models\Inbound::where('qty_check', 'PENDING')->count();
 
         $totalProdAll = \App\Models\Production::sum('qty');
         $totalNgAll = \App\Models\ProductionNg::sum('qty_ng');
@@ -25,11 +26,14 @@
         $lowStockItems = \App\Models\InventoryStock::whereHas('item', fn($q) => $q->whereNull('deleted_at'))
             ->whereIn('status_stock', ['EMPTY STOCK', 'VERY LOW', 'LOW STOCK'])
             ->count();
+        $veryLowItems = \App\Models\InventoryStock::whereHas('item', fn($q) => $q->whereNull('deleted_at'))
+            ->whereIn('status_stock', ['EMPTY STOCK', 'VERY LOW'])
+            ->count();
     @endphp
 
     <x-slot name="header">
         <x-page-header title="Dashboard Produksi"
-                       subtitle="{{ \Carbon\Carbon::now()->translatedFormat('l, d F Y') }} · Monitoring operasional pabrik secara real-time">
+                       subtitle="{{ \Carbon\Carbon::now()->translatedFormat('l, d F Y') }} · Monitoring real-time">
             <x-slot name="actions">
                 <a href="{{ route('lot_tracers.index') }}" class="btn btn-primary">
                     <x-icon name="route" /> Buka Lot Tracer
@@ -51,8 +55,10 @@
         </div>
         <div class="kpi">
             <div class="kpi-l">Inbound Hari Ini</div>
-            <div class="kpi-v">{{ $inboundToday }}<small>transaksi</small></div>
-            <div class="kpi-s"><span class="pill pill-good">Tercatat di sistem</span></div>
+            <div class="kpi-v">{{ $inboundToday }}<small>dokumen</small></div>
+            <div class="kpi-s">
+                <span class="pill pill-good">Tercatat di sistem</span>
+            </div>
         </div>
         <div class="kpi">
             <div class="kpi-l">NG Rate</div>
@@ -72,54 +78,82 @@
         </div>
     </div>
 
-    <div class="grid grid-cols-1 xl:grid-cols-3 gap-[18px]">
-        <section class="panel xl:col-span-2">
+    <div class="grid grid-cols-1 xl:grid-cols-3 gap-[14px] items-stretch">
+        <section class="panel xl:col-span-2 flex flex-col">
             <div class="panel-head">
-                <h3 class="panel-title">Output Produksi, 7 Hari Terakhir</h3>
+                <h3 class="panel-title">Output produksi, 7 hari terakhir</h3>
             </div>
-            <div class="panel-body">
+            <div class="panel-body flex-1 flex flex-col justify-between">
                 @php
                     $series = collect(range(6, 0))->map(function ($i) use ($outByDay) {
                         $d = \Carbon\Carbon::today()->subDays($i);
                         return ['label' => $d->translatedFormat('D d'), 'v' => (float) ($outByDay[$d->toDateString()] ?? 0)];
                     });
                     $max = max(1, $series->max('v'));
-                    $W = 560; $H = 220; $L = 48; $R = 12; $T = 14; $B = 28; $step = ($W - $L - $R) / 7; $bw = 34;
+                    $W = 600; $H = 235; $L = 46; $R = 14; $T = 16; $B = 28; $step = ($W - $L - $R) / 7; $bw = 34;
                 @endphp
-                <svg viewBox="0 0 {{ $W }} {{ $H }}" class="w-full h-auto" role="img" aria-label="Output produksi 7 hari terakhir">
+                <svg viewBox="0 0 {{ $W }} {{ $H }}" class="w-full h-[235px]" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Output produksi 7 hari terakhir">
                     @foreach ([0, 0.5, 1] as $g)
                         @php $y = $T + ($H - $T - $B) * (1 - $g); @endphp
                         <line x1="{{ $L }}" x2="{{ $W - $R }}" y1="{{ $y }}" y2="{{ $y }}" stroke="var(--line)" stroke-width="1"/>
                         <text x="{{ $L - 8 }}" y="{{ $y + 4 }}" text-anchor="end" fill="var(--mut)" font-size="11" font-family="Inter, sans-serif">{{ number_format($max * $g, 0, ',', '.') }}</text>
                     @endforeach
                     @foreach ($series as $i => $s)
-                        @php $h = ($H - $T - $B) * $s['v'] / $max; $x = $L + $step * $i + ($step - $bw) / 2; @endphp
-                        <rect x="{{ $x }}" y="{{ $H - $B - $h }}" width="{{ $bw }}" height="{{ max($h, 2) }}" rx="2" fill="var(--c1)" @if($i === 6) opacity=".75" @endif>
-                            <title>{{ $s['label'] }}: {{ number_format($s['v'], 0, ',', '.') }}</title>
-                        </rect>
+                        @php
+                            $h = $s['v'] > 0 ? (($H - $T - $B) * $s['v'] / $max) : 0;
+                            $x = $L + $step * $i + ($step - $bw) / 2;
+                        @endphp
+                        @if($s['v'] > 0 && $h > 0)
+                            <rect x="{{ $x }}" y="{{ $H - $B - $h }}" width="{{ $bw }}" height="{{ $h }}" rx="2" fill="var(--c1)" @if($i === 6) opacity=".85" @endif>
+                                <title>{{ $s['label'] }}: {{ number_format($s['v'], 0, ',', '.') }}</title>
+                            </rect>
+                        @endif
                         <text x="{{ $x + $bw / 2 }}" y="{{ $H - 8 }}" text-anchor="middle" fill="var(--mut)" font-size="11" font-family="Inter, sans-serif">{{ $s['label'] }}</text>
                     @endforeach
                 </svg>
-                <p class="hint">Batang paling kanan menunjukkan akumulasi hasil produksi hari ini.</p>
+                <p class="hint mt-2">Batang paling kanan adalah akumulasi output hari ini.</p>
             </div>
         </section>
 
-        <section class="panel">
+        <section class="panel flex flex-col">
             <div class="panel-head">
-                <h3 class="panel-title">Ringkasan Operasional</h3>
+                <h3 class="panel-title">Perlu tindakan</h3>
             </div>
-            <div class="panel-body space-y-3 text-[13px]">
-                <div class="flex items-center justify-between py-1 border-b border-slate-100">
-                    <span>Lot sedang berjalan (WIP)</span>
-                    <span class="pill pill-info num">{{ $runningLots }}</span>
+            <div class="panel-body flex-1 flex flex-col justify-between">
+                <div class="divide-y divide-slate-100 text-[13px]">
+                    <div class="flex items-center justify-between py-3">
+                        <div>
+                            <div class="font-semibold text-slate-800">Stok Kritis (Empty / Very Low)</div>
+                            <div class="text-xs text-slate-500">Item dengan ketahanan &lt; 1 hari</div>
+                        </div>
+                        <span class="pill {{ $veryLowItems > 0 ? 'pill-crit' : 'pill-good' }} num">{{ $veryLowItems }}</span>
+                    </div>
+                    <div class="flex items-center justify-between py-3">
+                        <div>
+                            <div class="font-semibold text-slate-800">Total Item Stok Rendah</div>
+                            <div class="text-xs text-slate-500">Termasuk status Low Stock</div>
+                        </div>
+                        <span class="pill {{ $lowStockItems > 0 ? 'pill-warn' : 'pill-good' }} num">{{ $lowStockItems }}</span>
+                    </div>
+                    <div class="flex items-center justify-between py-3">
+                        <div>
+                            <div class="font-semibold text-slate-800">Log Delay Delivery Hari Ini</div>
+                            <div class="text-xs text-slate-500">Kendala pengiriman tercatat</div>
+                        </div>
+                        <span class="pill {{ $delayCount ? 'pill-crit' : 'pill-good' }} num">{{ $delayCount }}</span>
+                    </div>
+                    <div class="flex items-center justify-between py-3">
+                        <div>
+                            <div class="font-semibold text-slate-800">Lot Sedang Berjalan</div>
+                            <div class="text-xs text-slate-500">Status WIP ON PROGRESS</div>
+                        </div>
+                        <span class="pill pill-info num">{{ $runningLots }}</span>
+                    </div>
                 </div>
-                <div class="flex items-center justify-between py-1 border-b border-slate-100">
-                    <span>Item stok rendah / habis</span>
-                    <span class="pill {{ $lowStockItems > 0 ? 'pill-warn' : 'pill-good' }} num">{{ $lowStockItems }}</span>
-                </div>
-                <div class="flex items-center justify-between py-1">
-                    <span>Log delay pengiriman hari ini</span>
-                    <span class="pill {{ $delayCount > 0 ? 'pill-crit' : 'pill-good' }} num">{{ $delayCount }}</span>
+
+                <div class="pt-3 border-t border-slate-100 flex items-center justify-between">
+                    <a href="{{ route('inventory_stocks.index') }}" class="text-xs font-semibold text-accent hover:underline">Cek Inventory Stock</a>
+                    <a href="{{ route('problem_delays.index') }}" class="text-xs font-semibold text-slate-600 hover:text-accent hover:underline">Log Delay</a>
                 </div>
             </div>
         </section>
@@ -128,8 +162,8 @@
     <section class="panel">
         <div class="panel-head">
             <div class="panel-title">
-                <span>Lot Sedang Berjalan</span>
-                <span class="count-chip">Live WIP</span>
+                <span>Lot Sedang Berjalan (Live WIP)</span>
+                <span class="count-chip">{{ $activeLots->count() }} Lot</span>
             </div>
             <a href="{{ route('lot_tracers.index') }}" class="btn btn-sm">Buka Lot Tracer</a>
         </div>
@@ -142,7 +176,7 @@
                         <th class="w-44">Proses</th>
                         <th class="w-48">Progres Produksi</th>
                         <th class="num w-40">Act FG / WIP</th>
-                        <th class="w-28 text-center">Status</th>
+                        <th class="w-32 text-center">Status</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -153,32 +187,28 @@
                                 : 0;
                         @endphp
                         <tr>
-                            <td class="num font-bold text-accent">{{ $lot->lot_number }}</td>
-                            <td class="font-semibold text-slate-900">{{ $lot->targetItem->part_name ?? '-' }}</td>
-                            <td class="text-slate-600 text-xs font-medium">{{ $lot->process->process_name ?? '-' }}</td>
+                            <td class="num font-semibold text-accent">{{ $lot->lot_number }}</td>
+                            <td class="font-medium text-slate-900">{{ $lot->targetItem->part_name ?? '-' }}</td>
+                            <td class="text-slate-600 text-xs">{{ $lot->process->process_name ?? '-' }}</td>
                             <td class="w-48">
-                                <div class="inline-flex items-center gap-2.5" style="width: 166px;">
-                                    <div style="width: 120px; height: 8px; background-color: #E2E8F0; border-radius: 4px; overflow: hidden; flex: 0 0 120px; transform: translateZ(0);">
-                                        <div style="width: {{ $pct }}%; height: 8px; background-color: #0B5CAD; border-radius: 4px;"></div>
-                                    </div>
-                                    <span class="num text-xs font-semibold text-slate-700" style="width: 36px; text-align: right; flex: 0 0 36px;">{{ $pct }}%</span>
+                                <div class="inline-flex items-center gap-2.5" style="width: 164px;">
+                                    <span class="track"><i style="width:{{ $pct }}%"></i></span>
+                                    <span class="num text-xs font-semibold text-slate-700" style="width: 34px; text-align: right; flex: 0 0 34px;">{{ $pct }}%</span>
                                 </div>
                             </td>
                             <td class="num text-xs whitespace-nowrap">
-                                <b class="text-emerald-700">{{ floatval($lot->act_fg) }}</b>
-                                <span class="text-slate-400 mx-0.5">/</span>
-                                <b class="text-amber-700">WIP {{ floatval($lot->qty_wip) }}</b>
+                                <b class="text-emerald-700">{{ floatval($lot->act_fg) }}</b> / <b class="text-amber-700">WIP {{ floatval($lot->qty_wip) }}</b>
                             </td>
                             <td class="text-center">
                                 @if($lot->status_lot === 'ON PROGRESS')
-                                    <span class="pill pill-good">Berjalan</span>
+                                    <span class="pill pill-good">ON PROGRESS</span>
                                 @else
-                                    <span class="pill pill-neu">Finish</span>
+                                    <span class="pill pill-neu">FINISH</span>
                                 @endif
                             </td>
                         </tr>
                     @empty
-                        <tr><td colspan="6"><div class="empty">Belum ada Lot produksi yang berjalan.</div></td></tr>
+                        <tr><td colspan="6"><div class="empty">Belum ada Lot yang berjalan.</div></td></tr>
                     @endforelse
                 </tbody>
             </table>

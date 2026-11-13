@@ -19,14 +19,10 @@ class MaterialReturnController extends Controller
             return (int) $b->input_item_id === $materialItemId
                 && (int) $b->output_item_id === $targetItemId
                 && (bool) $b->is_trigger === true;
+        }) ?? $allBoms->first(function ($b) use ($materialItemId, $targetItemId) {
+            return (int) $b->input_item_id === $materialItemId
+                && (int) $b->output_item_id === $targetItemId;
         });
-
-        if (!$triggerBom) {
-            $triggerBom = $allBoms->first(function ($b) use ($materialItemId, $targetItemId) {
-                return (int) $b->input_item_id === $materialItemId
-                    && (int) $b->output_item_id === $targetItemId;
-            });
-        }
 
         if (!$triggerBom) {
             return [
@@ -81,6 +77,7 @@ class MaterialReturnController extends Controller
                 ->orderBy('id', 'desc')
                 ->get();
 
+            $recentScans = $todayScans;
             $items = Item::with(['company', 'inventoryStock'])->get();
             $returnedLots = MaterialReturn::pluck('lot_number')->unique()->toArray();
 
@@ -90,7 +87,7 @@ class MaterialReturnController extends Controller
                 ->filter(fn ($lt) => !in_array($lt->lot_number, $returnedLots) && $lt->material_saat_ini > 0)
                 ->values();
 
-            return view('material_returns.scanner', compact('todayScans', 'items', 'activeLots', 'allBoms'));
+            return view('material_returns.scanner', compact('todayScans', 'recentScans', 'items', 'activeLots', 'allBoms'));
         }
 
         $materialReturns = MaterialReturn::with(['materialItem.company', 'targetItem.company', 'user'])
@@ -154,21 +151,23 @@ class MaterialReturnController extends Controller
             );
 
             return [
-                'lot_number'    => $lotNo,
-                'bom_type'      => $bomType,
-                'first'         => $first,
-                'rows'          => $rows,
-                'qty_trigger'   => (float) $first->qty,
-                'companions'    => array_values($companionsMerged),
-                'outputs'       => $outputs,
-                'status_label'  => $first->qty_check === 'TIDAK SESUAI' ? 'DIKOREKSI' : 'TERCATAT',
-                'search_index'  => $searchStr,
-                'date_only'     => \Carbon\Carbon::parse($first->date_time)->format('Y-m-d'),
-                'time_only'     => \Carbon\Carbon::parse($first->date_time)->format('H:i'),
+                'lot_number'   => $lotNo,
+                'bom_type'     => $bomType,
+                'first'        => $first,
+                'rows'         => $rows,
+                'qty_trigger'  => (float) $first->qty,
+                'companions'   => array_values($companionsMerged),
+                'outputs'      => $outputs,
+                'status_label' => $first->qty_check === 'TIDAK SESUAI' ? 'DIKOREKSI' : 'TERCATAT',
+                'search_index' => $searchStr,
+                'date_only'    => \Carbon\Carbon::parse($first->date_time)->format('Y-m-d'),
+                'time_only'    => \Carbon\Carbon::parse($first->date_time)->format('H:i'),
             ];
         })->values();
 
-        return view('material_returns.index', compact('materialReturns', 'groupedReturns'));
+        $groups = $groupedReturns;
+
+        return view('material_returns.index', compact('materialReturns', 'groupedReturns', 'groups'));
     }
 
     public function store(Request $request)
@@ -286,7 +285,6 @@ class MaterialReturnController extends Controller
                             ->get();
 
                         foreach ($lotRows as $lt) {
-                            $usedByProd = 0;
                             $meta = $this->resolveBomMeta((int) $lt->material_item_id, (int) $lt->target_item_id, $allBoms);
                             $usedByProd = (float) $lt->actual_qty_prod * $meta['qty_usage'];
                             $maxAllowed = max(0, (float) $lt->qty_material_out - $usedByProd);

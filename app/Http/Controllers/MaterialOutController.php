@@ -19,14 +19,10 @@ class MaterialOutController extends Controller
             return (int) $b->input_item_id === $materialItemId
                 && (int) $b->output_item_id === $targetItemId
                 && (bool) $b->is_trigger === true;
+        }) ?? $allBoms->first(function ($b) use ($materialItemId, $targetItemId) {
+            return (int) $b->input_item_id === $materialItemId
+                && (int) $b->output_item_id === $targetItemId;
         });
-
-        if (!$triggerBom) {
-            $triggerBom = $allBoms->first(function ($b) use ($materialItemId, $targetItemId) {
-                return (int) $b->input_item_id === $materialItemId
-                    && (int) $b->output_item_id === $targetItemId;
-            });
-        }
 
         if (!$triggerBom) {
             return [
@@ -72,7 +68,7 @@ class MaterialOutController extends Controller
 
     public function index(Request $request)
     {
-        $allBoms = Bom::with(['process', 'inputItem', 'outputItem'])->get();
+        $allBoms = Bom::with(['process', 'inputItem.inventoryStock', 'outputItem'])->get();
 
         if ($request->query('mode') === 'scanner') {
             $todayScans = MaterialOut::with(['materialItem', 'targetItem', 'user'])
@@ -81,10 +77,11 @@ class MaterialOutController extends Controller
                 ->orderBy('id', 'desc')
                 ->get();
 
+            $recentScans = $todayScans;
             $items = Item::with(['company', 'inventoryStock'])->get();
             $existingLots = LotTracer::pluck('lot_number')->unique()->values();
 
-            return view('material_outs.scanner', compact('todayScans', 'allBoms', 'items', 'existingLots'));
+            return view('material_outs.scanner', compact('todayScans', 'recentScans', 'allBoms', 'items', 'existingLots'));
         }
 
         $materialOuts = MaterialOut::with(['materialItem.company', 'targetItem.company', 'user'])
@@ -148,21 +145,23 @@ class MaterialOutController extends Controller
             );
 
             return [
-                'lot_number'    => $lotNo,
-                'bom_type'      => $bomType,
-                'first'         => $first,
-                'rows'          => $rows,
-                'qty_trigger'   => (float) $first->qty,
-                'companions'    => array_values($companionsMerged),
-                'outputs'       => $outputs,
-                'status_label'  => $first->qty_check === 'TIDAK SESUAI' ? 'DIKOREKSI' : 'TERCATAT',
-                'search_index'  => $searchStr,
-                'date_only'     => \Carbon\Carbon::parse($first->date_time)->format('Y-m-d'),
-                'time_only'     => \Carbon\Carbon::parse($first->date_time)->format('H:i'),
+                'lot_number'   => $lotNo,
+                'bom_type'     => $bomType,
+                'first'        => $first,
+                'rows'         => $rows,
+                'qty_trigger'  => (float) $first->qty,
+                'companions'   => array_values($companionsMerged),
+                'outputs'      => $outputs,
+                'status_label' => $first->qty_check === 'TIDAK SESUAI' ? 'DIKOREKSI' : 'TERCATAT',
+                'search_index' => $searchStr,
+                'date_only'    => \Carbon\Carbon::parse($first->date_time)->format('Y-m-d'),
+                'time_only'    => \Carbon\Carbon::parse($first->date_time)->format('H:i'),
             ];
         })->values();
 
-        return view('material_outs.index', compact('materialOuts', 'groupedOuts'));
+        $groups = $groupedOuts;
+
+        return view('material_outs.index', compact('materialOuts', 'groupedOuts', 'groups'));
     }
 
     public function store(Request $request)

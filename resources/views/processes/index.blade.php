@@ -13,32 +13,7 @@
     <x-flash />
 
     <div class="panel"
-         x-data="{
-            q: '',
-            addOpen: {{ $errors->any() ? 'true' : 'false' }},
-            editOpen: false,
-            editId: null,
-            editName: '',
-            visibleCount: {{ $processes->count() }},
-            openEditModal(id, name) {
-                this.editId = id;
-                this.editName = name;
-                this.editOpen = true;
-            },
-            matchRow(el) {
-                const s = (el.dataset.search || '').toLowerCase();
-                return !this.q || s.includes(this.q.toLowerCase());
-            },
-            recalc() {
-                this.$nextTick(() => {
-                    let c = 0;
-                    this.$el.querySelectorAll('tbody tr[data-proc-row]').forEach(tr => {
-                        if (this.matchRow(tr)) c++;
-                    });
-                    this.visibleCount = c;
-                });
-            }
-         }"
+         x-data="processPage({{ $processes->count() }}, {{ $errors->any() ? 'true' : 'false' }})"
          @open-add-process.window="addOpen = true"
          x-init="recalc()">
 
@@ -111,7 +86,7 @@
                         <div>
                             <label class="lbl">Nama Proses (Otomatis Huruf Kapital)</label>
                             <input type="text" name="process_name" required placeholder="Contoh: STAMPING"
-                                   oninput="this.value = this.value.toUpperCase()" class="uppercase w-full h-10">
+                                   oninput="this.value = this.value.toUpperCase()" class="uppercase w-full h-9">
                         </div>
                     </div>
                     <div class="panel-foot">
@@ -138,7 +113,7 @@
                         <div>
                             <label class="lbl">Nama Proses (Otomatis Huruf Kapital)</label>
                             <input type="text" name="process_name" x-model="editName" required
-                                   oninput="this.value = this.value.toUpperCase()" class="uppercase w-full h-10">
+                                   oninput="this.value = this.value.toUpperCase()" class="uppercase w-full h-9">
                         </div>
                     </div>
                     <div class="panel-foot">
@@ -149,4 +124,35 @@
             </div>
         </div>
     </div>
+
+    <script>
+        function processPage(initialCount, openInitially) {
+            return {
+                q: '',
+                addOpen: openInitially,
+                editOpen: false,
+                editId: null,
+                editName: '',
+                visibleCount: initialCount,
+                openEditModal(id, name) {
+                    this.editId = id;
+                    this.editName = name;
+                    this.editOpen = true;
+                },
+                matchRow(el) {
+                    const s = (el.dataset.search || '').toLowerCase();
+                    return !this.q || s.includes(this.q.toLowerCase());
+                },
+                recalc() {
+                    this.$nextTick(() => {
+                        let c = 0;
+                        this.$el.querySelectorAll('tbody tr[data-proc-row]').forEach(tr => {
+                            if (this.matchRow(tr)) c++;
+                        });
+                        this.visibleCount = c;
+                    });
+                }
+            };
+        }
+    </script>
 </x-app-layout>

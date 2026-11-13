@@ -1,174 +1,209 @@
-<x-scanner-layout header="Scanner Delivery" :backUrl="route('deliveries.index')">
+<x-scanner-layout>
+    <x-slot name="header">Scanner Delivery</x-slot>
+
     @php
-        $itemsData = ($items ?? \App\Models\Item::with(['company', 'inventoryStock'])->get())->map(fn ($i) => [
+        $todayScans = $todayScans ?? ($recentScans ?? \App\Models\Delivery::with(['item.company', 'user'])
+            ->whereDate('date_time', now()->toDateString())
+            ->orderBy('date_time', 'desc')
+            ->orderBy('id', 'desc')
+            ->get());
+
+        $items = $items ?? \App\Models\Item::with(['company', 'inventoryStock'])->get();
+
+        $itemsJs = $items->map(fn ($i) => [
             'id'           => $i->id,
             'part_no'      => $i->part_no ?: '',
             'part_name'    => $i->part_name,
             'type'         => $i->type,
             'uom'          => $i->uom,
-            'company_name' => $i->company->company_name ?? '-',
+            'company_code' => $i->company->company_code ?? '-',
             'company_type' => $i->company->type_company ?? '',
             'stock'        => (float) ($i->inventoryStock->current_stock ?? 0),
         ])->values();
     @endphp
 
-    <div class="panel panel-body"
-         x-data="{
-            step: 1,
-            manualInput: '',
-            items: {{ Js::from($itemsData) }},
-            selectedItem: null,
-            qtyDeliv: '',
-            scanner: null,
-
-            init() {
-                this.$nextTick(() => this.startCamera());
-            },
-            startCamera() {
-                const el = document.getElementById('qr-reader');
-                if (!el || typeof Html5QrcodeScanner === 'undefined') return;
-                try {
-                    if (this.scanner) this.scanner.clear();
-                    this.scanner = new Html5QrcodeScanner('qr-reader', { fps: 10, qrbox: { width: 220, height: 220 } }, false);
-                    this.scanner.render((decodedText) => {
-                        this.handleScan(decodedText);
-                    }, () => {});
-                } catch (e) {}
-            },
-            findItem(code) {
-                const q = String(code || '').trim().toLowerCase();
-                if (!q) return null;
-                return this.items.find(i => i.part_no.toLowerCase() === q || i.part_name.toLowerCase() === q) || null;
-            },
-            handleScan(rawCode) {
-                const item = this.findItem(rawCode);
-                if (!item) {
-                    window.dispatchEvent(new CustomEvent('scan-notify', { detail: { message: 'Ditolak: Part No / Part Name tidak ditemukan.' } }));
-                    return;
-                }
-                const validFg = item.type === 'FG' && item.company_type === 'CUSTOMER';
-                const validFgk = item.type === 'FG/KOMPONEN' && ['INTERNAL', 'CUSTOMER'].includes(item.company_type);
-                const validTrs = item.type === 'TRANSIT' && ['SUPPLIER', 'CUSTOMER'].includes(item.company_type);
-
-                if (!validFg && !validFgk && !validTrs) {
-                    window.dispatchEvent(new CustomEvent('scan-notify', { detail: { message: 'Ditolak: Item tidak memenuhi kriteria pengiriman (Delivery).' } }));
-                    return;
-                }
-                if (item.stock <= 0) {
-                    window.dispatchEvent(new CustomEvent('scan-notify', { detail: { message: 'Ditolak: Stok item ini sedang kosong (0).' } }));
-                    return;
-                }
-                this.selectedItem = item;
-                this.manualInput = '';
-                this.step = 2;
-                window.dispatchEvent(new CustomEvent('scan-notify', { detail: { message: 'Item terverifikasi. Silakan isi Qty Delivery.', type: 'good' } }));
-            },
-            resetAll() {
-                this.step = 1;
-                this.selectedItem = null;
-                this.qtyDeliv = '';
-                this.manualInput = '';
-            }
-         }">
-
-        {{-- VISUAL STEPPER 2 LANGKAH --}}
-        <div class="stepper">
-            <div class="step-item">
-                <span class="step-circle"
-                      :class="step === 1 ? 'step-circle-active' : 'step-circle-done'"
-                      x-text="step > 1 ? '✓' : '1'"></span>
-                <span class="step-label"
-                      :class="step === 1 ? 'step-label-active' : 'step-label-done'">Scan Item</span>
-            </div>
-
-            <div class="step-line" :class="step > 1 ? 'step-line-done' : ''"></div>
-
-            <div class="step-item">
-                <span class="step-circle"
-                      :class="step === 2 ? 'step-circle-active' : 'step-circle-idle'">2</span>
-                <span class="step-label"
-                      :class="step === 2 ? 'step-label-active' : 'step-label-idle'">Input Qty</span>
-            </div>
-        </div>
-
-        {{-- STEP 1 --}}
-        <div x-show="step === 1" class="space-y-3">
-            <div class="flex items-center justify-between">
-                <span class="text-xs font-bold uppercase tracking-wider text-accent">Scan Item</span>
-                <span class="pill pill-neu text-[10.5px]">FG · FG/KOMPONEN · TRANSIT</span>
-            </div>
-
-            <div class="camera-box">
-                <div id="qr-reader"></div>
-            </div>
-
-            <div class="flex gap-2">
-                <input type="text" x-model="manualInput"
-                       @keydown.enter.prevent="handleScan(manualInput)"
-                       placeholder="Ketik Part No / Nama Barang..."
-                       class="num flex-1 h-10 text-xs">
-                <button type="button" @click="handleScan(manualInput)" class="btn btn-primary px-4 h-10">
-                    Verifikasi
-                </button>
-            </div>
-        </div>
-
-        {{-- STEP 2 --}}
-        <div x-show="step === 2" x-cloak class="space-y-4">
-            <div class="p-3 rounded bg-slate-50 border border-slate-200 space-y-1 text-xs">
-                <div class="flex justify-between">
-                    <span class="num font-semibold text-accent" x-text="selectedItem?.part_no || '-'"></span>
-                    <span class="num font-bold text-emerald-700" x-text="'Stok: ' + selectedItem?.stock + ' ' + selectedItem?.uom"></span>
+    <div x-data="deliveryScanner({{ Js::from($itemsJs) }})" x-init="initScanner()">
+        <div class="panel panel-body">
+            {{-- VISUAL STEPPER --}}
+            <div class="stepper">
+                <div class="step-item" :class="step === 1 ? 'active' : 'done'">
+                    <span class="step-badge" x-text="step > 1 ? '✓' : '1'"></span>
+                    <span>Scan Item</span>
                 </div>
-                <div class="font-bold text-slate-900 text-sm" x-text="selectedItem?.part_name"></div>
+                <div class="step-line" :class="step > 1 ? 'done' : ''"></div>
+                <div class="step-item" :class="step === 2 ? 'active' : ''">
+                    <span class="step-badge">2</span>
+                    <span>Input Qty</span>
+                </div>
             </div>
 
-            <form action="{{ route('deliveries.store') }}" method="POST" class="space-y-3.5">
-                @csrf
-                <input type="hidden" name="mode" value="scanner">
-                <input type="hidden" name="item_id" :value="selectedItem?.id">
+            {{-- LANGKAH 1: SCAN ITEM --}}
+            <div x-show="step === 1" class="space-y-3">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-xs font-bold uppercase tracking-wider text-slate-700">Scan Item</h3>
+                    <span class="pill pill-info">FG · FG/KOMPONEN · TRANSIT</span>
+                </div>
+
+                <div class="camera-box">
+                    <div id="qr-reader"></div>
+                    <div x-show="cameraRunning" class="scan-laser"></div>
+                    <div x-show="!cameraRunning" class="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/90 p-4 text-center">
+                        <x-icon name="scan" class="w-8 h-8 text-slate-400 mb-2" />
+                        <p class="text-xs text-slate-300 mb-2.5">Kamera belum aktif atau gunakan input cepat di bawah</p>
+                        <button type="button" @click="startCam()" class="btn btn-primary btn-sm">Aktifkan Kamera QR</button>
+                    </div>
+                </div>
 
                 <div>
-                    <label class="lbl">Qty Delivery (<span x-text="selectedItem?.uom"></span>) · Maks: <b class="num" x-text="selectedItem?.stock"></b></label>
-                    <input type="number" step="0.01" min="0.01" :max="selectedItem?.stock" name="qty" x-model="qtyDeliv" required placeholder="0.00"
-                           class="num w-full h-14 text-2xl text-center font-bold">
+                    <label class="lbl">Input Part No / Part Name</label>
+                    <div class="flex gap-2">
+                        <input type="text" x-model="manualCode" @keydown.enter.prevent="verifyCode(manualCode)"
+                               placeholder="Ketik Part No atau Part Name..." class="num flex-1 h-10">
+                        <button type="button" @click="verifyCode(manualCode)" class="btn btn-primary h-10 px-4">Verifikasi</button>
+                    </div>
+                </div>
+            </div>
+
+            {{-- LANGKAH 2: INPUT QTY DELIVERY --}}
+            <div x-show="step === 2" x-cloak class="space-y-4">
+                <div class="p-3 rounded bg-slate-50 border border-slate-200 space-y-1">
+                    <div class="flex items-center justify-between">
+                        <span class="num text-xs font-bold text-accent" x-text="selectedItem?.part_no || '-'"></span>
+                        <span class="pill pill-neu" x-text="(selectedItem?.type || '') + ' · ' + (selectedItem?.company_code || '')"></span>
+                    </div>
+                    <div class="font-bold text-slate-900 text-sm" x-text="selectedItem?.part_name"></div>
+                    <div class="text-xs text-slate-600">
+                        Stok Tersedia: <b class="num text-emerald-700" x-text="(selectedItem?.stock ?? 0) + ' ' + (selectedItem?.uom || '')"></b>
+                    </div>
                 </div>
 
-                <button type="submit"
-                        :disabled="!qtyDeliv || parseFloat(qtyDeliv) <= 0 || parseFloat(qtyDeliv) > (selectedItem?.stock || 0)"
-                        class="btn btn-primary btn-lg w-full">
-                    Simpan Delivery (- Stok)
-                </button>
-            </form>
+                <form action="{{ route('deliveries.store') }}" method="POST" class="space-y-3">
+                    @csrf
+                    <input type="hidden" name="mode" value="scanner">
+                    <input type="hidden" name="item_id" :value="selectedItem?.id">
 
-            <button type="button" @click="resetAll()" class="btn w-full">
-                Scan Ulang dari Awal
-            </button>
-        </div>
-    </div>
-
-    {{-- RIWAYAT SCAN HARI INI --}}
-    <div class="panel">
-        <div class="panel-head">
-            <h3 class="panel-title">
-                <span>Riwayat Scan Hari Ini</span>
-                <span class="count-chip">{{ $todayScans->count() }}</span>
-            </h3>
-        </div>
-        <div class="max-h-72 overflow-y-auto divide-y divide-slate-200">
-            @forelse($todayScans as $scan)
-                <div class="px-3.5 py-2.5 flex items-center justify-between text-xs">
                     <div>
-                        <div class="num text-slate-500">{{ \Carbon\Carbon::parse($scan->date_time)->format('H:i') }}</div>
-                        <div class="font-semibold text-slate-900 mt-0.5">{{ $scan->item->part_name ?? '-' }}</div>
+                        <label class="lbl">Qty Delivery (- Stok)</label>
+                        <input type="text" name="qty" x-model="qtyInput" required placeholder="0"
+                               class="num w-full h-14 text-2xl text-center font-bold">
+                        <div x-show="evalQty() > (selectedItem?.stock ?? 0)"
+                             class="text-xs text-rose-600 font-semibold mt-1 text-center">
+                            Ditolak: Qty Delivery melebihi stok yang tersedia!
+                        </div>
                     </div>
-                    <div class="num font-bold text-rose-700 text-sm whitespace-nowrap">
-                        -{{ floatval($scan->qty) }} {{ $scan->item->uom ?? '' }}
-                    </div>
+
+                    <button type="submit" class="btn btn-primary btn-lg w-full"
+                            :disabled="!evalQty() || evalQty() <= 0 || evalQty() > (selectedItem?.stock ?? 0)">
+                        Simpan Delivery (- Stok)
+                    </button>
+                </form>
+
+                <button type="button" class="btn w-full" @click="resetStep()">Batal &amp; Scan Ulang</button>
+            </div>
+        </div>
+
+        {{-- RIWAYAT SCAN HARI INI --}}
+        <div class="panel mt-3.5">
+            <div class="panel-head">
+                <div class="panel-title">
+                    <span>Riwayat Scan Hari Ini</span>
+                    <span class="count-chip">{{ $todayScans->count() }}</span>
                 </div>
-            @empty
-                <div class="empty py-6 text-xs">Belum ada scan Delivery hari ini.</div>
-            @endforelse
+                <a href="{{ route('deliveries.index') }}" class="text-xs font-semibold text-accent hover:underline">Mode Desktop</a>
+            </div>
+            <div class="max-h-72 overflow-y-auto divide-y divide-slate-200">
+                @forelse($todayScans as $sc)
+                    <div class="px-3.5 py-2.5 flex items-center justify-between gap-2 text-xs">
+                        <div class="min-w-0">
+                            <div class="font-semibold text-slate-900 truncate">{{ $sc->item->part_name ?? '-' }}</div>
+                            <div class="text-[11px] text-slate-500 num">
+                                {{ $sc->item->part_no ?: '-' }} · {{ \Carbon\Carbon::parse($sc->date_time)->format('H:i') }} · {{ $sc->user->name ?? 'Operator' }}
+                            </div>
+                        </div>
+                        <div class="num font-bold text-rose-700 whitespace-nowrap">
+                            -{{ floatval($sc->qty) }} {{ $sc->item->uom ?? '' }}
+                        </div>
+                    </div>
+                @empty
+                    <div class="empty py-6">Belum ada scan Delivery hari ini.</div>
+                @endforelse
+            </div>
         </div>
     </div>
+
+    <script>
+        function deliveryScanner(itemsList) {
+            return {
+                items: itemsList,
+                step: 1,
+                cameraRunning: false,
+                manualCode: '',
+                selectedItem: null,
+                qtyInput: '',
+
+                initScanner() {
+                    this.startCam();
+                },
+                startCam() {
+                    window.startDrcCamera('qr-reader', (code) => {
+                        this.verifyCode(code);
+                    }, (running) => {
+                        this.cameraRunning = running;
+                    });
+                },
+                verifyCode(raw) {
+                    const q = String(raw || '').trim().toLowerCase();
+                    if (!q) return;
+
+                    const found = this.items.find(i =>
+                        (i.part_no && i.part_no.toLowerCase() === q) ||
+                        (i.part_name && i.part_name.toLowerCase() === q)
+                    );
+
+                    if (!found) {
+                        window.showScannerToast('Ditolak: Item tidak terdaftar di Master Item.', 'crit');
+                        return;
+                    }
+
+                    const validFg = found.type === 'FG' && found.company_type === 'CUSTOMER';
+                    const validFgk = found.type === 'FG/KOMPONEN' && ['INTERNAL', 'CUSTOMER'].includes(found.company_type);
+                    const validTrs = found.type === 'TRANSIT' && ['SUPPLIER', 'CUSTOMER'].includes(found.company_type);
+
+                    if (!validFg && !validFgk && !validTrs) {
+                        window.showScannerToast('Ditolak: Item tidak memenuhi kriteria pengiriman Delivery.', 'crit');
+                        return;
+                    }
+
+                    if (found.stock <= 0) {
+                        window.showScannerToast('Ditolak: Stok barang ini sedang kosong (0).', 'crit');
+                        return;
+                    }
+
+                    this.selectedItem = found;
+                    this.step = 2;
+                    window.stopDrcCamera();
+                    this.cameraRunning = false;
+                    window.showScannerToast('Item terverifikasi: ' + found.part_name, 'good');
+                },
+                evalQty() {
+                    if (!this.qtyInput) return null;
+                    const expr = String(this.qtyInput).replace(/,/g, '.').replace(/\s+/g, '');
+                    if (!/^[0-9\.\+\-\*\/\(\)]+$/.test(expr)) return null;
+                    try {
+                        const r = Function('return (' + expr + ')')();
+                        return (typeof r === 'number' && isFinite(r) && r > 0) ? Math.round(r * 100) / 100 : null;
+                    } catch (e) {
+                        return null;
+                    }
+                },
+                resetStep() {
+                    this.selectedItem = null;
+                    this.manualCode = '';
+                    this.qtyInput = '';
+                    this.step = 1;
+                    this.startCam();
+                }
+            };
+        }
+    </script>
 </x-scanner-layout>
