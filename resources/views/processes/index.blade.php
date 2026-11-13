@@ -26,7 +26,7 @@
             <div class="flex items-center gap-2">
                 <input type="text" x-model="q" @input="recalc()"
                        placeholder="Cari Nama Proses..."
-                       class="h-8 text-xs px-2.5 w-56">
+                       class="h-8 text-xs px-2.5 w-48">
                 <button type="button" x-show="q" x-cloak @click="q=''; recalc()" class="btn btn-sm">Reset</button>
             </div>
         </div>
@@ -48,17 +48,17 @@
                             <td class="text-center num font-semibold text-slate-500">{{ $idx + 1 }}</td>
                             <td class="font-semibold text-slate-900">{{ $proc->process_name }}</td>
                             <td class="text-center">
-                                <div class="inline-flex items-center justify-center gap-1.5">
-                                    <button type="button" class="act-icon" title="Edit Proses"
+                                <div class="inline-flex items-center justify-center gap-1">
+                                    <button type="button" class="act-btn" title="Edit Proses"
                                             @click="openEditModal({{ $proc->id }}, '{{ addslashes($proc->process_name) }}')">
-                                        <x-icon name="edit" class="w-4 h-4" />
+                                        <x-icon name="edit" />
                                     </button>
-                                    <form action="{{ route('processes.destroy', $proc->id) }}" method="POST"
+                                    <form action="{{ route('processes.destroy', $proc->id) }}" method="POST" class="inline"
                                           @submit.prevent="$dispatch('open-confirm', { form: $el, title: 'Hapus Proses', message: 'Hapus proses {{ addslashes($proc->process_name) }}?' })">
                                         @csrf
                                         @method('DELETE')
-                                        <button type="submit" class="act-icon act-icon-danger" title="Hapus Proses">
-                                            <x-icon name="trash" class="w-4 h-4" />
+                                        <button type="submit" class="act-btn danger" title="Hapus Proses">
+                                            <x-icon name="trash" />
                                         </button>
                                     </form>
                                 </div>
@@ -73,12 +73,14 @@
 
         {{-- POP-UP MODAL TAMBAH PROSES --}}
         <div x-show="addOpen" x-cloak
-             class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 !mt-0"
+             class="modal-backdrop"
              @click.self="addOpen = false">
             <div class="panel w-full max-w-md overflow-hidden">
                 <div class="panel-head">
                     <h3 class="panel-title">Tambah Proses Manufaktur</h3>
-                    <button type="button" class="btn btn-sm" @click="addOpen = false">Tutup</button>
+                    <button type="button" class="act-btn" @click="addOpen = false">
+                        <x-icon name="x" />
+                    </button>
                 </div>
                 <form action="{{ route('processes.store') }}" method="POST">
                     @csrf
@@ -99,12 +101,14 @@
 
         {{-- POP-UP MODAL EDIT PROSES --}}
         <div x-show="editOpen" x-cloak
-             class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 !mt-0"
+             class="modal-backdrop"
              @click.self="editOpen = false">
             <div class="panel w-full max-w-md overflow-hidden">
                 <div class="panel-head">
                     <h3 class="panel-title">Edit Proses Manufaktur</h3>
-                    <button type="button" class="btn btn-sm" @click="editOpen = false">Tutup</button>
+                    <button type="button" class="act-btn" @click="editOpen = false">
+                        <x-icon name="x" />
+                    </button>
                 </div>
                 <form :action="'{{ url('processes') }}/' + editId" method="POST">
                     @csrf

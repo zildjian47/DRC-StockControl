@@ -391,36 +391,38 @@
     background: var(--sunk);
   }
 
+  /* Modal Backdrop Global (Menjamin semua pop-up tampil di tengah layar) */
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background-color: rgba(15, 30, 51, 0.6);
+    margin-top: 0 !important;
+  }
+
   .count-chip {
     display: inline-flex;
     align-items: center;
-    gap: 5px;
-    height: 20px;
-    padding: 0 7px;
+    justify-content: center;
+    height: 21px;
+    padding: 0 8px;
     border-radius: 3px;
     background: var(--info-bg);
     color: var(--info);
     border: 1px solid #C5D9EE;
     font: 600 11px var(--font-mono);
     font-variant-numeric: tabular-nums;
-  }
-
-  .count-chip::before {
-    content: "";
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    background: var(--info);
+    white-space: nowrap;
   }
 
   .count-chip-sub {
     background: var(--sunk);
     color: var(--ink2);
     border-color: var(--line2);
-  }
-
-  .count-chip-sub::before {
-    background: var(--mut);
   }
 
   .btn {
@@ -485,30 +487,43 @@
     font-weight: 600;
   }
 
-  .act-icon {
+  /* Ikon Aksi Tabel Seragam Tanpa Kotak (Sejajar dengan Master Item) */
+  .act-icon,
+  .act-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 26px;
-    height: 26px;
-    border: 1px solid var(--line2);
+    width: 28px;
+    height: 28px;
+    border: 0;
     border-radius: var(--r);
-    background: var(--surface);
+    background: transparent;
     color: var(--ink2);
     cursor: pointer;
-    transition: all 0.12s;
+    vertical-align: middle;
+    transition: color 0.12s, background-color 0.12s;
   }
 
-  .act-icon:hover {
+  .act-icon:hover,
+  .act-btn:hover {
     background: var(--sunk);
     color: var(--accent);
-    border-color: var(--accent);
   }
 
-  .act-icon-danger:hover {
+  .act-icon-danger,
+  .act-btn.danger {
+    color: var(--ink2);
+  }
+
+  .act-icon-danger:hover,
+  .act-btn.danger:hover {
     background: var(--crit-bg);
     color: var(--crit);
-    border-color: var(--crit);
+  }
+
+  .act-btn.warn:hover {
+    background: var(--warn-bg);
+    color: var(--warn);
   }
 
   .lbl {
@@ -767,7 +782,6 @@
     }
   }
 
-  /* Tinggi 10px selalu menghasilkan piksel bulat pada zoom 80% (8px), 90% (9px), dan 100% (10px) */
   .track {
     display: block;
     width: 120px;

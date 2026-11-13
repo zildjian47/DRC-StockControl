@@ -28,12 +28,12 @@
                 <span class="count-chip count-chip-sub"><span x-text="visibleRows"></span> Baris</span>
 
                 <div class="seg ml-1">
-                    <label @click="viewMode = 'grouped'">
-                        <input type="radio" name="vm_mr" value="grouped" :checked="viewMode === 'grouped'">
+                    <label>
+                        <input type="radio" name="vm_mr" value="grouped" x-model="viewMode" @change="recalc()">
                         <span>Kelompok</span>
                     </label>
-                    <label @click="viewMode = 'flat'">
-                        <input type="radio" name="vm_mr" value="flat" :checked="viewMode === 'flat'">
+                    <label>
+                        <input type="radio" name="vm_mr" value="flat" x-model="viewMode" @change="recalc()">
                         <span>Per Baris</span>
                     </label>
                 </div>
@@ -88,15 +88,15 @@
                         <th class="w-36 text-left col-time">Tanggal &amp; Waktu</th>
                         <th class="w-40">Petugas Scan</th>
                         <th class="w-36">No. Lot &amp; Tipe BOM</th>
-                        <th>Material &amp; Pendamping</th>
+                        <th class="min-w-[250px]">Material &amp; Pendamping</th>
                         <th class="num w-36">Qty Return</th>
-                        <th>Output Item</th>
+                        <th class="min-w-[200px]">Output Item</th>
                         <th class="w-28 text-center">Status</th>
                         <th class="w-16 text-center">Aksi</th>
                     </tr>
                 </thead>
 
-                {{-- MODE 1: TAMPILAN KELOMPOK --}}
+                {{-- MODE 1: TAMPILAN KELOMPOK (MENAMPILKAN TRIGGER + PENDAMPING) --}}
                 <tbody data-group-body x-show="viewMode === 'grouped'">
                     @forelse($groupedReturns as $idx => $grp)
                         @php
@@ -134,35 +134,37 @@
                                 </div>
                             </td>
 
-                            <td class="p-0">
+                            {{-- MATERIAL & PENDAMPING (Tinggi h-[52px] & badge w-[78px] agar Part No & garis sejajar 100%) --}}
+                            <td class="p-0 align-top">
                                 <div class="divide-y divide-slate-200">
-                                    <div class="px-3 py-2 min-h-[42px] flex flex-col justify-center">
-                                        <div class="flex items-center gap-1.5">
-                                            <span class="pill pill-good text-[10px] h-4 px-1.5">Trigger</span>
-                                            <span class="num text-xs font-semibold text-slate-700">{{ $mat->part_no ?: '-' }}</span>
+                                    <div class="px-3 h-[52px] flex items-center gap-2.5">
+                                        <span class="pill pill-good w-[78px] justify-center flex-none text-[10px] h-5 px-1.5">Trigger</span>
+                                        <div class="min-w-0 flex-1 leading-tight">
+                                            <div class="num text-[11.5px] font-bold text-slate-600 truncate">{{ $mat->part_no ?: '-' }}</div>
+                                            <div class="font-semibold text-slate-900 text-xs truncate" title="{{ $mat->part_name ?? '-' }}">{{ $mat->part_name ?? '-' }}</div>
                                         </div>
-                                        <div class="font-semibold text-slate-900 text-xs mt-0.5">{{ $mat->part_name ?? '-' }}</div>
                                     </div>
                                     @foreach($grp['companions'] as $comp)
-                                        <div class="px-3 py-2 min-h-[40px] flex flex-col justify-center bg-slate-50/50">
-                                            <div class="flex items-center gap-1.5">
-                                                <span class="pill pill-neu text-[10px] h-4 px-1.5">Pendamping</span>
-                                                <span class="num text-xs font-semibold text-slate-600">{{ $comp['part_no'] }}</span>
+                                        <div class="px-3 h-[52px] flex items-center gap-2.5 bg-slate-50/50">
+                                            <span class="pill pill-neu w-[78px] justify-center flex-none text-[10px] h-5 px-1.5">Pendamping</span>
+                                            <div class="min-w-0 flex-1 leading-tight">
+                                                <div class="num text-[11.5px] font-bold text-slate-500 truncate">{{ $comp['part_no'] ?: '-' }}</div>
+                                                <div class="text-xs text-slate-800 font-medium truncate" title="{{ $comp['part_name'] }}">{{ $comp['part_name'] }}</div>
                                             </div>
-                                            <div class="text-xs text-slate-800 font-medium mt-0.5">{{ $comp['part_name'] }}</div>
                                         </div>
                                     @endforeach
                                 </div>
                             </td>
 
-                            <td class="num p-0 whitespace-nowrap">
+                            {{-- QTY RETURN (Tinggi h-[52px] sejajar 100% dengan Material & Pendamping) --}}
+                            <td class="num p-0 whitespace-nowrap align-top">
                                 <div class="divide-y divide-slate-200">
-                                    <div class="px-3 py-2 min-h-[42px] flex items-center justify-end">
+                                    <div class="px-3 h-[52px] flex items-center justify-end">
                                         <span class="font-bold text-emerald-700">+{{ floatval($grp['qty_trigger']) }}</span>
                                         <span class="text-xs text-slate-500 ml-1">{{ $mat->uom ?? '' }}</span>
                                     </div>
                                     @foreach($grp['companions'] as $comp)
-                                        <div class="px-3 py-2 min-h-[40px] flex items-center justify-end bg-slate-50/50">
+                                        <div class="px-3 h-[52px] flex items-center justify-end bg-slate-50/50">
                                             <span class="text-xs font-bold text-emerald-600">+{{ floatval($comp['qty']) }}</span>
                                             <span class="text-[11px] text-slate-500 ml-1">{{ $comp['uom'] }}</span>
                                         </div>
@@ -170,12 +172,13 @@
                                 </div>
                             </td>
 
-                            <td class="p-0">
+                            {{-- OUTPUT ITEM --}}
+                            <td class="p-0 align-top">
                                 <div class="divide-y divide-slate-200">
                                     @foreach($grp['outputs'] as $outIt)
-                                        <div class="px-3 py-2 min-h-[42px] flex flex-col justify-center">
-                                            <div class="num text-xs font-semibold text-accent">{{ $outIt['part_no'] }}</div>
-                                            <div class="font-semibold text-slate-900 text-xs">{{ $outIt['part_name'] }}</div>
+                                        <div class="px-3 h-[52px] flex flex-col justify-center leading-tight">
+                                            <div class="num text-xs font-bold text-accent truncate">{{ $outIt['part_no'] }}</div>
+                                            <div class="font-semibold text-slate-900 text-xs truncate" title="{{ $outIt['part_name'] }}">{{ $outIt['part_name'] }}</div>
                                         </div>
                                     @endforeach
                                 </div>
@@ -190,9 +193,9 @@
                             </td>
 
                             <td class="text-center">
-                                <button type="button" class="act-icon" title="Koreksi Qty Return"
+                                <button type="button" class="act-btn" title="Koreksi Qty Return"
                                         @click="openEdit({{ $first->id }}, '{{ $grp['lot_number'] }}', '{{ addslashes($mat->part_name ?? '-') }}', '{{ $mat->uom ?? '' }}', {{ floatval($grp['qty_trigger']) }})">
-                                    <x-icon name="edit" class="w-4 h-4" />
+                                    <x-icon name="edit" />
                                 </button>
                             </td>
                         </tr>
@@ -201,7 +204,7 @@
                     @endforelse
                 </tbody>
 
-                {{-- MODE 2: TAMPILAN PER BARIS --}}
+                {{-- MODE 2: TAMPILAN PER BARIS (HANYA MENAMPILKAN MATERIAL TRIGGER TANPA PENDAMPING) --}}
                 <tbody data-flat-body x-show="viewMode === 'flat'" x-cloak>
                     @forelse($materialReturns as $idx => $mr)
                         @php
@@ -240,43 +243,24 @@
                                     @endif
                                 </div>
                             </td>
-                            <td class="p-0">
-                                <div class="divide-y divide-slate-200">
-                                    <div class="px-3 py-2 min-h-[42px] flex flex-col justify-center">
-                                        <div class="flex items-center gap-1.5">
-                                            <span class="pill pill-good text-[10px] h-4 px-1.5">Trigger</span>
-                                            <span class="num text-xs font-semibold text-slate-700">{{ $mat->part_no ?: '-' }}</span>
-                                        </div>
-                                        <div class="font-semibold text-slate-900 text-xs mt-0.5">{{ $mat->part_name ?? '-' }}</div>
+                            <td>
+                                <div class="flex items-center gap-2.5">
+                                    <span class="pill pill-good w-[78px] justify-center flex-none text-[10px] h-5 px-1.5">Trigger</span>
+                                    <div class="min-w-0 flex-1 leading-tight">
+                                        <div class="num text-[11.5px] font-bold text-slate-600 truncate">{{ $mat->part_no ?: '-' }}</div>
+                                        <div class="font-semibold text-slate-900 text-xs truncate" title="{{ $mat->part_name ?? '-' }}">{{ $mat->part_name ?? '-' }}</div>
                                     </div>
-                                    @foreach($mr->companion_list as $comp)
-                                        <div class="px-3 py-2 min-h-[40px] flex flex-col justify-center bg-slate-50/50">
-                                            <div class="flex items-center gap-1.5">
-                                                <span class="pill pill-neu text-[10px] h-4 px-1.5">Pendamping</span>
-                                                <span class="num text-xs font-semibold text-slate-600">{{ $comp['part_no'] }}</span>
-                                            </div>
-                                            <div class="text-xs text-slate-800 font-medium mt-0.5">{{ $comp['part_name'] }}</div>
-                                        </div>
-                                    @endforeach
                                 </div>
                             </td>
-                            <td class="num p-0 whitespace-nowrap">
-                                <div class="divide-y divide-slate-200">
-                                    <div class="px-3 py-2 min-h-[42px] flex items-center justify-end">
-                                        <span class="font-bold text-emerald-700">+{{ floatval($mr->qty) }}</span>
-                                        <span class="text-xs text-slate-500 ml-1">{{ $mat->uom ?? '' }}</span>
-                                    </div>
-                                    @foreach($mr->companion_list as $comp)
-                                        <div class="px-3 py-2 min-h-[40px] flex items-center justify-end bg-slate-50/50">
-                                            <span class="text-xs font-bold text-emerald-600">+{{ floatval($comp['qty']) }}</span>
-                                            <span class="text-[11px] text-slate-500 ml-1">{{ $comp['uom'] }}</span>
-                                        </div>
-                                    @endforeach
-                                </div>
+                            <td class="num whitespace-nowrap">
+                                <span class="font-bold text-emerald-700">+{{ floatval($mr->qty) }}</span>
+                                <span class="text-xs text-slate-500 ml-1">{{ $mat->uom ?? '' }}</span>
                             </td>
                             <td>
-                                <div class="num text-xs font-semibold text-accent">{{ $tgt->part_no ?: '-' }}</div>
-                                <div class="font-semibold text-slate-900 text-xs">{{ $tgt->part_name ?? '-' }}</div>
+                                <div class="leading-tight">
+                                    <div class="num text-xs font-bold text-accent">{{ $tgt->part_no ?: '-' }}</div>
+                                    <div class="font-semibold text-slate-900 text-xs">{{ $tgt->part_name ?? '-' }}</div>
+                                </div>
                             </td>
                             <td class="text-center">
                                 @if($stLabel === 'DIKOREKSI')
@@ -286,9 +270,9 @@
                                 @endif
                             </td>
                             <td class="text-center">
-                                <button type="button" class="act-icon" title="Koreksi Qty Return"
+                                <button type="button" class="act-btn" title="Koreksi Qty Return"
                                         @click="openEdit({{ $mr->id }}, '{{ $mr->lot_number }}', '{{ addslashes($mat->part_name ?? '-') }}', '{{ $mat->uom ?? '' }}', {{ floatval($mr->qty) }})">
-                                    <x-icon name="edit" class="w-4 h-4" />
+                                    <x-icon name="edit" />
                                 </button>
                             </td>
                         </tr>
@@ -301,12 +285,14 @@
 
         {{-- POP-UP MODAL EDIT QTY MATERIAL RETURN --}}
         <div x-show="editOpen" x-cloak
-             class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 !mt-0"
+             class="modal-backdrop"
              @click.self="editOpen = false">
             <div class="panel w-full max-w-md overflow-hidden">
                 <div class="panel-head">
                     <h3 class="panel-title">Koreksi Qty Material Return</h3>
-                    <button type="button" class="btn btn-sm" @click="editOpen = false">Tutup</button>
+                    <button type="button" class="act-btn" @click="editOpen = false">
+                        <x-icon name="x" />
+                    </button>
                 </div>
                 <form action="{{ route('material_returns.verify_batch') }}" method="POST">
                     @csrf

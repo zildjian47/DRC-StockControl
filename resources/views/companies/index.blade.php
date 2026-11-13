@@ -26,9 +26,9 @@
             <div class="flex flex-wrap items-center gap-2">
                 <input type="text" x-model="q" @input="recalc()"
                        placeholder="Cari Kode / Nama Perusahaan..."
-                       class="h-8 text-xs px-2.5 w-56">
+                       class="h-8 text-xs px-2.5 w-48">
 
-                <select x-model="fType" @change="recalc()" class="h-8 text-xs py-0 pl-2.5 pr-7">
+                <select x-model="fType" @change="recalc()" class="h-8 text-xs py-0 pl-2 pr-7">
                     <option value="">Semua Tipe</option>
                     <option value="SUPPLIER">SUPPLIER</option>
                     <option value="INTERNAL">INTERNAL</option>
@@ -72,17 +72,17 @@
                                 @endif
                             </td>
                             <td class="text-center">
-                                <div class="inline-flex items-center justify-center gap-1.5">
-                                    <button type="button" class="act-icon" title="Edit Perusahaan"
+                                <div class="inline-flex items-center justify-center gap-1">
+                                    <button type="button" class="act-btn" title="Edit Perusahaan"
                                             @click="openEditModal({{ $comp->id }}, '{{ addslashes($comp->company_code) }}', '{{ addslashes($comp->company_name) }}', '{{ $comp->type_company }}')">
-                                        <x-icon name="edit" class="w-4 h-4" />
+                                        <x-icon name="edit" />
                                     </button>
-                                    <form action="{{ route('companies.destroy', $comp->id) }}" method="POST"
+                                    <form action="{{ route('companies.destroy', $comp->id) }}" method="POST" class="inline"
                                           @submit.prevent="$dispatch('open-confirm', { form: $el, title: 'Hapus Perusahaan', message: 'Hapus perusahaan {{ addslashes($comp->company_name) }}?' })">
                                         @csrf
                                         @method('DELETE')
-                                        <button type="submit" class="act-icon act-icon-danger" title="Hapus Perusahaan">
-                                            <x-icon name="trash" class="w-4 h-4" />
+                                        <button type="submit" class="act-btn danger" title="Hapus Perusahaan">
+                                            <x-icon name="trash" />
                                         </button>
                                     </form>
                                 </div>
@@ -97,12 +97,14 @@
 
         {{-- POP-UP MODAL TAMBAH PERUSAHAAN --}}
         <div x-show="addOpen" x-cloak
-             class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 !mt-0"
+             class="modal-backdrop"
              @click.self="addOpen = false">
             <div class="panel w-full max-w-lg overflow-hidden">
                 <div class="panel-head">
                     <h3 class="panel-title">Tambah Perusahaan Baru</h3>
-                    <button type="button" class="btn btn-sm" @click="addOpen = false">Tutup</button>
+                    <button type="button" class="act-btn" @click="addOpen = false">
+                        <x-icon name="x" />
+                    </button>
                 </div>
                 <form action="{{ route('companies.store') }}" method="POST">
                     @csrf
@@ -137,12 +139,14 @@
 
         {{-- POP-UP MODAL EDIT PERUSAHAAN --}}
         <div x-show="editOpen" x-cloak
-             class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 !mt-0"
+             class="modal-backdrop"
              @click.self="editOpen = false">
             <div class="panel w-full max-w-lg overflow-hidden">
                 <div class="panel-head">
                     <h3 class="panel-title">Edit Data Perusahaan</h3>
-                    <button type="button" class="btn btn-sm" @click="editOpen = false">Tutup</button>
+                    <button type="button" class="act-btn" @click="editOpen = false">
+                        <x-icon name="x" />
+                    </button>
                 </div>
                 <form :action="'{{ url('companies') }}/' + editId" method="POST">
                     @csrf

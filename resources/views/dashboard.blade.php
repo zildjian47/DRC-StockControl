@@ -78,7 +78,7 @@
         </div>
     </div>
 
-    <div class="grid grid-cols-1 xl:grid-cols-3 gap-[14px] items-stretch">
+    <div class="grid grid-cols-1 xl:grid-cols-3 gap-[18px] items-stretch">
         <section class="panel xl:col-span-2 flex flex-col">
             <div class="panel-head">
                 <h3 class="panel-title">Output produksi, 7 hari terakhir</h3>
@@ -90,9 +90,9 @@
                         return ['label' => $d->translatedFormat('D d'), 'v' => (float) ($outByDay[$d->toDateString()] ?? 0)];
                     });
                     $max = max(1, $series->max('v'));
-                    $W = 600; $H = 235; $L = 46; $R = 14; $T = 16; $B = 28; $step = ($W - $L - $R) / 7; $bw = 34;
+                    $W = 560; $H = 225; $L = 46; $R = 12; $T = 16; $B = 28; $step = ($W - $L - $R) / 7; $bw = 36;
                 @endphp
-                <svg viewBox="0 0 {{ $W }} {{ $H }}" class="w-full h-[235px]" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Output produksi 7 hari terakhir">
+                <svg viewBox="0 0 {{ $W }} {{ $H }}" class="w-full h-auto min-h-[260px]" role="img" aria-label="Output produksi 7 hari terakhir">
                     @foreach ([0, 0.5, 1] as $g)
                         @php $y = $T + ($H - $T - $B) * (1 - $g); @endphp
                         <line x1="{{ $L }}" x2="{{ $W - $R }}" y1="{{ $y }}" y2="{{ $y }}" stroke="var(--line)" stroke-width="1"/>
@@ -111,7 +111,7 @@
                         <text x="{{ $x + $bw / 2 }}" y="{{ $H - 8 }}" text-anchor="middle" fill="var(--mut)" font-size="11" font-family="Inter, sans-serif">{{ $s['label'] }}</text>
                     @endforeach
                 </svg>
-                <p class="hint mt-2">Batang paling kanan adalah akumulasi output hari ini.</p>
+                <p class="hint mt-2">Batang paling kanan adalah akumulasi output hari ini dan masih berjalan.</p>
             </div>
         </section>
 
@@ -119,41 +119,41 @@
             <div class="panel-head">
                 <h3 class="panel-title">Perlu tindakan</h3>
             </div>
-            <div class="panel-body flex-1 flex flex-col justify-between">
-                <div class="divide-y divide-slate-100 text-[13px]">
-                    <div class="flex items-center justify-between py-3">
+            <div class="panel-body flex-1 flex flex-col justify-between gap-4">
+                <div class="divide-y divide-slate-200 text-[13px]">
+                    <div class="flex items-center justify-between py-3.5 first:pt-1">
                         <div>
-                            <div class="font-semibold text-slate-800">Stok Kritis (Empty / Very Low)</div>
-                            <div class="text-xs text-slate-500">Item dengan ketahanan &lt; 1 hari</div>
+                            <div class="font-semibold text-slate-900">Stok Kritis (Empty / Very Low)</div>
+                            <div class="text-xs text-slate-500 mt-0.5">Item dengan ketahanan stok &lt; 1 hari</div>
                         </div>
                         <span class="pill {{ $veryLowItems > 0 ? 'pill-crit' : 'pill-good' }} num">{{ $veryLowItems }}</span>
                     </div>
-                    <div class="flex items-center justify-between py-3">
+                    <div class="flex items-center justify-between py-3.5">
                         <div>
-                            <div class="font-semibold text-slate-800">Total Item Stok Rendah</div>
-                            <div class="text-xs text-slate-500">Termasuk status Low Stock</div>
+                            <div class="font-semibold text-slate-900">Total Item Stok Rendah</div>
+                            <div class="text-xs text-slate-500 mt-0.5">Termasuk status Low Stock (&lt; Std Day 2)</div>
                         </div>
                         <span class="pill {{ $lowStockItems > 0 ? 'pill-warn' : 'pill-good' }} num">{{ $lowStockItems }}</span>
                     </div>
-                    <div class="flex items-center justify-between py-3">
+                    <div class="flex items-center justify-between py-3.5">
                         <div>
-                            <div class="font-semibold text-slate-800">Log Delay Delivery Hari Ini</div>
-                            <div class="text-xs text-slate-500">Kendala pengiriman tercatat</div>
+                            <div class="font-semibold text-slate-900">Log Delay Delivery Hari Ini</div>
+                            <div class="text-xs text-slate-500 mt-0.5">Kendala pengiriman tercatat hari ini</div>
                         </div>
                         <span class="pill {{ $delayCount ? 'pill-crit' : 'pill-good' }} num">{{ $delayCount }}</span>
                     </div>
-                    <div class="flex items-center justify-between py-3">
+                    <div class="flex items-center justify-between py-3.5 last:pb-1">
                         <div>
-                            <div class="font-semibold text-slate-800">Lot Sedang Berjalan</div>
-                            <div class="text-xs text-slate-500">Status WIP ON PROGRESS</div>
+                            <div class="font-semibold text-slate-900">Lot Sedang Berjalan</div>
+                            <div class="text-xs text-slate-500 mt-0.5">Status pemantauan WIP ON PROGRESS</div>
                         </div>
                         <span class="pill pill-info num">{{ $runningLots }}</span>
                     </div>
                 </div>
 
-                <div class="pt-3 border-t border-slate-100 flex items-center justify-between">
-                    <a href="{{ route('inventory_stocks.index') }}" class="text-xs font-semibold text-accent hover:underline">Cek Inventory Stock</a>
-                    <a href="{{ route('problem_delays.index') }}" class="text-xs font-semibold text-slate-600 hover:text-accent hover:underline">Log Delay</a>
+                <div class="pt-3 border-t border-slate-200 flex items-center justify-between gap-2">
+                    <a href="{{ route('inventory_stocks.index') }}" class="btn btn-sm flex-1">Cek Inventory Stock</a>
+                    <a href="{{ route('problem_delays.index') }}" class="btn btn-sm flex-1">Buka Delay Delivery</a>
                 </div>
             </div>
         </section>
