@@ -10,25 +10,15 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
 
     <style>
         body {
             font-family: var(--font-body);
-            background: #E5E9F0;
+            background: var(--bg);
             color: var(--ink);
             touch-action: manipulation;
-            min-height: 100vh;
-        }
-        .scanner-shell {
-            max-width: 460px;
-            min-height: 100vh;
-            margin: 0 auto;
-            background: var(--bg);
-            display: flex;
-            flex-direction: column;
-            box-shadow: 0 0 24px rgba(15, 30, 51, 0.12);
         }
         .scanner-header {
             position: sticky;
@@ -44,249 +34,248 @@
             border-bottom: 2px solid var(--accent);
         }
         .scanner-header .ttl {
-            font: 600 14px var(--font-head);
-            display: flex;
-            align-items: center;
-            gap: 8px;
+            font: 600 14.5px var(--font-head);
+            letter-spacing: -0.01em;
         }
         .scanner-header a {
             display: inline-flex;
             align-items: center;
             gap: 5px;
-            height: 30px;
-            padding: 0 10px;
-            border-radius: var(--r);
-            background: rgba(255, 255, 255, 0.08);
-            font-size: 12px;
+            font-size: 12.5px;
             font-weight: 600;
-            color: #fff;
+            color: var(--side-ink);
+            padding: 6px 8px;
+            border-radius: var(--r);
         }
         .scanner-header a:hover {
-            background: rgba(255, 255, 255, 0.16);
-        }
-
-        /* Visual Stepper Modern */
-        .stepper {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 10px 12px;
-            background: var(--sunk);
-            border: 1px solid var(--line);
-            border-radius: var(--r);
-            margin-bottom: 12px;
-        }
-        .step-item {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 11.5px;
-            font-weight: 600;
-            color: var(--mut);
-            white-space: nowrap;
-        }
-        .step-badge {
-            width: 22px;
-            height: 22px;
-            border-radius: 50%;
-            display: grid;
-            place-items: center;
-            font: 700 11px var(--font-mono);
-            background: #DDE3EA;
-            color: var(--ink2);
-            flex: none;
-        }
-        .step-item.active {
-            color: var(--accent);
-        }
-        .step-item.active .step-badge {
-            background: var(--accent);
-            color: #fff;
-            box-shadow: 0 0 0 3px var(--ring);
-        }
-        .step-item.done {
-            color: var(--good);
-        }
-        .step-item.done .step-badge {
-            background: var(--good);
+            background: var(--side-hover);
             color: #fff;
         }
-        .step-line {
-            flex: 1;
-            height: 2px;
-            background: var(--line2);
-            margin: 0 8px;
-            min-width: 12px;
-        }
-        .step-line.done {
-            background: var(--good);
-        }
 
-        /* Camera Viewport Bersih */
+        /* Area Kamera Persegi (1:1 Square Scope) Tanpa Animasi Laser Biru */
         .camera-box {
             position: relative;
+            width: 100%;
+            max-width: 300px;
+            aspect-ratio: 1 / 1;
+            margin: 0 auto;
             overflow: hidden;
-            background: #0F172A;
+            background: #0B1524;
             border: 1px solid var(--line2);
             border-radius: var(--r);
-            min-height: 210px;
             display: flex;
             align-items: center;
             justify-content: center;
         }
         #qr-reader {
             width: 100% !important;
+            height: 100% !important;
             border: none !important;
         }
         #qr-reader video {
             width: 100% !important;
-            height: 210px !important;
+            height: 100% !important;
             object-fit: cover !important;
-            display: block;
         }
-        .scan-laser {
+        #qr-reader__dashboard {
+            display: none !important;
+        }
+
+        /* Bingkai Sudut Bidikan Persegi Statis (Tanpa Laser Bergerak) */
+        .scan-scope-guide {
             position: absolute;
-            left: 12%;
-            right: 12%;
-            height: 2px;
-            background: #38BDF8;
-            box-shadow: 0 0 8px #0284C7;
+            inset: 28px;
             pointer-events: none;
-            animation: scanMove 2.2s infinite ease-in-out;
+            z-index: 10;
+            border: 1px solid rgba(255, 255, 255, 0.22);
+            border-radius: 4px;
         }
-        @keyframes scanMove {
-            0%, 100% { top: 20%; opacity: 0.6; }
-            50% { top: 80%; opacity: 1; }
+        .scan-scope-guide::before,
+        .scan-scope-guide::after {
+            content: '';
+            position: absolute;
+            inset: -1px;
+            border: 2.5px solid #FFFFFF;
+            border-radius: 4px;
+            clip-path: polygon(
+                0 0, 22px 0, 22px 4px, 4px 4px, 4px 22px, 0 22px,
+                0 100%, 22px 100%, 22px calc(100% - 4px), 4px calc(100% - 4px), 4px calc(100% - 22px), 0 calc(100% - 22px),
+                100% 100%, calc(100% - 22px) 100%, calc(100% - 22px) calc(100% - 4px), calc(100% - 4px) calc(100% - 4px), calc(100% - 4px) calc(100% - 22px), 100% calc(100% - 22px),
+                100% 0, calc(100% - 22px) 0, calc(100% - 22px) 4px, calc(100% - 4px) 4px, calc(100% - 4px) 22px, 100% 22px
+            );
+        }
+
+        /* Visual Stepper Modern */
+        .scan-stepper {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 6px;
+            padding: 8px 10px;
+            background: var(--sunk);
+            border: 1px solid var(--line);
+            border-radius: var(--r);
+        }
+        .scan-step {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex: 1;
+            min-width: 0;
+            padding: 5px 8px;
+            border-radius: 3px;
+            font-size: 11.5px;
+            font-weight: 600;
+            color: var(--mut);
+            background: transparent;
+        }
+        .scan-step-num {
+            width: 20px;
+            height: 20px;
+            border-radius: 3px;
+            display: grid;
+            place-items: center;
+            font-size: 11px;
+            font-weight: 700;
+            background: #E2E8F0;
+            color: var(--ink2);
+            flex: none;
+        }
+        .scan-step.active {
+            background: var(--info-bg);
+            color: var(--accent);
+            border: 1px solid #C5D9EE;
+        }
+        .scan-step.active .scan-step-num {
+            background: var(--accent);
+            color: #fff;
+        }
+        .scan-step.done {
+            background: var(--good-bg);
+            color: var(--good);
+        }
+        .scan-step.done .scan-step-num {
+            background: var(--good);
+            color: #fff;
         }
 
         .toast {
             position: fixed;
             left: 12px;
             right: 12px;
-            bottom: 18px;
-            z-index: 90;
+            bottom: calc(16px + env(safe-area-inset-bottom));
+            z-index: 60;
             display: flex;
             align-items: center;
             justify-content: space-between;
             gap: 10px;
-            max-width: 430px;
+            max-width: 480px;
             margin: 0 auto;
             padding: 11px 14px;
             border-radius: var(--r);
-            font-size: 12.5px;
+            font-size: 13px;
             font-weight: 600;
             color: #fff;
-            box-shadow: 0 8px 20px rgba(15, 23, 42, 0.25);
         }
         .toast-good { background: var(--good); }
         .toast-crit { background: var(--crit); }
     </style>
-</head>
-<body>
-<div class="scanner-shell" x-data="{ runtimeToast: null, runtimeType: 'crit', toastTimer: null }"
-     @scanner-toast.window="
-        runtimeToast = $event.detail.message;
-        runtimeType = $event.detail.type || 'crit';
-        clearTimeout(toastTimer);
-        toastTimer = setTimeout(() => { runtimeToast = null }, 4000);
-     ">
 
+    <script>
+        window.DRCScanner = {
+            instance: null,
+            isPermitted() {
+                try {
+                    return localStorage.getItem('drc_cam_permitted') === '1';
+                } catch (e) {
+                    return false;
+                }
+            },
+            setPermitted() {
+                try {
+                    localStorage.setItem('drc_cam_permitted', '1');
+                } catch (e) {}
+            },
+            async stop() {
+                if (this.instance) {
+                    try {
+                        if (this.instance.isScanning) {
+                            await this.instance.stop();
+                        }
+                        this.instance.clear();
+                    } catch (e) {}
+                    this.instance = null;
+                }
+            },
+            async start(elementId, onDecode, onErrorMsg) {
+                await this.stop();
+                const el = document.getElementById(elementId);
+                if (!el || typeof Html5Qrcode === 'undefined') return false;
+
+                try {
+                    const qr = new Html5Qrcode(elementId);
+                    this.instance = qr;
+                    await qr.start(
+                        { facingMode: 'environment' },
+                        {
+                            fps: 10,
+                            qrbox: function (viewfinderWidth, viewfinderHeight) {
+                                const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+                                const boxSize = Math.max(160, Math.floor(minEdge * 0.78));
+                                return { width: boxSize, height: boxSize };
+                            },
+                            aspectRatio: 1.0
+                        },
+                        (decodedText) => {
+                            if (typeof onDecode === 'function') {
+                                onDecode(decodedText);
+                            }
+                        },
+                        () => {}
+                    );
+                    this.setPermitted();
+                    return true;
+                } catch (err) {
+                    if (typeof onErrorMsg === 'function') {
+                        onErrorMsg('Kamera tidak dapat diakses. Pastikan izin kamera browser diaktifkan atau gunakan input manual di bawah.');
+                    }
+                    return false;
+                }
+            }
+        };
+    </script>
+</head>
+<body class="min-h-screen pb-10">
     <header class="scanner-header">
-        <div class="ttl">
-            <span class="w-6 h-6 rounded bg-[#0B5CAD] text-white grid place-items-center text-xs font-bold">D</span>
-            <span>{{ $header ?? 'Mobile Scanner' }}</span>
-        </div>
-        <a href="{{ $backUrl ?? url()->current() }}">
-            <x-icon name="chevron-left" class="w-3.5 h-3.5" />
-            <span>Desktop</span>
+        <a href="{{ $backUrl ?? route('dashboard') }}">
+            <x-icon name="chevron-left" /> Kembali ke Desktop
         </a>
+        <div class="ttl">{{ $header ?? 'Mobile Scanner' }}</div>
     </header>
 
-    <main class="flex-1 p-3.5 space-y-3.5">
+    <main class="max-w-md mx-auto p-3.5 space-y-3.5">
         {{ $slot }}
     </main>
 
-    {{-- Toast Runtime (Validasi Instan Saat Scan) --}}
-    <div x-show="runtimeToast" x-cloak class="toast" :class="runtimeType === 'good' ? 'toast-good' : 'toast-crit'">
-        <span x-text="runtimeToast"></span>
-        <button type="button" @click="runtimeToast = null" class="text-white/80 hover:text-white text-xs font-bold px-1">✕</button>
-    </div>
-
-    {{-- Toast Session Server --}}
     @if (session('success'))
-        <div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 4000)" class="toast toast-good">
+        <div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 4000)" class="toast toast-good" role="status">
             <span>{{ session('success') }}</span>
-            <button type="button" @click="show = false" class="text-white/80 font-bold">✕</button>
+            <button type="button" @click="show = false" class="text-white/80 hover:text-white"><x-icon name="x" /></button>
         </div>
     @endif
 
     @if (session('error'))
-        <div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 5000)" class="toast toast-crit">
+        <div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 5000)" class="toast toast-crit" role="alert">
             <span>{{ session('error') }}</span>
-            <button type="button" @click="show = false" class="text-white/80 font-bold">✕</button>
+            <button type="button" @click="show = false" class="text-white/80 hover:text-white"><x-icon name="x" /></button>
         </div>
     @endif
 
     @if ($errors->any())
-        <div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 5000)" class="toast toast-crit">
+        <div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 5000)" class="toast toast-crit" role="alert">
             <span>{{ $errors->first() }}</span>
-            <button type="button" @click="show = false" class="text-white/80 font-bold">✕</button>
+            <button type="button" @click="show = false" class="text-white/80 hover:text-white"><x-icon name="x" /></button>
         </div>
     @endif
-</div>
-
-<script>
-    window.showScannerToast = function (message, type = 'crit') {
-        window.dispatchEvent(new CustomEvent('scanner-toast', {
-            detail: { message: message, type: type }
-        }));
-    };
-
-    window.drcQrInstance = null;
-    window.drcCameraActive = false;
-
-    window.startDrcCamera = function (elementId, onDecodeSuccess, onStatusChange) {
-        const el = document.getElementById(elementId);
-        if (!el || typeof Html5Qrcode === 'undefined') {
-            if (onStatusChange) onStatusChange(false);
-            return;
-        }
-
-        window.stopDrcCamera().then(function () {
-            try {
-                window.drcQrInstance = new Html5Qrcode(elementId);
-                window.drcQrInstance.start(
-                    { facingMode: "environment" },
-                    { fps: 10, qrbox: { width: 210, height: 140 } },
-                    function (decodedText) {
-                        if (onDecodeSuccess) onDecodeSuccess(decodedText);
-                    },
-                    function () {}
-                ).then(function () {
-                    window.drcCameraActive = true;
-                    if (onStatusChange) onStatusChange(true);
-                }).catch(function () {
-                    window.drcCameraActive = false;
-                    if (onStatusChange) onStatusChange(false);
-                });
-            } catch (e) {
-                window.drcCameraActive = false;
-                if (onStatusChange) onStatusChange(false);
-            }
-        });
-    };
-
-    window.stopDrcCamera = function () {
-        if (window.drcQrInstance && window.drcCameraActive) {
-            return window.drcQrInstance.stop().then(function () {
-                window.drcQrInstance.clear();
-                window.drcCameraActive = false;
-            }).catch(function () {
-                window.drcCameraActive = false;
-            });
-        }
-        return Promise.resolve();
-    };
-</script>
 </body>
 </html>
