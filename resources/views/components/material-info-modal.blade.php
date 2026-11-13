@@ -54,9 +54,10 @@
      @keydown.escape.window="open = false"
      x-show="open"
      x-cloak
-     class="modal-backdrop">
+     class="modal-backdrop"
+     @click.self="open = false">
 
-    <div class="panel w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden" @click.away="open = false">
+    <div class="panel w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden">
         <div class="panel-head">
             <div>
                 <h3 class="panel-title">Informasi Material, Keterkaitan BOM &amp; Riwayat Mutasi Stok</h3>
@@ -67,9 +68,9 @@
             </button>
         </div>
 
-        <div class="panel-body overflow-y-auto overflow-x-hidden space-y-5" x-show="info">
+        <div class="panel-body overflow-y-auto overflow-x-hidden space-y-4" x-show="info">
             {{-- 1. Ringkasan Parameter & Status Stok --}}
-            <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5 p-3.5 rounded border border-slate-200 bg-slate-50">
+            <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5 p-3 rounded border border-slate-200 bg-slate-50">
                 <div class="col-span-2">
                     <div class="text-[11px] font-semibold uppercase text-slate-500">Part No &amp; Nama Item</div>
                     <div class="num text-xs font-semibold text-accent mt-0.5" x-text="info?.part_no"></div>
@@ -93,11 +94,11 @@
                 </div>
                 <div>
                     <div class="text-[11px] font-semibold uppercase text-slate-500">Ratio Stock</div>
-                    <div class="num text-base font-bold text-accent mt-0.5" x-text="(info?.ratio_stock ?? 0) + ' Hari'"></div>
+                    <div class="num text-sm font-bold text-accent mt-1" x-text="(info?.ratio_stock ?? 0) + ' Hari'"></div>
                 </div>
                 <div>
                     <div class="text-[11px] font-semibold uppercase text-slate-500">Current Stock</div>
-                    <div class="num text-base font-bold text-slate-900 mt-0.5" x-text="(info?.current_stock ?? 0) + ' ' + (info?.uom ?? '')"></div>
+                    <div class="num text-sm font-bold text-slate-900 mt-1" x-text="(info?.current_stock ?? 0) + ' ' + (info?.uom ?? '')"></div>
                 </div>
                 <div>
                     <div class="text-[11px] font-semibold uppercase text-slate-500">Status Stock</div>
@@ -110,14 +111,14 @@
             {{-- 2. Resep Input BOM & Where-Used --}}
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div class="border border-slate-200 rounded flex flex-col">
-                    <div class="px-3.5 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                    <div class="px-3.5 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
                         <h4 class="text-xs font-semibold uppercase tracking-wider text-slate-700">
                             Material / Komponen Pembentuk Item Ini
                         </h4>
                         <span class="count-chip" x-text="(info?.inputs?.length || 0) + ' Material'"></span>
                     </div>
                     <template x-if="info?.inputs && info.inputs.length > 0">
-                        <div class="divide-y divide-slate-200 max-h-48 overflow-y-auto">
+                        <div class="divide-y divide-slate-200 max-h-44 overflow-y-auto">
                             <template x-for="(inp, idx) in info.inputs" :key="'inp-' + idx">
                                 <div class="p-3 flex items-center justify-between gap-3 text-xs hover:bg-slate-50">
                                     <div class="min-w-0 flex-1">
@@ -147,14 +148,14 @@
                 </div>
 
                 <div class="border border-slate-200 rounded flex flex-col">
-                    <div class="px-3.5 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                    <div class="px-3.5 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
                         <h4 class="text-xs font-semibold uppercase tracking-wider text-slate-700">
                             Digunakan Untuk Produksi Part (Where-Used)
                         </h4>
                         <span class="count-chip" x-text="(info?.outputs?.length || 0) + ' Output'"></span>
                     </div>
                     <template x-if="info?.outputs && info.outputs.length > 0">
-                        <div class="divide-y divide-slate-200 max-h-48 overflow-y-auto">
+                        <div class="divide-y divide-slate-200 max-h-44 overflow-y-auto">
                             <template x-for="(out, idx) in info.outputs" :key="'out-' + idx">
                                 <div class="p-3 flex items-center justify-between gap-3 text-xs hover:bg-slate-50">
                                     <div class="min-w-0 flex-1">
@@ -184,7 +185,7 @@
                 </div>
             </div>
 
-            {{-- 3. Riwayat Penambahan & Pengurangan Stok (Freeze Header Saat Di-scroll + Nama Petugas) --}}
+            {{-- 3. Riwayat Penambahan & Pengurangan Stok --}}
             <div class="border border-slate-200 rounded overflow-hidden">
                 <div class="px-3.5 py-2.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
                     <div class="flex items-center gap-2">
@@ -196,24 +197,24 @@
 
                     <div class="flex flex-wrap items-center gap-2">
                         <input type="text" x-model="histSearch"
-                               placeholder="Cari transaksi / Lot / Petugas..."
-                               class="filter-input w-48">
+                               placeholder="Cari Transaksi / Lot / Petugas..."
+                               class="h-8 text-xs px-2.5 w-48">
 
-                        <div class="flex items-center gap-1">
-                            <span class="text-[11px] font-semibold text-slate-500">Tgl:</span>
+                        <div class="flex items-center gap-1 text-xs text-slate-600">
+                            <span>Tgl:</span>
                             <input type="date" x-model="histStartDate"
                                    @change="if(histEndDate && histEndDate < histStartDate) histEndDate = histStartDate"
-                                   class="filter-input num">
-                            <span class="text-xs text-slate-400">-</span>
+                                   class="h-8 text-xs px-2 w-32">
+                            <span>-</span>
                             <input type="date" x-model="histEndDate" :min="histStartDate"
-                                   class="filter-input num">
+                                   class="h-8 text-xs px-2 w-32">
                         </div>
 
-                        <div class="flex items-center gap-1">
-                            <span class="text-[11px] font-semibold text-slate-500">Jam:</span>
-                            <input type="time" x-model="histStartTime" class="filter-input num">
-                            <span class="text-xs text-slate-400">-</span>
-                            <input type="time" x-model="histEndTime" class="filter-input num">
+                        <div class="flex items-center gap-1 text-xs text-slate-600">
+                            <span>Jam:</span>
+                            <input type="time" x-model="histStartTime" class="h-8 text-xs px-2 w-24">
+                            <span>-</span>
+                            <input type="time" x-model="histEndTime" class="h-8 text-xs px-2 w-24">
                         </div>
 
                         <button type="button"
@@ -225,42 +226,42 @@
                     </div>
                 </div>
 
-                <div class="max-h-64 overflow-y-auto relative">
+                <div class="max-h-60 overflow-y-auto relative">
                     <table class="tbl">
                         <thead>
                             <tr>
                                 <th class="w-12 text-center">No</th>
-                                <th>Waktu Transaksi</th>
-                                <th>Jenis Transaksi</th>
+                                <th class="w-36 text-left col-time">Tanggal &amp; Waktu</th>
+                                <th class="w-44">Jenis Transaksi</th>
                                 <th>Keterangan / Referensi</th>
-                                <th>Petugas</th>
-                                <th class="text-center">Status</th>
-                                <th class="num">Mutasi Qty</th>
+                                <th class="w-36">Petugas</th>
+                                <th class="w-28 text-center">Status</th>
+                                <th class="num w-32">Mutasi Qty</th>
                             </tr>
                         </thead>
                         <tbody>
                             <template x-for="(h, i) in filteredHistory" :key="'hist-' + i">
                                 <tr>
                                     <td class="num text-center text-xs text-slate-500" x-text="i + 1"></td>
-                                    <td class="num text-xs text-slate-600 whitespace-nowrap" x-text="h.datetime_fmt"></td>
+                                    <td class="num text-left col-time text-xs text-slate-600 whitespace-nowrap" x-text="h.datetime_fmt"></td>
                                     <td class="font-semibold text-slate-900 text-xs" x-text="h.type_label"></td>
                                     <td class="text-xs text-slate-600 break-words" x-text="h.reference"></td>
                                     <td class="text-xs font-medium text-slate-700 whitespace-nowrap" x-text="h.user_name || '-'"></td>
                                     <td class="text-center">
-                                        <span class="pill pill-neu" x-text="h.status"></span>
+                                        <span class="pill"
+                                              :class="h.status === 'TIDAK SESUAI' ? 'pill-info' : 'pill-good'"
+                                              x-text="h.status === 'TIDAK SESUAI' ? 'DIKOREKSI' : (h.status === 'SESUAI' || h.status === 'PENDING' ? 'TERCATAT' : h.status)"></span>
                                     </td>
-                                    <td class="num font-semibold whitespace-nowrap"
+                                    <td class="num font-bold whitespace-nowrap"
                                         :class="h.qty_change >= 0 ? 'text-emerald-700' : 'text-rose-700'"
-                                        x-text="(h.qty_change > 0 ? '+' : '') + h.qty_change + ' ' + h.uom"></td>
+                                        x-text="(h.qty_change >= 0 ? '+' : '') + h.qty_change + ' ' + h.uom"></td>
                                 </tr>
                             </template>
-                            <template x-if="filteredHistory.length === 0">
-                                <tr>
-                                    <td colspan="7">
-                                        <div class="empty py-6 text-xs">Tidak ada riwayat mutasi stok pada rentang filter ini.</div>
-                                    </td>
-                                </tr>
-                            </template>
+                            <tr x-show="filteredHistory.length === 0">
+                                <td colspan="7">
+                                    <div class="empty">Tidak ada riwayat mutasi stok pada filter ini.</div>
+                                </td>
+                            </tr>
                         </tbody>
                     </table>
                 </div>
@@ -268,7 +269,7 @@
         </div>
 
         <div class="panel-foot">
-            <button type="button" @click="open = false" class="btn btn-primary">Tutup</button>
+            <button type="button" class="btn" @click="open = false">Tutup</button>
         </div>
     </div>
 </div>
