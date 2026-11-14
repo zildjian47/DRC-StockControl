@@ -1,11 +1,10 @@
 <x-app-layout>
     <x-slot name="header">
         <x-page-header title="Master Item"
-                       subtitle="Registrasi spesifikasi part, parameter PO/Kanban, dan standar buffer harian (Std Day 1/2/3)">
+                       subtitle="Pengelolaan identitas part, tipe barang, perusahaan, serta kalkulasi standar stok harian (PO / Kanban & BOM)">
             <x-slot name="actions">
                 <a href="{{ route('items.trashed') }}" class="btn">
-                    <x-icon name="ban" /> Item Nonaktif
-                    <span class="count-chip count-chip-sub ml-1">{{ $trashedCount }}</span>
+                    <x-icon name="ban" /> Item Nonaktif ({{ $trashedCount }})
                 </a>
                 <button type="button" class="btn btn-primary" @click="$dispatch('open-add-item')">
                     <x-icon name="plus" /> Tambah Item
@@ -27,14 +26,14 @@
 
     <div class="panel"
          x-data="masterItemPage({{ $items->count() }}, {{ Js::from($companiesJs) }}, {{ $errors->any() ? 'true' : 'false' }})"
-         @open-add-item.window="openAdd()"
+         @open-add-item.window="openAddModal()"
          x-init="recalc()"
          @table-refreshed.window="recalc()">
 
         <div class="panel-head">
             <div class="panel-title">
                 <span>Daftar Master Item Aktif</span>
-                <span class="count-chip"><span x-text="visibleRows"></span> Item</span>
+                <span class="count-chip"><span x-text="visibleRows"></span><span>Item</span></span>
             </div>
 
             <div class="flex flex-wrap items-center gap-2">
@@ -44,8 +43,8 @@
 
                 <select x-model="fType" @change="recalc()" class="h-8 text-xs py-0 pl-2 pr-7">
                     <option value="">Semua Tipe Item</option>
-                    @foreach($types as $tp)
-                        <option value="{{ $tp }}">{{ $tp }}</option>
+                    @foreach($types as $t)
+                        <option value="{{ $t }}">{{ $t }}</option>
                     @endforeach
                 </select>
 
@@ -58,7 +57,9 @@
 
                 <button type="button"
                         x-show="q || fType || fCompType"
-                        x-cloak @click="q=''; fType=''; fCompType=''; recalc()" class="btn btn-sm">
+                        x-cloak
+                        @click="q=''; fType=''; fCompType=''; recalc()"
+                        class="btn btn-sm">
                     Reset
                 </button>
             </div>
@@ -68,16 +69,18 @@
             <table class="tbl">
                 <thead>
                     <tr>
-                        <th class="w-12 text-center">No</th>
-                        <th>Part No &amp; Part Name</th>
-                        <th class="w-32 text-center">Tipe &amp; UOM</th>
-                        <th class="w-36 text-center">Perusahaan</th>
-                        <th class="num w-36">PO / WD / Kanban</th>
-                        <th class="num w-24">PO / WD</th>
-                        <th class="num w-24">Std Day 1</th>
-                        <th class="num w-24">Std Day 2</th>
-                        <th class="num w-24">Std Day 3</th>
-                        <th class="w-28 text-center">Aksi</th>
+                        <th class="w-[4%] text-center">No</th>
+                        <th class="w-[21%]">Part No &amp; Part Name</th>
+                        <th class="w-[9%] text-center">Tipe &amp; UOM</th>
+                        <th class="w-[12%]">Perusahaan</th>
+                        <th class="num w-[7%]">Qty PO</th>
+                        <th class="num w-[5%]">WD</th>
+                        <th class="num w-[7%]">Kanban</th>
+                        <th class="num w-[7%]">PO/WD</th>
+                        <th class="num w-[7%]">Std Day 1</th>
+                        <th class="num w-[7%]">Std Day 2</th>
+                        <th class="num w-[7%]">Std Day 3</th>
+                        <th class="w-[7%] text-center">Aksi</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -85,36 +88,24 @@
                         @php
                             $comp = $item->company;
                             $compType = $comp->type_company ?? 'INTERNAL';
-                            $hasHist = $item->hasTransactionHistory();
-                            $std1 = (float) $item->calculated_std_day_1;
-                            $std2 = (float) $item->std_day_2;
-                            $std3 = (float) $item->std_day_3;
+                            $hasHistory = $item->hasTransactionHistory();
+                            $std1 = $item->calculated_std_day_1;
+                            $std2 = $item->std_day_2;
+                            $std3 = $item->std_day_3;
+                            $payload = $item->material_info_payload;
                             $searchStr = strtolower(
                                 ($item->part_no ?? '') . ' ' .
                                 ($item->part_name ?? '') . ' ' .
                                 ($item->type ?? '') . ' ' .
                                 ($comp->company_code ?? '') . ' ' .
-                                ($comp->company_name ?? '') . ' ' .
-                                $compType
+                                ($comp->company_name ?? '')
                             );
-                            $editPayload = [
-                                'id'           => $item->id,
-                                'part_no'      => $item->part_no ?? '',
-                                'part_name'    => $item->part_name,
-                                'type'         => $item->type,
-                                'uom'          => $item->uom,
-                                'company_id'   => $item->company_id,
-                                'qty_po'       => (float) $item->qty_po,
-                                'working_days' => (int) $item->working_days,
-                                'qty_kanban'   => (float) $item->qty_kanban,
-                                'has_history'  => $hasHist,
-                            ];
                         @endphp
-                        <tr data-row-item
+                        <tr data-item-row
                             data-search="{{ $searchStr }}"
                             data-type="{{ $item->type }}"
                             data-comptype="{{ $compType }}"
-                            x-show="matchFilter($el)">
+                            x-show="matchRow($el)">
                             <td class="text-center num font-semibold text-slate-500">{{ $idx + 1 }}</td>
                             <td>
                                 <div class="num text-xs font-bold text-accent">{{ $item->part_no ?: '-' }}</div>
@@ -124,8 +115,8 @@
                                 <span class="pill pill-neu">{{ $item->type }}</span>
                                 <div class="num text-[11px] font-semibold text-slate-500 mt-0.5">{{ $item->uom }}</div>
                             </td>
-                            <td class="text-center">
-                                <div class="num text-xs font-bold text-accent">{{ $comp->company_code ?? '-' }}</div>
+                            <td>
+                                <div class="font-semibold text-slate-900 text-xs">{{ $comp->company_code ?? '-' }}</div>
                                 <div class="mt-0.5">
                                     @if($compType === 'SUPPLIER')
                                         <span class="pill pill-info text-[10px] h-4 px-1.5">SUPPLIER</span>
@@ -136,48 +127,51 @@
                                     @endif
                                 </div>
                             </td>
-                            <td class="num text-xs text-slate-700 whitespace-nowrap">
-                                @if(in_array($item->type, ['FG', 'TRANSIT', 'FG/KOMPONEN'], true))
-                                    <b>{{ floatval($item->qty_po) }}</b> / {{ $item->working_days }}d / K:{{ floatval($item->qty_kanban) }}
-                                @else
-                                    <span class="text-slate-400">Ikut BOM</span>
-                                @endif
-                            </td>
-                            <td class="num text-xs font-medium text-slate-700">
-                                {{ floatval($item->std_day_1_po_wd) }}
-                            </td>
-                            <td class="num font-bold text-accent">{{ floatval($std1) }}</td>
-                            <td class="num font-semibold text-slate-700">{{ floatval($std2) }}</td>
-                            <td class="num font-semibold text-slate-700">{{ floatval($std3) }}</td>
-                            <td class="text-center">
+                            <td class="num text-xs">{{ in_array($item->type, ['RM', 'KOMPONEN']) ? '0' : floatval($item->qty_po) }}</td>
+                            <td class="num text-xs">{{ in_array($item->type, ['RM', 'KOMPONEN']) ? '0' : $item->working_days }}</td>
+                            <td class="num text-xs">{{ in_array($item->type, ['RM', 'KOMPONEN']) ? '0' : floatval($item->qty_kanban) }}</td>
+                            <td class="num text-xs">{{ in_array($item->type, ['RM', 'KOMPONEN']) ? '0' : floatval($item->std_day_1_po_wd) }}</td>
+                            <td class="num font-bold text-accent text-xs">{{ floatval($std1) }}</td>
+                            <td class="num font-semibold text-slate-700 text-xs">{{ floatval($std2) }}</td>
+                            <td class="num font-semibold text-slate-700 text-xs">{{ floatval($std3) }}</td>
+                            <td class="text-center whitespace-nowrap">
                                 <div class="inline-flex items-center justify-center gap-1">
-                                    <button type="button" class="act-btn"
-                                            title="Informasi Material, BOM & Riwayat Mutasi"
-                                            @click="$dispatch('open-material-info', {{ Js::from($item->material_info_payload) }})">
+                                    <button type="button" class="act-btn" title="Info Material & BOM"
+                                            @click="$dispatch('open-material-info', {{ Js::from($payload) }})">
                                         <x-icon name="info" />
                                     </button>
 
-                                    <button type="button" class="act-btn"
-                                            title="Edit Master Item"
-                                            @click="openEdit({{ Js::from($editPayload) }})">
+                                    <button type="button" class="act-btn" title="Edit Master Item"
+                                            @click="openEditModal({
+                                                id: {{ $item->id }},
+                                                part_no: '{{ addslashes($item->part_no ?? '') }}',
+                                                part_name: '{{ addslashes($item->part_name) }}',
+                                                type: '{{ $item->type }}',
+                                                uom: '{{ $item->uom }}',
+                                                company_id: '{{ $item->company_id }}',
+                                                qty_po: '{{ floatval($item->qty_po) }}',
+                                                working_days: '{{ $item->working_days }}',
+                                                qty_kanban: '{{ floatval($item->qty_kanban) }}',
+                                                has_history: {{ $hasHistory ? 'true' : 'false' }}
+                                            })">
                                         <x-icon name="edit" />
                                     </button>
 
-                                    @if($hasHist)
+                                    @if($hasHistory)
                                         <form action="{{ route('items.destroy', $item->id) }}" method="POST" class="inline"
-                                              @submit.prevent="$dispatch('open-confirm', { form: $el, title: 'Nonaktifkan Master Item', message: 'Item {{ addslashes($item->part_name) }} sudah memiliki riwayat transaksi/BOM. Nonaktifkan dan pindahkan ke daftar Item Nonaktif?' })">
+                                              @submit.prevent="$dispatch('open-confirm', { form: $el, title: 'Nonaktifkan Item', message: 'Item {{ addslashes($item->part_name) }} sudah memiliki riwayat transaksi. Nonaktifkan item ini?' })">
                                             @csrf
                                             @method('DELETE')
-                                            <button type="submit" class="act-btn warn" title="Nonaktifkan Item (Memiliki Riwayat)">
+                                            <button type="submit" class="act-btn warn" title="Nonaktifkan Item">
                                                 <x-icon name="ban" />
                                             </button>
                                         </form>
                                     @else
                                         <form action="{{ route('items.destroy', $item->id) }}" method="POST" class="inline"
-                                              @submit.prevent="$dispatch('open-confirm', { form: $el, title: 'Hapus Permanen Master Item', message: 'Item {{ addslashes($item->part_name) }} belum memiliki riwayat transaksi. Hapus permanen dari database?' })">
+                                              @submit.prevent="$dispatch('open-confirm', { form: $el, title: 'Hapus Permanen Item', message: 'Hapus permanen {{ addslashes($item->part_name) }} dari database?' })">
                                             @csrf
                                             @method('DELETE')
-                                            <button type="submit" class="act-btn danger" title="Hapus Permanen (Belum Ada Riwayat)">
+                                            <button type="submit" class="act-btn danger" title="Hapus Permanen">
                                                 <x-icon name="trash" />
                                             </button>
                                         </form>
@@ -186,55 +180,51 @@
                             </td>
                         </tr>
                     @empty
-                        <tr><td colspan="10"><div class="empty">Belum ada Master Item yang terdaftar.</div></td></tr>
+                        <tr><td colspan="12"><div class="empty">Belum ada Master Item yang terdaftar.</div></td></tr>
                     @endforelse
                 </tbody>
             </table>
         </div>
 
-        {{-- POP-UP MODAL TAMBAH MASTER ITEM --}}
-        <div x-show="addOpen" x-cloak
-             class="modal-backdrop"
-             @click.self="addOpen = false">
-            <div class="panel w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+        {{-- POP-UP MODAL TAMBAH MASTER ITEM BARU --}}
+        <div x-show="addOpen" x-cloak class="modal-backdrop" @click.self="addOpen = false">
+            <div class="panel w-full max-w-2xl overflow-hidden">
                 <div class="panel-head">
-                    <h3 class="panel-title">Registrasi Master Item Baru</h3>
+                    <h3 class="panel-title">Tambah Master Item Baru</h3>
                     <button type="button" class="act-btn" @click="addOpen = false">
                         <x-icon name="x" />
                     </button>
                 </div>
-                <form action="{{ route('items.store') }}" method="POST" class="flex-1 overflow-y-auto">
+                <form action="{{ route('items.store') }}" method="POST">
                     @csrf
                     <div class="panel-body space-y-4">
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div>
                                 <label class="lbl">Part No (Opsional untuk RM Sheet/Coil)</label>
-                                <input type="text" name="part_no" x-model="form.part_no"
+                                <input type="text" name="part_no" placeholder="Contoh: FG-BKT-001"
                                        oninput="this.value = this.value.toUpperCase()"
-                                       placeholder="Kosongkan jika RM tidak punya Part No"
-                                       class="num uppercase w-full h-9 text-xs">
+                                       class="num uppercase w-full h-9">
                             </div>
                             <div>
-                                <label class="lbl">Part Name / Spesifikasi (Wajib)</label>
-                                <input type="text" name="part_name" x-model="form.part_name" required
+                                <label class="lbl">Part Name (Wajib)</label>
+                                <input type="text" name="part_name" required placeholder="Contoh: BRACKET MUFFLER ASSY"
                                        oninput="this.value = this.value.toUpperCase()"
-                                       placeholder="Contoh: BRACKET MUFFLER ASSY FG"
-                                       class="uppercase w-full h-9 text-xs">
+                                       class="uppercase w-full h-9">
                             </div>
                         </div>
 
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div>
                                 <label class="lbl">Tipe Item</label>
-                                <select name="type" x-model="form.type" @change="onTypeChange(form)" required class="w-full h-9 text-xs">
-                                    @foreach($types as $tp)
-                                        <option value="{{ $tp }}">{{ $tp }}</option>
+                                <select name="type" x-model="addType" @change="syncAddCompany()" required class="w-full h-9">
+                                    @foreach($types as $t)
+                                        <option value="{{ $t }}">{{ $t }}</option>
                                     @endforeach
                                 </select>
                             </div>
                             <div>
                                 <label class="lbl">Satuan (UOM)</label>
-                                <select name="uom" x-model="form.uom" required class="w-full h-9 text-xs">
+                                <select name="uom" required class="w-full h-9">
                                     @foreach($uoms as $u)
                                         <option value="{{ $u }}">{{ $u }}</option>
                                     @endforeach
@@ -244,119 +234,94 @@
 
                         <div>
                             <label class="lbl">Perusahaan</label>
-                            <select name="company_id" x-model="form.company_id" required class="w-full h-9 text-xs">
+                            <select name="company_id" x-model="addCompanyId" required class="w-full h-9">
                                 <option value="">-- Pilih Perusahaan --</option>
-                                <template x-for="c in allowedCompanies(form.type)" :key="c.id">
+                                <template x-for="c in allowedCompanies(addType)" :key="c.id">
                                     <option :value="c.id" x-text="c.code + ' — ' + c.name + ' (' + c.type + ')'"></option>
                                 </template>
                             </select>
-                            <p class="hint" x-text="companyHint(form.type)"></p>
+                            <p class="hint" x-text="companyGuide(addType)"></p>
                         </div>
 
-                        <template x-if="allowsPo(form.type)">
-                            <div class="p-3 rounded border border-slate-200 bg-slate-50 space-y-3">
-                                <div class="text-xs font-bold text-slate-800 uppercase">Parameter Target PO &amp; Kanban</div>
-                                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                    <div>
-                                        <label class="lbl">Qty PO Sebulan</label>
-                                        <input type="number" step="0.01" min="0" name="qty_po" x-model="form.qty_po" required class="num w-full h-9 text-xs font-semibold">
-                                    </div>
-                                    <div>
-                                        <label class="lbl">Working Days (Hari Kerja)</label>
-                                        <input type="number" step="1" min="0" name="working_days" x-model="form.working_days" required class="num w-full h-9 text-xs font-semibold">
-                                    </div>
-                                    <div>
-                                        <label class="lbl">Qty per Kanban / Box</label>
-                                        <input type="number" step="0.01" min="0" name="qty_kanban" x-model="form.qty_kanban" required class="num w-full h-9 text-xs font-semibold">
-                                    </div>
+                        <div x-show="allowsPo(addType)" class="p-3 rounded bg-slate-50 border border-slate-200 space-y-3">
+                            <div class="text-xs font-bold text-slate-800">Parameter PO &amp; Kanban (Untuk Kalkulasi Std Day 1/2/3)</div>
+                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                <div>
+                                    <label class="lbl">Qty PO Sebulan</label>
+                                    <input type="number" step="0.01" min="0" name="qty_po" value="0" class="num w-full h-9">
                                 </div>
-                                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-200 text-xs">
-                                    <div>
-                                        <span class="text-slate-500 block text-[11px]">PO / Working Days:</span>
-                                        <b class="num text-slate-900" x-text="calcPreview(form).poWd"></b>
-                                    </div>
-                                    <div>
-                                        <span class="text-slate-500 block text-[11px]">Std Day 1 (Kanban):</span>
-                                        <b class="num text-accent" x-text="calcPreview(form).std1"></b>
-                                    </div>
-                                    <div>
-                                        <span class="text-slate-500 block text-[11px]">Std Day 2 (Min):</span>
-                                        <b class="num text-slate-900" x-text="calcPreview(form).std2"></b>
-                                    </div>
-                                    <div>
-                                        <span class="text-slate-500 block text-[11px]">Std Day 3 (Max):</span>
-                                        <b class="num text-slate-900" x-text="calcPreview(form).std3"></b>
-                                    </div>
+                                <div>
+                                    <label class="lbl">Working Days (WD)</label>
+                                    <input type="number" min="0" name="working_days" value="20" class="num w-full h-9">
+                                </div>
+                                <div>
+                                    <label class="lbl">Qty per Kanban</label>
+                                    <input type="number" step="0.01" min="0" name="qty_kanban" value="0" class="num w-full h-9">
                                 </div>
                             </div>
-                        </template>
+                        </div>
 
-                        <template x-if="!allowsPo(form.type)">
-                            <div class="p-3 rounded border border-slate-200 bg-slate-50 text-xs text-slate-600">
-                                Untuk tipe <b x-text="form.type"></b>, parameter PO, Working Days, dan Kanban dikunci <b>0</b> karena nilai <b>Std Day 1/2/3</b> dihitung otomatis secara <i>on-the-fly</i> dari struktur resep <b>BOM</b>.
-                            </div>
-                        </template>
+                        <div x-show="!allowsPo(addType)" x-cloak class="p-3 rounded bg-slate-50 border border-slate-200 text-xs text-slate-600">
+                            Untuk tipe <b x-text="addType"></b>, parameter PO/WD/Kanban dikunci <b class="num">0</b> karena kebutuhan stok hariannya (<b class="num">Std Day 1/2/3</b>) dihitung otomatis secara <i>on-the-fly</i> dari resep BOM.
+                        </div>
                     </div>
-
                     <div class="panel-foot">
                         <button type="button" class="btn" @click="addOpen = false">Batal</button>
-                        <button type="submit" class="btn btn-primary">Simpan Master Item</button>
+                        <button type="submit" class="btn btn-primary">Simpan Item Baru</button>
                     </div>
                 </form>
             </div>
         </div>
 
         {{-- POP-UP MODAL EDIT MASTER ITEM --}}
-        <div x-show="editOpen" x-cloak
-             class="modal-backdrop"
-             @click.self="editOpen = false">
-            <div class="panel w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+        <div x-show="editOpen" x-cloak class="modal-backdrop" @click.self="editOpen = false">
+            <div class="panel w-full max-w-2xl overflow-hidden">
                 <div class="panel-head">
                     <h3 class="panel-title">Edit Master Item</h3>
                     <button type="button" class="act-btn" @click="editOpen = false">
                         <x-icon name="x" />
                     </button>
                 </div>
-                <form :action="'{{ url('items') }}/' + editForm.id" method="POST" class="flex-1 overflow-y-auto">
+                <form :action="'{{ url('items') }}/' + editData.id" method="POST">
                     @csrf
                     @method('PUT')
                     <div class="panel-body space-y-4">
-                        <div x-show="editForm.has_history" class="p-3 rounded bg-amber-50 border border-amber-200 text-xs text-amber-800">
-                            Item ini sudah memiliki riwayat transaksi atau terdaftar di BOM. Identitas utama (Part No, Part Name, Tipe, UOM, Perusahaan) dikunci untuk menjaga integritas histori, namun parameter PO/Kanban tetap dapat diperbarui.
-                        </div>
+                        <template x-if="editData.has_history">
+                            <div class="alert alert-crit text-xs">
+                                Identitas utama terkunci karena item ini sudah memiliki riwayat transaksi / BOM. Anda tetap dapat memperbarui parameter PO, Working Days, dan Kanban (untuk tipe FG, FG/KOMPONEN, &amp; TRANSIT).
+                            </div>
+                        </template>
 
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div>
                                 <label class="lbl">Part No</label>
-                                <input type="text" name="part_no" x-model="editForm.part_no"
-                                       :disabled="editForm.has_history"
+                                <input type="text" name="part_no" x-model="editData.part_no"
+                                       :disabled="editData.has_history"
                                        oninput="this.value = this.value.toUpperCase()"
-                                       class="num uppercase w-full h-9 text-xs">
+                                       class="num uppercase w-full h-9">
                             </div>
                             <div>
-                                <label class="lbl">Part Name / Spesifikasi</label>
-                                <input type="text" name="part_name" x-model="editForm.part_name"
-                                       :disabled="editForm.has_history" required
+                                <label class="lbl">Part Name</label>
+                                <input type="text" name="part_name" x-model="editData.part_name"
+                                       :disabled="editData.has_history"
+                                       required
                                        oninput="this.value = this.value.toUpperCase()"
-                                       class="uppercase w-full h-9 text-xs">
+                                       class="uppercase w-full h-9">
                             </div>
                         </div>
 
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div>
                                 <label class="lbl">Tipe Item</label>
-                                <select name="type" x-model="editForm.type"
-                                        :disabled="editForm.has_history"
-                                        @change="onTypeChange(editForm)" required class="w-full h-9 text-xs">
-                                    @foreach($types as $tp)
-                                        <option value="{{ $tp }}">{{ $tp }}</option>
+                                <select name="type" x-model="editData.type" :disabled="editData.has_history" class="w-full h-9">
+                                    @foreach($types as $t)
+                                        <option value="{{ $t }}">{{ $t }}</option>
                                     @endforeach
                                 </select>
                             </div>
                             <div>
                                 <label class="lbl">Satuan (UOM)</label>
-                                <select name="uom" x-model="editForm.uom"
-                                        :disabled="editForm.has_history" required class="w-full h-9 text-xs">
+                                <select name="uom" x-model="editData.uom" :disabled="editData.has_history" class="w-full h-9">
                                     @foreach($uoms as $u)
                                         <option value="{{ $u }}">{{ $u }}</option>
                                     @endforeach
@@ -366,64 +331,37 @@
 
                         <div>
                             <label class="lbl">Perusahaan</label>
-                            <select name="company_id" x-model="editForm.company_id"
-                                    :disabled="editForm.has_history" required class="w-full h-9 text-xs">
-                                <option value="">-- Pilih Perusahaan --</option>
-                                <template x-for="c in allowedCompanies(editForm.type)" :key="c.id">
+                            <select name="company_id" x-model="editData.company_id" :disabled="editData.has_history" class="w-full h-9">
+                                <template x-for="c in allowedCompanies(editData.type)" :key="c.id">
                                     <option :value="c.id" x-text="c.code + ' — ' + c.name + ' (' + c.type + ')'"></option>
                                 </template>
                             </select>
-                            <p class="hint" x-text="companyHint(editForm.type)"></p>
                         </div>
 
-                        <template x-if="allowsPo(editForm.type)">
-                            <div class="p-3 rounded border border-slate-200 bg-slate-50 space-y-3">
-                                <div class="text-xs font-bold text-slate-800 uppercase">Parameter Target PO &amp; Kanban</div>
-                                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                    <div>
-                                        <label class="lbl">Qty PO Sebulan</label>
-                                        <input type="number" step="0.01" min="0" name="qty_po" x-model="editForm.qty_po" required class="num w-full h-9 text-xs font-semibold">
-                                    </div>
-                                    <div>
-                                        <label class="lbl">Working Days (Hari Kerja)</label>
-                                        <input type="number" step="1" min="0" name="working_days" x-model="editForm.working_days" required class="num w-full h-9 text-xs font-semibold">
-                                    </div>
-                                    <div>
-                                        <label class="lbl">Qty per Kanban / Box</label>
-                                        <input type="number" step="0.01" min="0" name="qty_kanban" x-model="editForm.qty_kanban" required class="num w-full h-9 text-xs font-semibold">
-                                    </div>
+                        <div x-show="allowsPo(editData.type)" class="p-3 rounded bg-slate-50 border border-slate-200 space-y-3">
+                            <div class="text-xs font-bold text-slate-800">Parameter PO &amp; Kanban</div>
+                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                <div>
+                                    <label class="lbl">Qty PO Sebulan</label>
+                                    <input type="number" step="0.01" min="0" name="qty_po" x-model="editData.qty_po" class="num w-full h-9">
                                 </div>
-                                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-200 text-xs">
-                                    <div>
-                                        <span class="text-slate-500 block text-[11px]">PO / Working Days:</span>
-                                        <b class="num text-slate-900" x-text="calcPreview(editForm).poWd"></b>
-                                    </div>
-                                    <div>
-                                        <span class="text-slate-500 block text-[11px]">Std Day 1 (Kanban):</span>
-                                        <b class="num text-accent" x-text="calcPreview(editForm).std1"></b>
-                                    </div>
-                                    <div>
-                                        <span class="text-slate-500 block text-[11px]">Std Day 2 (Min):</span>
-                                        <b class="num text-slate-900" x-text="calcPreview(editForm).std2"></b>
-                                    </div>
-                                    <div>
-                                        <span class="text-slate-500 block text-[11px]">Std Day 3 (Max):</span>
-                                        <b class="num text-slate-900" x-text="calcPreview(editForm).std3"></b>
-                                    </div>
+                                <div>
+                                    <label class="lbl">Working Days (WD)</label>
+                                    <input type="number" min="0" name="working_days" x-model="editData.working_days" class="num w-full h-9">
+                                </div>
+                                <div>
+                                    <label class="lbl">Qty per Kanban</label>
+                                    <input type="number" step="0.01" min="0" name="qty_kanban" x-model="editData.qty_kanban" class="num w-full h-9">
                                 </div>
                             </div>
-                        </template>
-
-                        <template x-if="!allowsPo(editForm.type)">
-                            <div class="p-3 rounded border border-slate-200 bg-slate-50 text-xs text-slate-600">
-                                Item bertipe <b x-text="editForm.type"></b> mengikuti perhitungan standar stok dari <b>BOM</b> secara otomatis.
-                            </div>
-                        </template>
+                        </div>
                     </div>
-
                     <div class="panel-foot">
                         <button type="button" class="btn" @click="editOpen = false">Batal</button>
-                        <button type="submit" class="btn btn-primary" x-show="!editForm.has_history || allowsPo(editForm.type)">Simpan Perubahan</button>
+                        <button type="submit" class="btn btn-primary"
+                                :disabled="editData.has_history && !allowsPo(editData.type)">
+                            Simpan Perubahan
+                        </button>
                     </div>
                 </form>
             </div>
@@ -433,26 +371,18 @@
     <x-material-info-modal />
 
     <script>
-        function masterItemPage(initialRows, companiesList, openInitially) {
+        function masterItemPage(initialCount, companiesList, openInitially) {
             return {
                 q: '',
                 fType: '',
                 fCompType: '',
-                visibleRows: initialRows,
-                companies: companiesList,
+                visibleRows: initialCount,
+                companiesList: companiesList,
                 addOpen: openInitially,
+                addType: 'FG',
+                addCompanyId: '',
                 editOpen: false,
-                form: {
-                    part_no: '',
-                    part_name: '',
-                    type: 'FG',
-                    uom: 'PCS',
-                    company_id: '',
-                    qty_po: 0,
-                    working_days: 20,
-                    qty_kanban: 0
-                },
-                editForm: {
+                editData: {
                     id: null,
                     part_no: '',
                     part_name: '',
@@ -460,19 +390,13 @@
                     uom: 'PCS',
                     company_id: '',
                     qty_po: 0,
-                    working_days: 0,
+                    working_days: 20,
                     qty_kanban: 0,
                     has_history: false
                 },
-                openAdd() {
-                    this.addOpen = true;
-                },
-                openEdit(payload) {
-                    this.editForm = Object.assign({}, payload);
-                    this.editOpen = true;
-                },
+
                 allowsPo(type) {
-                    return ['FG', 'TRANSIT', 'FG/KOMPONEN'].includes(type);
+                    return ['FG', 'FG/KOMPONEN', 'TRANSIT'].includes(type);
                 },
                 allowedCompanies(type) {
                     const map = {
@@ -483,50 +407,47 @@
                         'FG': ['CUSTOMER']
                     };
                     const allowed = map[type] || ['SUPPLIER', 'INTERNAL', 'CUSTOMER'];
-                    return this.companies.filter(c => allowed.includes(c.type));
+                    return this.companiesList.filter(c => allowed.includes(c.type));
                 },
-                onTypeChange(targetForm) {
-                    const list = this.allowedCompanies(targetForm.type);
-                    if (!list.some(c => String(c.id) === String(targetForm.company_id))) {
-                        targetForm.company_id = list.length ? list[0].id : '';
+                companyGuide(type) {
+                    const guides = {
+                        'RM': 'Pilih perusahaan SUPPLIER pemasok bahan baku (RM) ini.',
+                        'KOMPONEN': 'Pilih SUPPLIER jika dibeli dari vendor luar, atau INTERNAL jika diproduksi sendiri.',
+                        'FG/KOMPONEN': 'Pilih perusahaan INTERNAL (hasil produksi internal yang dapat dikirim maupun dipakai proses lanjut).',
+                        'TRANSIT': 'Pilih SUPPLIER asal barang Transit (masuk lewat Inbound lalu dikirim lewat Delivery).',
+                        'FG': 'Pilih CUSTOMER tujuan pengiriman produk akhir (FG) ini.'
+                    };
+                    return guides[type] || '';
+                },
+                syncAddCompany() {
+                    const list = this.allowedCompanies(this.addType);
+                    if (!list.some(c => String(c.id) === String(this.addCompanyId))) {
+                        this.addCompanyId = list.length > 0 ? String(list[0].id) : '';
                     }
                 },
-                companyHint(type) {
-                    if (type === 'RM') return 'Pilih SUPPLIER pemasok bahan baku (RM) ini.';
-                    if (type === 'KOMPONEN') return 'Pilih SUPPLIER jika dibeli dari vendor luar, atau INTERNAL jika diproduksi sendiri.';
-                    if (type === 'FG/KOMPONEN') return 'Pilih perusahaan INTERNAL (hasil produksi internal yang dapat dikirim maupun dipakai proses lanjut).';
-                    if (type === 'TRANSIT') return 'Pilih SUPPLIER asal barang Transit.';
-                    if (type === 'FG') return 'Pilih CUSTOMER tujuan pengiriman produk akhir (FG) ini.';
-                    return '';
+                openAddModal() {
+                    this.syncAddCompany();
+                    this.addOpen = true;
                 },
-                calcPreview(f) {
-                    const po = parseFloat(f.qty_po) || 0;
-                    const wd = parseInt(f.working_days) || 0;
-                    const kb = parseFloat(f.qty_kanban) || 0;
-                    if (po <= 0 || wd <= 0) return { poWd: 0, std1: 0, std2: 0, std3: 0 };
-                    const poWd = Math.round((po / wd) * 100) / 100;
-                    const std1 = kb > 0 ? Math.ceil(poWd / kb) * kb : Math.ceil(poWd);
-                    return {
-                        poWd: poWd,
-                        std1: Math.round(std1 * 100) / 100,
-                        std2: Math.round(std1 * 2 * 100) / 100,
-                        std3: Math.round(std1 * 3 * 100) / 100
-                    };
+                openEditModal(data) {
+                    this.editData = Object.assign({}, data);
+                    this.editOpen = true;
                 },
-                matchFilter(el) {
+                matchRow(el) {
                     const s = (el.dataset.search || '').toLowerCase();
-                    const tp = el.dataset.type || '';
+                    const t = el.dataset.type || '';
                     const ct = el.dataset.comptype || '';
+
                     if (this.q && !s.includes(this.q.toLowerCase())) return false;
-                    if (this.fType && tp !== this.fType) return false;
+                    if (this.fType && t !== this.fType) return false;
                     if (this.fCompType && ct !== this.fCompType) return false;
                     return true;
                 },
                 recalc() {
                     this.$nextTick(() => {
                         let c = 0;
-                        this.$el.querySelectorAll('tbody tr[data-row-item]').forEach(tr => {
-                            if (this.matchFilter(tr)) c++;
+                        this.$el.querySelectorAll('tbody tr[data-item-row]').forEach(tr => {
+                            if (this.matchRow(tr)) c++;
                         });
                         this.visibleRows = c;
                     });

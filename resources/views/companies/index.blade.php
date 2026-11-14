@@ -20,7 +20,7 @@
         <div class="panel-head">
             <div class="panel-title">
                 <span>Daftar Perusahaan Terdaftar</span>
-                <span class="count-chip"><span x-text="visibleCount"></span> Perusahaan</span>
+                <span class="count-chip"><span x-text="visibleCount"></span><span>Perusahaan</span></span>
             </div>
 
             <div class="flex flex-wrap items-center gap-2">
@@ -46,11 +46,11 @@
             <table class="tbl">
                 <thead>
                     <tr>
-                        <th class="w-14 text-center">No</th>
-                        <th class="w-36">Kode Perusahaan</th>
-                        <th>Nama Perusahaan</th>
-                        <th class="w-40 text-center">Tipe Perusahaan</th>
-                        <th class="w-24 text-center">Aksi</th>
+                        <th class="w-[6%] text-center">No</th>
+                        <th class="w-[18%]">Kode Perusahaan</th>
+                        <th class="w-[46%]">Nama Perusahaan</th>
+                        <th class="w-[18%] text-center">Tipe Perusahaan</th>
+                        <th class="w-[12%] text-center">Aksi</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -96,9 +96,7 @@
         </div>
 
         {{-- POP-UP MODAL TAMBAH PERUSAHAAN --}}
-        <div x-show="addOpen" x-cloak
-             class="modal-backdrop"
-             @click.self="addOpen = false">
+        <div x-show="addOpen" x-cloak class="modal-backdrop" @click.self="addOpen = false">
             <div class="panel w-full max-w-lg overflow-hidden">
                 <div class="panel-head">
                     <h3 class="panel-title">Tambah Perusahaan Baru</h3>
@@ -138,9 +136,7 @@
         </div>
 
         {{-- POP-UP MODAL EDIT PERUSAHAAN --}}
-        <div x-show="editOpen" x-cloak
-             class="modal-backdrop"
-             @click.self="editOpen = false">
+        <div x-show="editOpen" x-cloak class="modal-backdrop" @click.self="editOpen = false">
             <div class="panel w-full max-w-lg overflow-hidden">
                 <div class="panel-head">
                     <h3 class="panel-title">Edit Data Perusahaan</h3>

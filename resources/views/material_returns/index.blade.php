@@ -1,7 +1,7 @@
 <x-app-layout>
     <x-slot name="header">
         <x-page-header title="Material Return"
-                       subtitle="Riwayat pengembalian sisa bahan baku dan komponen pendamping dari produksi ke gudang">
+                       subtitle="Riwayat pengembalian sisa material dari lantai produksi ke gudang (Trigger Utama & Komponen Pendamping)">
             <x-slot name="actions">
                 <a href="{{ route('material_returns.index', ['mode' => 'scanner']) }}" class="btn btn-primary">
                     <x-icon name="scan" /> Buka Mobile Scanner
@@ -12,43 +12,46 @@
 
     <x-flash />
 
-    @php
-        $groupedReturns = $groupedReturns ?? ($groups ?? collect());
-    @endphp
-
     <div class="panel"
-         x-data="materialReturnPage({{ $groupedReturns->count() }}, {{ $materialReturns->count() }})"
+         x-data="matRetPage({{ $groupedReturns->count() }}, {{ $materialReturns->count() }})"
          x-init="recalc()"
          @table-refreshed.window="recalc()">
 
         <div class="panel-head">
-            <div class="flex items-center gap-2 flex-wrap">
-                <h3 class="panel-title">Daftar Transaksi Material Return</h3>
-                <span class="count-chip"><span x-text="visibleGroups"></span> Kelompok</span>
-                <span class="count-chip count-chip-sub"><span x-text="visibleRows"></span> Baris</span>
-
-                <div class="seg ml-1">
-                    <label>
-                        <input type="radio" name="vm_mr" value="grouped" x-model="viewMode" @change="recalc()">
-                        <span>Kelompok</span>
-                    </label>
-                    <label>
-                        <input type="radio" name="vm_mr" value="flat" x-model="viewMode" @change="recalc()">
-                        <span>Per Baris</span>
-                    </label>
-                </div>
+            <div class="panel-title">
+                <span>Daftar Transaksi Material Return</span>
+                <span class="count-chip" x-show="viewMode === 'grouped'">
+                    <span x-text="visibleGroups"></span><span>Kelompok</span>
+                </span>
+                <span class="count-chip" x-show="viewMode === 'flat'" x-cloak>
+                    <span x-text="visibleFlat"></span><span>Data</span>
+                </span>
             </div>
 
             <div class="flex flex-wrap items-center gap-2">
+                <div class="seg" role="group" aria-label="Mode tampilan">
+                    <label>
+                        <input type="radio" value="grouped" x-model="viewMode" @change="recalc()">
+                        <span>Kelompok</span>
+                    </label>
+                    <label>
+                        <input type="radio" value="flat" x-model="viewMode" @change="recalc()">
+                        <span>Per Baris</span>
+                    </label>
+                </div>
+
                 <input type="text" x-model="q" @input="recalc()"
-                       placeholder="Cari Lot / Part / Petugas Scan..."
+                       placeholder="Cari Lot / Part / Petugas..."
                        class="h-8 text-xs px-2.5 w-48">
 
                 <div class="flex items-center gap-1 text-xs text-slate-600">
                     <span>Tgl:</span>
-                    <input type="date" x-model="startDate" @change="recalc()" class="h-8 text-xs px-2 w-32">
+                    <input type="date" x-model="startDate"
+                           @change="if(endDate && endDate < startDate) endDate = startDate; recalc()"
+                           class="h-8 text-xs px-2 w-32">
                     <span>-</span>
-                    <input type="date" x-model="endDate" :min="startDate" @change="recalc()" class="h-8 text-xs px-2 w-32">
+                    <input type="date" x-model="endDate" :min="startDate" @change="recalc()"
+                           class="h-8 text-xs px-2 w-32">
                 </div>
 
                 <div class="flex items-center gap-1 text-xs text-slate-600">
@@ -74,118 +77,131 @@
 
                 <button type="button"
                         x-show="q || startDate || endDate || startTime || endTime || fBomType || fStatus"
-                        x-cloak @click="resetFilter()" class="btn btn-sm">
+                        x-cloak
+                        @click="resetFilter()"
+                        class="btn btn-sm">
                     Reset
                 </button>
             </div>
         </div>
 
-        <div class="tbl-wrap">
+        {{-- MODE 1: TAMPILAN KELOMPOK (TRIGGER + PENDAMPING SEJAJAR SIMETRIS) --}}
+        <div class="tbl-wrap" x-show="viewMode === 'grouped'">
             <table class="tbl">
                 <thead>
                     <tr>
-                        <th class="w-12 text-center">No</th>
-                        <th class="w-36 text-left col-time">Tanggal &amp; Waktu</th>
-                        <th class="w-40">Petugas Scan</th>
-                        <th class="w-36">No. Lot &amp; Tipe BOM</th>
-                        <th class="min-w-[250px]">Material &amp; Pendamping</th>
-                        <th class="num w-36">Qty Return</th>
-                        <th class="min-w-[200px]">Output Item</th>
-                        <th class="w-28 text-center">Status</th>
-                        <th class="w-16 text-center">Aksi</th>
+                        <th class="w-[4%] text-center">No</th>
+                        <th class="w-[12%] text-left col-time">Tanggal &amp; Waktu</th>
+                        <th class="w-[11%]">Petugas Scan</th>
+                        <th class="w-[11%]">No. Lot &amp; Tipe BOM</th>
+                        <th class="w-[24%]">Material &amp; Pendamping</th>
+                        <th class="num w-[11%]">Qty Return</th>
+                        <th class="w-[15%]">Output Item</th>
+                        <th class="w-[7%] text-center">Status</th>
+                        <th class="w-[5%] text-center">Aksi</th>
                     </tr>
                 </thead>
-
-                {{-- MODE 1: TAMPILAN KELOMPOK (MENAMPILKAN TRIGGER + PENDAMPING) --}}
-                <tbody data-group-body x-show="viewMode === 'grouped'">
+                <tbody>
                     @forelse($groupedReturns as $idx => $grp)
                         @php
                             $first = $grp['first'];
-                            $mat = $first->materialItem;
-                            $bomType = $grp['bom_type'] ?: 'SINGLE';
+                            $matItem = $first->materialItem;
+                            $bType = $grp['bom_type'];
+                            $stLabel = $grp['status_label'];
                         @endphp
-                        <tr data-row-item
+                        <tr data-grp-row
                             data-search="{{ $grp['search_index'] }}"
                             data-date="{{ $grp['date_only'] }}"
                             data-time="{{ $grp['time_only'] }}"
-                            data-bomtype="{{ $bomType }}"
-                            data-status="{{ $grp['status_label'] }}"
-                            x-show="matchFilter($el)">
-                            <td class="text-center num font-semibold text-slate-500">{{ $idx + 1 }}</td>
-                            <td class="num text-left col-time whitespace-nowrap text-xs text-slate-600">
+                            data-bomtype="{{ $bType }}"
+                            data-status="{{ $stLabel }}"
+                            x-show="matchRow($el)">
+                            <td class="text-center num font-semibold text-slate-500 border-r border-slate-200">{{ $idx + 1 }}</td>
+                            <td class="num text-left col-time whitespace-nowrap text-xs text-slate-600 border-r border-slate-200">
                                 {{ \Carbon\Carbon::parse($first->date_time)->format('d M Y, H:i') }}
                             </td>
-                            <td>
+                            <td class="border-r border-slate-200">
                                 <div class="font-semibold text-slate-900 text-xs">{{ $first->user->name ?? 'Operator' }}</div>
-                                <div class="text-[11px] text-slate-500 uppercase">{{ $first->user->role ?? 'STAFF' }}</div>
+                                <div class="text-[11px] text-slate-500">{{ $first->user->role ?? 'STAFF' }}</div>
                             </td>
-                            <td>
-                                <div class="num font-bold text-accent">{{ $grp['lot_number'] }}</div>
+                            <td class="border-r border-slate-200">
+                                <div class="num font-bold text-accent text-xs">{{ $grp['lot_number'] }}</div>
                                 <div class="mt-1">
-                                    @if($bomType === 'SINGLE')
-                                        <span class="pill pill-neu">{{ $bomType }}</span>
-                                    @elseif($bomType === 'MULTI-INPUT')
-                                        <span class="pill pill-info">{{ $bomType }}</span>
-                                    @elseif($bomType === 'MULTI-OUTPUT')
-                                        <span class="pill pill-warn">{{ $bomType }}</span>
+                                    @if($bType === 'SINGLE')
+                                        <span class="pill pill-neu">SINGLE</span>
+                                    @elseif($bType === 'MULTI-INPUT')
+                                        <span class="pill pill-info">MULTI-INPUT</span>
+                                    @elseif($bType === 'MULTI-OUTPUT')
+                                        <span class="pill pill-warn">MULTI-OUTPUT</span>
                                     @else
-                                        <span class="pill pill-good">{{ $bomType }}</span>
+                                        <span class="pill pill-good">KOMBINASI</span>
                                     @endif
                                 </div>
                             </td>
 
-                            {{-- MATERIAL & PENDAMPING (Tinggi h-[52px] & badge w-[78px] agar Part No & garis sejajar 100%) --}}
-                            <td class="p-0 align-top">
+                            {{-- KOLOM MATERIAL & PENDAMPING --}}
+                            <td class="p-0 border-r border-slate-200 align-top">
                                 <div class="divide-y divide-slate-200">
-                                    <div class="px-3 h-[52px] flex items-center gap-2.5">
-                                        <span class="pill pill-good w-[78px] justify-center flex-none text-[10px] h-5 px-1.5">Trigger</span>
-                                        <div class="min-w-0 flex-1 leading-tight">
-                                            <div class="num text-[11.5px] font-bold text-slate-600 truncate">{{ $mat->part_no ?: '-' }}</div>
-                                            <div class="font-semibold text-slate-900 text-xs truncate" title="{{ $mat->part_name ?? '-' }}">{{ $mat->part_name ?? '-' }}</div>
+                                    <div class="subrow justify-between gap-2">
+                                        <div class="flex items-center gap-2.5 min-w-0">
+                                            <span class="pill pill-good w-[78px] justify-center flex-none text-[10px] h-5 px-1.5">Trigger</span>
+                                            <div class="min-w-0 leading-tight">
+                                                <div class="num text-[11px] font-bold text-slate-500 truncate">{{ $matItem->part_no ?: '-' }}</div>
+                                                <div class="text-xs font-semibold text-slate-900 truncate">{{ $matItem->part_name ?? '-' }}</div>
+                                            </div>
+                                        </div>
+                                        <span class="pill pill-neu text-[10.5px] flex-none">{{ $matItem->uom ?? '' }}</span>
+                                    </div>
+
+                                    @foreach($grp['companions'] as $comp)
+                                        <div class="subrow justify-between gap-2 bg-slate-50/60">
+                                            <div class="flex items-center gap-2.5 min-w-0">
+                                                <span class="pill pill-neu w-[78px] justify-center flex-none text-[10px] h-5 px-1.5">Pendamping</span>
+                                                <div class="min-w-0 leading-tight">
+                                                    <div class="num text-[11px] font-bold text-slate-500 truncate">{{ $comp['part_no'] }}</div>
+                                                    <div class="text-xs font-semibold text-slate-800 truncate">{{ $comp['part_name'] }}</div>
+                                                </div>
+                                            </div>
+                                            <span class="pill pill-neu text-[10.5px] flex-none">{{ $comp['uom'] }}</span>
+                                        </div>
+                                    @endforeach
+                                </div>
+                            </td>
+
+                            {{-- KOLOM QTY RETURN (SEJAJAR SIMETRIS DENGAN MATERIAL & PENDAMPING) --}}
+                            <td class="p-0 border-r border-slate-200 align-top">
+                                <div class="divide-y divide-slate-200">
+                                    <div class="subrow-qty">
+                                        <div class="inline-flex items-baseline justify-end gap-1.5 leading-none">
+                                            <span class="num text-sm font-bold text-emerald-700">+{{ floatval($grp['qty_trigger']) }}</span>
+                                            <span class="text-[11px] font-semibold text-slate-500">{{ $matItem->uom ?? '' }}</span>
                                         </div>
                                     </div>
+
                                     @foreach($grp['companions'] as $comp)
-                                        <div class="px-3 h-[52px] flex items-center gap-2.5 bg-slate-50/50">
-                                            <span class="pill pill-neu w-[78px] justify-center flex-none text-[10px] h-5 px-1.5">Pendamping</span>
-                                            <div class="min-w-0 flex-1 leading-tight">
-                                                <div class="num text-[11.5px] font-bold text-slate-500 truncate">{{ $comp['part_no'] ?: '-' }}</div>
-                                                <div class="text-xs text-slate-800 font-medium truncate" title="{{ $comp['part_name'] }}">{{ $comp['part_name'] }}</div>
+                                        <div class="subrow-qty bg-slate-50/60">
+                                            <div class="inline-flex items-baseline justify-end gap-1.5 leading-none">
+                                                <span class="num text-xs font-bold text-emerald-600">+{{ floatval($comp['qty']) }}</span>
+                                                <span class="text-[11px] font-medium text-slate-500">{{ $comp['uom'] }}</span>
                                             </div>
                                         </div>
                                     @endforeach
                                 </div>
                             </td>
 
-                            {{-- QTY RETURN (Tinggi h-[52px] sejajar 100% dengan Material & Pendamping) --}}
-                            <td class="num p-0 whitespace-nowrap align-top">
-                                <div class="divide-y divide-slate-200">
-                                    <div class="px-3 h-[52px] flex items-center justify-end">
-                                        <span class="font-bold text-emerald-700">+{{ floatval($grp['qty_trigger']) }}</span>
-                                        <span class="text-xs text-slate-500 ml-1">{{ $mat->uom ?? '' }}</span>
-                                    </div>
-                                    @foreach($grp['companions'] as $comp)
-                                        <div class="px-3 h-[52px] flex items-center justify-end bg-slate-50/50">
-                                            <span class="text-xs font-bold text-emerald-600">+{{ floatval($comp['qty']) }}</span>
-                                            <span class="text-[11px] text-slate-500 ml-1">{{ $comp['uom'] }}</span>
+                            <td class="border-r border-slate-200">
+                                <div class="space-y-1.5">
+                                    @foreach($grp['outputs'] as $out)
+                                        <div class="leading-tight">
+                                            <div class="num text-[11px] font-bold text-accent">{{ $out['part_no'] }}</div>
+                                            <div class="text-xs font-semibold text-slate-900">{{ $out['part_name'] }}</div>
                                         </div>
                                     @endforeach
                                 </div>
                             </td>
 
-                            {{-- OUTPUT ITEM --}}
-                            <td class="p-0 align-top">
-                                <div class="divide-y divide-slate-200">
-                                    @foreach($grp['outputs'] as $outIt)
-                                        <div class="px-3 h-[52px] flex flex-col justify-center leading-tight">
-                                            <div class="num text-xs font-bold text-accent truncate">{{ $outIt['part_no'] }}</div>
-                                            <div class="font-semibold text-slate-900 text-xs truncate" title="{{ $outIt['part_name'] }}">{{ $outIt['part_name'] }}</div>
-                                        </div>
-                                    @endforeach
-                                </div>
-                            </td>
-
-                            <td class="text-center">
-                                @if($grp['status_label'] === 'DIKOREKSI')
+                            <td class="text-center border-r border-slate-200">
+                                @if($stLabel === 'DIKOREKSI')
                                     <span class="pill pill-info">DIKOREKSI</span>
                                 @else
                                     <span class="pill pill-good">TERCATAT</span>
@@ -194,73 +210,98 @@
 
                             <td class="text-center">
                                 <button type="button" class="act-btn" title="Koreksi Qty Return"
-                                        @click="openEdit({{ $first->id }}, '{{ $grp['lot_number'] }}', '{{ addslashes($mat->part_name ?? '-') }}', '{{ $mat->uom ?? '' }}', {{ floatval($grp['qty_trigger']) }})">
+                                        @click="openEdit({{ $first->id }}, '{{ $grp['lot_number'] }}', '{{ addslashes($matItem->part_name ?? '-') }}', '{{ floatval($grp['qty_trigger']) }}', '{{ $matItem->uom ?? '' }}')">
                                     <x-icon name="edit" />
                                 </button>
                             </td>
                         </tr>
                     @empty
-                        <tr><td colspan="9"><div class="empty">Belum ada data Material Return.</div></td></tr>
+                        <tr><td colspan="9"><div class="empty">Belum ada data transaksi Material Return.</div></td></tr>
                     @endforelse
                 </tbody>
+            </table>
+        </div>
 
-                {{-- MODE 2: TAMPILAN PER BARIS (HANYA MENAMPILKAN MATERIAL TRIGGER TANPA PENDAMPING) --}}
-                <tbody data-flat-body x-show="viewMode === 'flat'" x-cloak>
-                    @forelse($materialReturns as $idx => $mr)
+        {{-- MODE 2: TAMPILAN PER BARIS (MURNI TRIGGER SAJA TANPA PENDAMPING) --}}
+        <div class="tbl-wrap" x-show="viewMode === 'flat'" x-cloak>
+            <table class="tbl">
+                <thead>
+                    <tr>
+                        <th class="w-[4%] text-center">No</th>
+                        <th class="w-[13%] text-left col-time">Tanggal &amp; Waktu</th>
+                        <th class="w-[12%]">Petugas Scan</th>
+                        <th class="w-[11%]">No. Lot &amp; Tipe BOM</th>
+                        <th class="w-[22%]">Material &amp; Pendamping</th>
+                        <th class="num w-[11%]">Qty Return</th>
+                        <th class="w-[15%]">Output Item</th>
+                        <th class="w-[7%] text-center">Status</th>
+                        <th class="w-[5%] text-center">Aksi</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @forelse($materialReturns as $idx => $row)
                         @php
-                            $mat = $mr->materialItem;
-                            $tgt = $mr->targetItem;
-                            $bType = $mr->bom_type ?: 'SINGLE';
-                            $stLabel = $mr->qty_check === 'TIDAK SESUAI' ? 'DIKOREKSI' : 'TERCATAT';
-                            $sFlat = strtolower(($mr->lot_number ?? '') . ' ' . $bType . ' ' . ($mr->user->name ?? '') . ' ' . ($mat->part_no ?? '') . ' ' . ($mat->part_name ?? '') . ' ' . ($tgt->part_no ?? '') . ' ' . ($tgt->part_name ?? ''));
+                            $dt = \Carbon\Carbon::parse($row->date_time);
+                            $stLabel = $row->qty_check === 'TIDAK SESUAI' ? 'DIKOREKSI' : 'TERCATAT';
+                            $bType = $row->bom_type ?: 'SINGLE';
+                            $flatSearch = strtolower(
+                                $row->lot_number . ' ' .
+                                $bType . ' ' .
+                                ($row->user->name ?? 'Operator') . ' ' .
+                                ($row->materialItem->part_no ?? '') . ' ' .
+                                ($row->materialItem->part_name ?? '') . ' ' .
+                                ($row->targetItem->part_no ?? '') . ' ' .
+                                ($row->targetItem->part_name ?? '')
+                            );
                         @endphp
-                        <tr data-row-item
-                            data-search="{{ $sFlat }}"
-                            data-date="{{ \Carbon\Carbon::parse($mr->date_time)->format('Y-m-d') }}"
-                            data-time="{{ \Carbon\Carbon::parse($mr->date_time)->format('H:i') }}"
+                        <tr data-flat-row
+                            data-search="{{ $flatSearch }}"
+                            data-date="{{ $dt->format('Y-m-d') }}"
+                            data-time="{{ $dt->format('H:i') }}"
                             data-bomtype="{{ $bType }}"
                             data-status="{{ $stLabel }}"
-                            x-show="matchFilter($el)">
+                            x-show="matchRow($el)">
                             <td class="text-center num font-semibold text-slate-500">{{ $idx + 1 }}</td>
-                            <td class="num text-left col-time whitespace-nowrap text-xs text-slate-600">
-                                {{ \Carbon\Carbon::parse($mr->date_time)->format('d M Y, H:i') }}
+                            <td class="num text-left col-time whitespace-nowrap text-xs text-slate-600">{{ $dt->format('d M Y, H:i') }}</td>
+                            <td>
+                                <div class="font-semibold text-slate-900 text-xs">{{ $row->user->name ?? 'Operator' }}</div>
+                                <div class="text-[11px] text-slate-500">{{ $row->user->role ?? 'STAFF' }}</div>
                             </td>
                             <td>
-                                <div class="font-semibold text-slate-900 text-xs">{{ $mr->user->name ?? 'Operator' }}</div>
-                                <div class="text-[11px] text-slate-500 uppercase">{{ $mr->user->role ?? 'STAFF' }}</div>
-                            </td>
-                            <td>
-                                <div class="num font-bold text-accent">{{ $mr->lot_number }}</div>
+                                <div class="num font-bold text-accent text-xs">{{ $row->lot_number }}</div>
                                 <div class="mt-1">
                                     @if($bType === 'SINGLE')
-                                        <span class="pill pill-neu">{{ $bType }}</span>
+                                        <span class="pill pill-neu">SINGLE</span>
                                     @elseif($bType === 'MULTI-INPUT')
-                                        <span class="pill pill-info">{{ $bType }}</span>
+                                        <span class="pill pill-info">MULTI-INPUT</span>
                                     @elseif($bType === 'MULTI-OUTPUT')
-                                        <span class="pill pill-warn">{{ $bType }}</span>
+                                        <span class="pill pill-warn">MULTI-OUTPUT</span>
                                     @else
-                                        <span class="pill pill-good">{{ $bType }}</span>
+                                        <span class="pill pill-good">KOMBINASI</span>
                                     @endif
                                 </div>
                             </td>
                             <td>
-                                <div class="flex items-center gap-2.5">
-                                    <span class="pill pill-good w-[78px] justify-center flex-none text-[10px] h-5 px-1.5">Trigger</span>
-                                    <div class="min-w-0 flex-1 leading-tight">
-                                        <div class="num text-[11.5px] font-bold text-slate-600 truncate">{{ $mat->part_no ?: '-' }}</div>
-                                        <div class="font-semibold text-slate-900 text-xs truncate" title="{{ $mat->part_name ?? '-' }}">{{ $mat->part_name ?? '-' }}</div>
+                                <div class="flex items-center justify-between gap-2">
+                                    <div class="flex items-center gap-2.5 min-w-0">
+                                        <span class="pill pill-good w-[78px] justify-center flex-none text-[10px] h-5 px-1.5">Trigger</span>
+                                        <div class="min-w-0 leading-tight">
+                                            <div class="num text-[11px] font-bold text-slate-500 truncate">{{ $row->materialItem->part_no ?: '-' }}</div>
+                                            <div class="text-xs font-semibold text-slate-900 truncate">{{ $row->materialItem->part_name ?? '-' }}</div>
+                                        </div>
                                     </div>
+                                    <span class="pill pill-neu text-[10.5px] flex-none">{{ $row->materialItem->uom ?? '' }}</span>
                                 </div>
                             </td>
                             <td class="num whitespace-nowrap">
-                                <span class="font-bold text-emerald-700">+{{ floatval($mr->qty) }}</span>
-                                <span class="text-xs text-slate-500 ml-1">{{ $mat->uom ?? '' }}</span>
+                                <div class="inline-flex items-baseline justify-end gap-1.5 leading-none">
+                                    <span class="num text-sm font-bold text-emerald-700">+{{ floatval($row->qty) }}</span>
+                                    <span class="text-[11px] font-semibold text-slate-500">{{ $row->materialItem->uom ?? '' }}</span>
+                                </div>
                             </td>
                             <td>
-                                <div class="leading-tight">
-                                    <div class="num text-xs font-bold text-accent">{{ $tgt->part_no ?: '-' }}</div>
-                                    <div class="font-semibold text-slate-900 text-xs">{{ $tgt->part_name ?? '-' }}</div>
-                                </div>
+                                <div class="num text-[11px] font-bold text-accent">{{ $row->targetItem->part_no ?: '-' }}</div>
+                                <div class="text-xs font-semibold text-slate-900">{{ $row->targetItem->part_name ?? '-' }}</div>
                             </td>
                             <td class="text-center">
                                 @if($stLabel === 'DIKOREKSI')
@@ -271,22 +312,20 @@
                             </td>
                             <td class="text-center">
                                 <button type="button" class="act-btn" title="Koreksi Qty Return"
-                                        @click="openEdit({{ $mr->id }}, '{{ $mr->lot_number }}', '{{ addslashes($mat->part_name ?? '-') }}', '{{ $mat->uom ?? '' }}', {{ floatval($mr->qty) }})">
+                                        @click="openEdit({{ $row->id }}, '{{ $row->lot_number }}', '{{ addslashes($row->materialItem->part_name ?? '-') }}', '{{ floatval($row->qty) }}', '{{ $row->materialItem->uom ?? '' }}')">
                                     <x-icon name="edit" />
                                 </button>
                             </td>
                         </tr>
                     @empty
-                        <tr><td colspan="9"><div class="empty">Belum ada data Material Return.</div></td></tr>
+                        <tr><td colspan="9"><div class="empty">Belum ada data transaksi Material Return.</div></td></tr>
                     @endforelse
                 </tbody>
             </table>
         </div>
 
-        {{-- POP-UP MODAL EDIT QTY MATERIAL RETURN --}}
-        <div x-show="editOpen" x-cloak
-             class="modal-backdrop"
-             @click.self="editOpen = false">
+        {{-- POP-UP MODAL KOREKSI QTY MATERIAL RETURN --}}
+        <div x-show="editOpen" x-cloak class="modal-backdrop" @click.self="editOpen = false">
             <div class="panel w-full max-w-md overflow-hidden">
                 <div class="panel-head">
                     <h3 class="panel-title">Koreksi Qty Material Return</h3>
@@ -298,23 +337,22 @@
                     @csrf
                     <div class="panel-body space-y-4">
                         <div class="p-3 rounded bg-slate-50 border border-slate-200 text-xs space-y-1">
-                            <div>No. Lot: <b class="num text-accent" x-text="editLot"></b></div>
-                            <div>Material Trigger: <b class="text-slate-900" x-text="editMatName"></b></div>
-                            <div>Qty Return Saat Ini: <b class="num text-slate-900" x-text="editOldQty + ' ' + editUom"></b></div>
+                            <div class="text-slate-500">Nomor Lot: <b class="num text-accent" x-text="editLot"></b></div>
+                            <div class="font-bold text-slate-900" x-text="editPart"></div>
+                            <div class="text-slate-500">Qty Return Saat Ini: <b class="num text-slate-800" x-text="editOldQty + ' ' + editUom"></b></div>
                         </div>
 
                         <input type="hidden" :name="'items[' + editId + '][qty_check]'" value="TIDAK SESUAI">
 
                         <div>
-                            <label class="lbl">Qty Material Return Sebenarnya (Kalkulator + - * /)</label>
+                            <label class="lbl">Qty Material Return Sebenarnya (Mendukung Kalkulator)</label>
                             <input type="text"
                                    :name="'items[' + editId + '][actual_qty]'"
                                    x-model="editNewQty"
                                    required
-                                   class="num w-full h-9 text-xs font-semibold">
-                            <div class="text-xs text-slate-500 mt-1" x-show="evalCalc(editNewQty) !== null">
-                                Hasil Kalkulasi: <b class="num text-slate-900" x-text="evalCalc(editNewQty) + ' ' + editUom"></b>
-                            </div>
+                                   class="num w-full h-10 text-sm font-semibold"
+                                   placeholder="Contoh: 5 atau 3+2">
+                            <p class="hint">Koreksi akan memperbarui saldo stok gudang (Trigger &amp; Pendamping) serta menghitung ulang estimasi WIP di Lot Tracer.</p>
                         </div>
                     </div>
                     <div class="panel-foot">
@@ -327,7 +365,7 @@
     </div>
 
     <script>
-        function materialReturnPage(initialGroups, initialRows) {
+        function matRetPage(initGroups, initFlat) {
             return {
                 viewMode: 'grouped',
                 q: '',
@@ -337,36 +375,26 @@
                 endTime: '',
                 fBomType: '',
                 fStatus: '',
+                visibleGroups: initGroups,
+                visibleFlat: initFlat,
                 editOpen: false,
                 editId: null,
                 editLot: '',
-                editMatName: '',
-                editUom: '',
-                editOldQty: 0,
+                editPart: '',
+                editOldQty: '',
                 editNewQty: '',
-                visibleGroups: initialGroups,
-                visibleRows: initialRows,
-                openEdit(id, lot, matName, uom, qty) {
+                editUom: '',
+
+                openEdit(id, lot, part, qty, uom) {
                     this.editId = id;
                     this.editLot = lot;
-                    this.editMatName = matName;
-                    this.editUom = uom;
+                    this.editPart = part;
                     this.editOldQty = qty;
-                    this.editNewQty = String(qty);
+                    this.editNewQty = qty;
+                    this.editUom = uom;
                     this.editOpen = true;
                 },
-                evalCalc(val) {
-                    if (!val) return null;
-                    const expr = String(val).replace(/,/g, '.').replace(/\s+/g, '');
-                    if (!/^[0-9\.\+\-\*\/\(\)]+$/.test(expr)) return null;
-                    try {
-                        const r = Function('return (' + expr + ')')();
-                        return (typeof r === 'number' && isFinite(r) && r > 0) ? Math.round(r * 100) / 100 : null;
-                    } catch (e) {
-                        return null;
-                    }
-                },
-                matchFilter(el) {
+                matchRow(el) {
                     const s = (el.dataset.search || '').toLowerCase();
                     const d = el.dataset.date || '';
                     const t = el.dataset.time || '';
@@ -383,19 +411,18 @@
                     return true;
                 },
                 recalc() {
-                    if (this.startDate && this.endDate && this.endDate < this.startDate) {
-                        this.endDate = this.startDate;
-                    }
                     this.$nextTick(() => {
-                        let cg = 0, cr = 0;
-                        this.$el.querySelectorAll('tbody[data-group-body] tr[data-row-item]').forEach(tr => {
-                            if (this.matchFilter(tr)) cg++;
+                        let g = 0;
+                        this.$el.querySelectorAll('tr[data-grp-row]').forEach(tr => {
+                            if (this.matchRow(tr)) g++;
                         });
-                        this.$el.querySelectorAll('tbody[data-flat-body] tr[data-row-item]').forEach(tr => {
-                            if (this.matchFilter(tr)) cr++;
+                        this.visibleGroups = g;
+
+                        let f = 0;
+                        this.$el.querySelectorAll('tr[data-flat-row]').forEach(tr => {
+                            if (this.matchRow(tr)) f++;
                         });
-                        this.visibleGroups = cg;
-                        this.visibleRows = cr;
+                        this.visibleFlat = f;
                     });
                 },
                 resetFilter() {

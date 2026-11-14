@@ -1,7 +1,7 @@
 <x-app-layout>
     <x-slot name="header">
         <x-page-header title="Return to Supplier"
-                       subtitle="Riwayat pengembalian barang bermasalah (RM, KOMPONEN, & TRANSIT) ke Supplier">
+                       subtitle="Riwayat pengembalian barang ke Supplier (RM, KOMPONEN, TRANSIT)">
             <x-slot name="actions">
                 <a href="{{ route('return_to_suppliers.index', ['mode' => 'scanner']) }}" class="btn btn-primary">
                     <x-icon name="scan" /> Buka Mobile Scanner
@@ -13,26 +13,29 @@
     <x-flash />
 
     <div class="panel"
-         x-data="returnToSupplierPage({{ $returns->count() }})"
+         x-data="retSupPage({{ $returns->count() }})"
          x-init="recalc()"
          @table-refreshed.window="recalc()">
 
         <div class="panel-head">
             <div class="panel-title">
                 <span>Daftar Transaksi Return to Supplier</span>
-                <span class="count-chip"><span x-text="visibleRows"></span> Data</span>
+                <span class="count-chip"><span x-text="visibleRows"></span><span>Data</span></span>
             </div>
 
             <div class="flex flex-wrap items-center gap-2">
                 <input type="text" x-model="q" @input="recalc()"
-                       placeholder="Cari Part / Petugas Scan..."
+                       placeholder="Cari Part / Supplier / Petugas..."
                        class="h-8 text-xs px-2.5 w-48">
 
                 <div class="flex items-center gap-1 text-xs text-slate-600">
                     <span>Tgl:</span>
-                    <input type="date" x-model="startDate" @change="recalc()" class="h-8 text-xs px-2 w-32">
+                    <input type="date" x-model="startDate"
+                           @change="if(endDate && endDate < startDate) endDate = startDate; recalc()"
+                           class="h-8 text-xs px-2 w-32">
                     <span>-</span>
-                    <input type="date" x-model="endDate" :min="startDate" @change="recalc()" class="h-8 text-xs px-2 w-32">
+                    <input type="date" x-model="endDate" :min="startDate" @change="recalc()"
+                           class="h-8 text-xs px-2 w-32">
                 </div>
 
                 <div class="flex items-center gap-1 text-xs text-slate-600">
@@ -43,7 +46,7 @@
                 </div>
 
                 <select x-model="fType" @change="recalc()" class="h-8 text-xs py-0 pl-2 pr-7">
-                    <option value="">Semua Tipe</option>
+                    <option value="">Semua Tipe Item</option>
                     <option value="RM">RM</option>
                     <option value="KOMPONEN">KOMPONEN</option>
                     <option value="TRANSIT">TRANSIT</option>
@@ -57,7 +60,9 @@
 
                 <button type="button"
                         x-show="q || startDate || endDate || startTime || endTime || fType || fStatus"
-                        x-cloak @click="resetFilter()" class="btn btn-sm">
+                        x-cloak
+                        @click="resetFilter()"
+                        class="btn btn-sm">
                     Reset
                 </button>
             </div>
@@ -67,60 +72,58 @@
             <table class="tbl">
                 <thead>
                     <tr>
-                        <th class="w-12 text-center">No</th>
-                        <th class="w-36 text-left col-time">Tanggal &amp; Waktu</th>
-                        <th class="w-40">Petugas Scan</th>
-                        <th>Part No &amp; Part Name</th>
-                        <th class="w-32 text-center">Tipe</th>
-                        <th class="w-36 text-center">Supplier</th>
-                        <th class="num w-36">Qty Return</th>
-                        <th class="w-28 text-center">Status</th>
-                        <th class="w-16 text-center">Aksi</th>
+                        <th class="w-[5%] text-center">No</th>
+                        <th class="w-[14%] text-left col-time">Tanggal &amp; Waktu</th>
+                        <th class="w-[14%]">Petugas Scan</th>
+                        <th class="w-[25%]">Part No &amp; Part Name</th>
+                        <th class="w-[10%] text-center">Tipe</th>
+                        <th class="w-[10%] text-center">Supplier</th>
+                        <th class="num w-[10%]">Qty Return</th>
+                        <th class="w-[7%] text-center">Status</th>
+                        <th class="w-[5%] text-center">Aksi</th>
                     </tr>
                 </thead>
                 <tbody>
                     @forelse($returns as $idx => $ret)
                         @php
-                            $it = $ret->item;
-                            $comp = $it->company ?? null;
+                            $dt = \Carbon\Carbon::parse($ret->date_time);
                             $stLabel = $ret->qty_check === 'TIDAK SESUAI' ? 'DIKOREKSI' : 'TERCATAT';
                             $searchStr = strtolower(
-                                ($it->part_no ?? '') . ' ' .
-                                ($it->part_name ?? '') . ' ' .
-                                ($it->type ?? '') . ' ' .
-                                ($comp->company_code ?? '') . ' ' .
-                                ($comp->company_name ?? '') . ' ' .
+                                ($ret->item->part_no ?? '') . ' ' .
+                                ($ret->item->part_name ?? '') . ' ' .
+                                ($ret->item->type ?? '') . ' ' .
+                                ($ret->item->company->company_code ?? '') . ' ' .
                                 ($ret->user->name ?? 'Operator')
                             );
                         @endphp
-                        <tr data-row-item
+                        <tr data-ret-row
                             data-search="{{ $searchStr }}"
-                            data-date="{{ \Carbon\Carbon::parse($ret->date_time)->format('Y-m-d') }}"
-                            data-time="{{ \Carbon\Carbon::parse($ret->date_time)->format('H:i') }}"
-                            data-type="{{ $it->type ?? '' }}"
+                            data-date="{{ $dt->format('Y-m-d') }}"
+                            data-time="{{ $dt->format('H:i') }}"
+                            data-type="{{ $ret->item->type ?? '' }}"
                             data-status="{{ $stLabel }}"
-                            x-show="matchFilter($el)">
+                            x-show="matchRow($el)">
                             <td class="text-center num font-semibold text-slate-500">{{ $idx + 1 }}</td>
-                            <td class="num text-left col-time whitespace-nowrap text-xs text-slate-600">
-                                {{ \Carbon\Carbon::parse($ret->date_time)->format('d M Y, H:i') }}
-                            </td>
+                            <td class="num text-left col-time whitespace-nowrap text-xs text-slate-600">{{ $dt->format('d M Y, H:i') }}</td>
                             <td>
                                 <div class="font-semibold text-slate-900 text-xs">{{ $ret->user->name ?? 'Operator' }}</div>
-                                <div class="text-[11px] text-slate-500 uppercase">{{ $ret->user->role ?? 'STAFF' }}</div>
+                                <div class="text-[11px] text-slate-500">{{ $ret->user->role ?? 'STAFF' }}</div>
                             </td>
                             <td>
-                                <div class="num text-xs font-bold text-accent">{{ $it->part_no ?: '-' }}</div>
-                                <div class="font-semibold text-slate-900 text-xs">{{ $it->part_name ?? '-' }}</div>
+                                <div class="num text-xs font-bold text-accent">{{ $ret->item->part_no ?: '-' }}</div>
+                                <div class="font-semibold text-slate-900 text-xs">{{ $ret->item->part_name ?? '-' }}</div>
                             </td>
                             <td class="text-center">
-                                <span class="pill pill-neu">{{ $it->type ?? '-' }}</span>
+                                <span class="pill pill-neu">{{ $ret->item->type ?? '-' }}</span>
                             </td>
                             <td class="text-center">
-                                <span class="num text-xs font-bold text-accent">{{ $comp->company_code ?? '-' }}</span>
+                                <span class="num font-bold text-slate-700 text-xs">{{ $ret->item->company->company_code ?? '-' }}</span>
                             </td>
                             <td class="num whitespace-nowrap">
-                                <span class="font-bold text-rose-700">-{{ floatval($ret->qty) }}</span>
-                                <span class="text-xs text-slate-500 ml-1">{{ $it->uom ?? '' }}</span>
+                                <div class="inline-flex items-baseline justify-end gap-1.5 leading-none">
+                                    <span class="num text-sm font-bold text-rose-700">-{{ floatval($ret->qty) }}</span>
+                                    <span class="text-xs font-medium text-slate-500">{{ $ret->item->uom ?? '' }}</span>
+                                </div>
                             </td>
                             <td class="text-center">
                                 @if($stLabel === 'DIKOREKSI')
@@ -131,7 +134,7 @@
                             </td>
                             <td class="text-center">
                                 <button type="button" class="act-btn" title="Koreksi Qty Return to Supplier"
-                                        @click="openEdit({{ $ret->id }}, '{{ addslashes($it->part_no ?: '-') }}', '{{ addslashes($it->part_name ?? '-') }}', '{{ $it->uom ?? '' }}', {{ floatval($ret->qty) }})">
+                                        @click="openEdit({{ $ret->id }}, '{{ addslashes($ret->item->part_name ?? '-') }}', '{{ floatval($ret->qty) }}', '{{ $ret->item->uom ?? '' }}')">
                                     <x-icon name="edit" />
                                 </button>
                             </td>
@@ -143,10 +146,8 @@
             </table>
         </div>
 
-        {{-- POP-UP MODAL EDIT QTY RETURN TO SUPPLIER --}}
-        <div x-show="editOpen" x-cloak
-             class="modal-backdrop"
-             @click.self="editOpen = false">
+        {{-- POP-UP MODAL KOREKSI QTY RETURN TO SUPPLIER --}}
+        <div x-show="editOpen" x-cloak class="modal-backdrop" @click.self="editOpen = false">
             <div class="panel w-full max-w-md overflow-hidden">
                 <div class="panel-head">
                     <h3 class="panel-title">Koreksi Qty Return to Supplier</h3>
@@ -158,23 +159,18 @@
                     @csrf
                     <div class="panel-body space-y-4">
                         <div class="p-3 rounded bg-slate-50 border border-slate-200 text-xs space-y-1">
-                            <div>Part No: <b class="num text-accent" x-text="editPartNo"></b></div>
-                            <div>Part Name: <b class="text-slate-900" x-text="editPartName"></b></div>
-                            <div>Qty Tercatat Saat Ini: <b class="num text-slate-900" x-text="editOldQty + ' ' + editUom"></b></div>
+                            <div class="font-bold text-slate-900" x-text="editPart"></div>
+                            <div class="text-slate-500">Qty Tercatat Saat Ini: <b class="num text-slate-800" x-text="editOldQty + ' ' + editUom"></b></div>
                         </div>
-
-                        <input type="hidden" :name="'items[' + editId + '][qty_check]'" value="TIDAK SESUAI">
-
                         <div>
-                            <label class="lbl">Qty Return Sebenarnya (Kalkulator + - * /)</label>
+                            <label class="lbl">Qty Return Sebenarnya (Mendukung Kalkulator)</label>
                             <input type="text"
                                    :name="'items[' + editId + '][actual_qty]'"
                                    x-model="editNewQty"
                                    required
-                                   class="num w-full h-9 text-xs font-semibold">
-                            <div class="text-xs text-slate-500 mt-1" x-show="evalCalc(editNewQty) !== null">
-                                Hasil Kalkulasi: <b class="num text-slate-900" x-text="evalCalc(editNewQty) + ' ' + editUom"></b>
-                            </div>
+                                   class="num w-full h-10 text-sm font-semibold"
+                                   placeholder="Contoh: 10 atau 5+5">
+                            <p class="hint">Selisih koreksi otomatis menyesuaikan Current Stock barang ini di gudang.</p>
                         </div>
                     </div>
                     <div class="panel-foot">
@@ -187,7 +183,7 @@
     </div>
 
     <script>
-        function returnToSupplierPage(initialRows) {
+        function retSupPage(initialCount) {
             return {
                 q: '',
                 startDate: '',
@@ -196,35 +192,23 @@
                 endTime: '',
                 fType: '',
                 fStatus: '',
+                visibleRows: initialCount,
                 editOpen: false,
                 editId: null,
-                editPartNo: '',
-                editPartName: '',
-                editUom: '',
-                editOldQty: 0,
+                editPart: '',
+                editOldQty: '',
                 editNewQty: '',
-                visibleRows: initialRows,
-                openEdit(id, partNo, partName, uom, qty) {
+                editUom: '',
+
+                openEdit(id, part, qty, uom) {
                     this.editId = id;
-                    this.editPartNo = partNo;
-                    this.editPartName = partName;
-                    this.editUom = uom;
+                    this.editPart = part;
                     this.editOldQty = qty;
-                    this.editNewQty = String(qty);
+                    this.editNewQty = qty;
+                    this.editUom = uom;
                     this.editOpen = true;
                 },
-                evalCalc(val) {
-                    if (!val) return null;
-                    const expr = String(val).replace(/,/g, '.').replace(/\s+/g, '');
-                    if (!/^[0-9\.\+\-\*\/\(\)]+$/.test(expr)) return null;
-                    try {
-                        const r = Function('return (' + expr + ')')();
-                        return (typeof r === 'number' && isFinite(r) && r > 0) ? Math.round(r * 100) / 100 : null;
-                    } catch (e) {
-                        return null;
-                    }
-                },
-                matchFilter(el) {
+                matchRow(el) {
                     const s = (el.dataset.search || '').toLowerCase();
                     const d = el.dataset.date || '';
                     const t = el.dataset.time || '';
@@ -241,15 +225,12 @@
                     return true;
                 },
                 recalc() {
-                    if (this.startDate && this.endDate && this.endDate < this.startDate) {
-                        this.endDate = this.startDate;
-                    }
                     this.$nextTick(() => {
-                        let cr = 0;
-                        this.$el.querySelectorAll('tbody tr[data-row-item]').forEach(tr => {
-                            if (this.matchFilter(tr)) cr++;
+                        let c = 0;
+                        this.$el.querySelectorAll('tbody tr[data-ret-row]').forEach(tr => {
+                            if (this.matchRow(tr)) c++;
                         });
-                        this.visibleRows = cr;
+                        this.visibleRows = c;
                     });
                 },
                 resetFilter() {
