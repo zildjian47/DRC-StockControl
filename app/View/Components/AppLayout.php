@@ -5,20 +5,13 @@ namespace App\View\Components;
 use Illuminate\View\Component;
 use Illuminate\View\View;
 
-class ScannerLayout extends Component
+class AppLayout extends Component
 {
-    public ?string $backUrl;
-
-    public function __construct(?string $backUrl = null)
-    {
-        $this->backUrl = $backUrl;
-    }
-
     /**
-     * Dapatkan view / isi yang merepresentasikan komponen layout mobile.
+     * Get the view / contents that represents the component.
      */
     public function render(): View
     {
-        return view('layouts.scanner');
+        return view('layouts.app');
     }
 }

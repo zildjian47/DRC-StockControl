@@ -7,6 +7,13 @@ use Illuminate\View\View;
 
 class ScannerLayout extends Component
 {
+    public ?string $backUrl;
+
+    public function __construct(?string $backUrl = null)
+    {
+        $this->backUrl = $backUrl;
+    }
+
     /**
      * Dapatkan view / isi yang merepresentasikan komponen layout mobile.
      */
