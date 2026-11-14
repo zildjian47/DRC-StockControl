@@ -115,7 +115,7 @@
             </a>
         </header>
 
-        <main class="flex-1 overflow-y-auto">
+        <main class="flex-1 overflow-y-auto" id="main-scroll-area">
             <div class="page">
                 @isset($header)
                     <div class="page-head">{{ $header }}</div>
@@ -146,6 +146,183 @@
         </div>
     </div>
 </div>
+
+{{-- GLOBAL SEARCHABLE DROPDOWN ENGINE (UNTUK SEMUA <SELECT> DI FORM & FILTER) --}}
+<div id="drc-sselect-popover" class="sselect-popover" style="display: none;">
+    <div class="sselect-search-wrap">
+        <input type="text" id="drc-sselect-input" class="sselect-search" placeholder="Ketik untuk mencari..." autocomplete="off">
+    </div>
+    <div id="drc-sselect-list" class="sselect-list"></div>
+</div>
+
+<script>
+    (function () {
+        const popover = document.getElementById('drc-sselect-popover');
+        const searchInput = document.getElementById('drc-sselect-input');
+        const listEl = document.getElementById('drc-sselect-list');
+        let activeSelect = null;
+        let filteredOptions = [];
+        let highlightIndex = 0;
+
+        function closePopover() {
+            if (!activeSelect) return;
+            popover.style.display = 'none';
+            activeSelect = null;
+        }
+
+        function renderOptions() {
+            if (!activeSelect) return;
+            const q = (searchInput.value || '').trim().toLowerCase();
+            const allOpts = Array.from(activeSelect.options);
+
+            filteredOptions = allOpts.filter(opt => {
+                if (!q) return true;
+                return (opt.text || '').toLowerCase().includes(q) || (opt.value || '').toLowerCase().includes(q);
+            });
+
+            if (highlightIndex >= filteredOptions.length) {
+                highlightIndex = Math.max(0, filteredOptions.length - 1);
+            }
+
+            listEl.innerHTML = '';
+            if (filteredOptions.length === 0) {
+                const empty = document.createElement('div');
+                empty.className = 'sselect-empty';
+                empty.textContent = 'Data tidak ditemukan';
+                listEl.appendChild(empty);
+                return;
+            }
+
+            filteredOptions.forEach((opt, idx) => {
+                const item = document.createElement('div');
+                const isSelected = String(opt.value) === String(activeSelect.value);
+                item.className = 'sselect-opt' + (idx === highlightIndex ? ' active' : '') + (isSelected ? ' selected' : '');
+                item.textContent = opt.text;
+                item.addEventListener('mouseenter', () => {
+                    highlightIndex = idx;
+                    Array.from(listEl.children).forEach((el, i) => {
+                        el.classList.toggle('active', i === highlightIndex);
+                    });
+                });
+                item.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    selectOption(opt);
+                });
+                listEl.appendChild(item);
+            });
+        }
+
+        function selectOption(opt) {
+            if (!activeSelect || !opt) return;
+            const target = activeSelect;
+            target.value = opt.value;
+            target.dispatchEvent(new Event('input', { bubbles: true }));
+            target.dispatchEvent(new Event('change', { bubbles: true }));
+            closePopover();
+        }
+
+        function openForSelect(selectEl) {
+            if (selectEl.disabled) return;
+            activeSelect = selectEl;
+            searchInput.value = '';
+
+            const currentIdx = Array.from(selectEl.options).findIndex(o => String(o.value) === String(selectEl.value));
+            highlightIndex = currentIdx >= 0 ? currentIdx : 0;
+
+            renderOptions();
+            popover.style.display = 'flex';
+
+            const rect = selectEl.getBoundingClientRect();
+            const popW = Math.min(Math.max(rect.width, 220), Math.min(480, window.innerWidth - 16));
+            popover.style.width = popW + 'px';
+
+            let left = rect.left;
+            if (left + popW > window.innerWidth - 8) {
+                left = Math.max(8, window.innerWidth - popW - 8);
+            }
+            popover.style.left = left + 'px';
+
+            const spaceBelow = window.innerHeight - rect.bottom;
+            const popH = Math.min(265, popover.offsetHeight || 240);
+            if (spaceBelow < popH && rect.top > popH) {
+                popover.style.top = Math.max(8, rect.top - popH - 4) + 'px';
+            } else {
+                popover.style.top = (rect.bottom + 4) + 'px';
+            }
+
+            setTimeout(() => {
+                searchInput.focus();
+                const activeEl = listEl.querySelector('.sselect-opt.selected') || listEl.querySelector('.sselect-opt.active');
+                if (activeEl) activeEl.scrollIntoView({ block: 'nearest' });
+            }, 10);
+        }
+
+        document.addEventListener('mousedown', (e) => {
+            const sel = e.target.closest('select');
+            if (sel && !sel.disabled && !sel.hasAttribute('data-native-select')) {
+                e.preventDefault();
+                if (activeSelect === sel) {
+                    closePopover();
+                } else {
+                    openForSelect(sel);
+                }
+                return;
+            }
+            if (activeSelect && !popover.contains(e.target)) {
+                closePopover();
+            }
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (!activeSelect) {
+                const focused = document.activeElement;
+                if (focused && focused.tagName === 'SELECT' && !focused.disabled && (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown')) {
+                    e.preventDefault();
+                    openForSelect(focused);
+                }
+                return;
+            }
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                closePopover();
+            } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                if (filteredOptions.length > 0) {
+                    highlightIndex = (highlightIndex + 1) % filteredOptions.length;
+                    renderOptions();
+                    const activeEl = listEl.children[highlightIndex];
+                    if (activeEl) activeEl.scrollIntoView({ block: 'nearest' });
+                }
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                if (filteredOptions.length > 0) {
+                    highlightIndex = (highlightIndex - 1 + filteredOptions.length) % filteredOptions.length;
+                    renderOptions();
+                    const activeEl = listEl.children[highlightIndex];
+                    if (activeEl) activeEl.scrollIntoView({ block: 'nearest' });
+                }
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                if (filteredOptions[highlightIndex]) {
+                    selectOption(filteredOptions[highlightIndex]);
+                }
+            }
+        });
+
+        searchInput.addEventListener('input', () => {
+            highlightIndex = 0;
+            renderOptions();
+        });
+
+        window.addEventListener('scroll', (e) => {
+            if (activeSelect && !popover.contains(e.target)) {
+                closePopover();
+            }
+        }, true);
+
+        window.addEventListener('resize', closePopover);
+    })();
+</script>
 
 </body>
 </html>

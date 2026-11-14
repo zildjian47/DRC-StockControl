@@ -33,13 +33,7 @@
 
     <x-slot name="header">
         <x-page-header title="Dashboard Produksi"
-                       subtitle="{{ \Carbon\Carbon::now()->translatedFormat('l, d F Y') }} · Monitoring real-time">
-            <x-slot name="actions">
-                <a href="{{ route('lot_tracers.index') }}" class="btn btn-primary">
-                    <x-icon name="route" /> Buka Lot Tracer
-                </a>
-            </x-slot>
-        </x-page-header>
+                       subtitle="{{ \Carbon\Carbon::now()->translatedFormat('l, d F Y') }} · Monitoring real-time" />
     </x-slot>
 
     <div class="kpis">
@@ -120,7 +114,7 @@
                 <h3 class="panel-title">Perlu tindakan</h3>
             </div>
             <div class="panel-body flex-1 flex flex-col justify-between gap-4">
-                <div class="divide-y divide-slate-200 text-[13px]">
+                <div class="divide-y divide-slate-200 border-b border-slate-200 text-[13px]">
                     <div class="flex items-center justify-between py-3.5 first:pt-1">
                         <div>
                             <div class="font-semibold text-slate-900">Stok Kritis (Empty / Very Low)</div>
@@ -142,7 +136,7 @@
                         </div>
                         <span class="pill {{ $delayCount ? 'pill-crit' : 'pill-good' }} num">{{ $delayCount }}</span>
                     </div>
-                    <div class="flex items-center justify-between py-3.5 last:pb-1">
+                    <div class="flex items-center justify-between py-3.5">
                         <div>
                             <div class="font-semibold text-slate-900">Lot Sedang Berjalan</div>
                             <div class="text-xs text-slate-500 mt-0.5">Status pemantauan WIP ON PROGRESS</div>
@@ -151,7 +145,7 @@
                     </div>
                 </div>
 
-                <div class="pt-3 border-t border-slate-200 flex items-center justify-between gap-2">
+                <div class="flex items-center justify-between gap-2">
                     <a href="{{ route('inventory_stocks.index') }}" class="btn btn-sm flex-1">Cek Inventory Stock</a>
                     <a href="{{ route('problem_delays.index') }}" class="btn btn-sm flex-1">Buka Delay Delivery</a>
                 </div>
@@ -163,20 +157,22 @@
         <div class="panel-head">
             <div class="panel-title">
                 <span>Lot Sedang Berjalan (Live WIP)</span>
-                <span class="count-chip">{{ $activeLots->count() }} Lot</span>
+                <span class="count-chip"><span>{{ $activeLots->count() }}</span><span>Lot</span></span>
             </div>
-            <a href="{{ route('lot_tracers.index') }}" class="btn btn-sm">Buka Lot Tracer</a>
+            <a href="{{ route('lot_tracers.index') }}" class="btn btn-sm btn-primary">
+                <x-icon name="route" /> Buka Lot Tracer
+            </a>
         </div>
         <div class="tbl-wrap">
             <table class="tbl">
                 <thead>
                     <tr>
-                        <th class="w-28">Lot</th>
-                        <th>Produk (Target)</th>
-                        <th class="w-44">Proses</th>
-                        <th class="w-48">Progres Produksi</th>
-                        <th class="num w-40">Act FG / WIP</th>
-                        <th class="w-32 text-center">Status</th>
+                        <th class="w-[12%]">Lot</th>
+                        <th class="w-[30%]">Produk (Target)</th>
+                        <th class="w-[18%]">Proses</th>
+                        <th class="w-[18%]">Progres Produksi</th>
+                        <th class="num w-[12%]">Act FG / WIP</th>
+                        <th class="w-[10%] text-center">Status</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -190,7 +186,7 @@
                             <td class="num font-semibold text-accent">{{ $lot->lot_number }}</td>
                             <td class="font-medium text-slate-900">{{ $lot->targetItem->part_name ?? '-' }}</td>
                             <td class="text-slate-600 text-xs">{{ $lot->process->process_name ?? '-' }}</td>
-                            <td class="w-48">
+                            <td>
                                 <div class="inline-flex items-center gap-2.5" style="width: 164px;">
                                     <span class="track"><i style="width:{{ $pct }}%"></i></span>
                                     <span class="num text-xs font-semibold text-slate-700" style="width: 34px; text-align: right; flex: 0 0 34px;">{{ $pct }}%</span>

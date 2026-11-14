@@ -1,3 +1,4 @@
+@props(['backUrl' => null])
 <!DOCTYPE html>
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
 <head>
@@ -247,13 +248,13 @@
 </head>
 <body class="min-h-screen pb-10">
     <header class="scanner-header">
-        <a href="{{ $backUrl ?? route('dashboard') }}">
+        <a href="{{ $backUrl ?: url()->current() }}">
             <x-icon name="chevron-left" /> Kembali ke Desktop
         </a>
         <div class="ttl">{{ $header ?? 'Mobile Scanner' }}</div>
     </header>
 
-    <main class="max-w-md mx-auto p-3.5 space-y-3.5">
+    <main class="max-w-lg mx-auto p-3.5 space-y-3.5">
         {{ $slot }}
     </main>
 
@@ -277,5 +278,117 @@
             <button type="button" @click="show = false" class="text-white/80 hover:text-white"><x-icon name="x" /></button>
         </div>
     @endif
+
+    {{-- GLOBAL SEARCHABLE DROPDOWN ENGINE (UNTUK SEMUA <SELECT> DI MOBILE SCANNER) --}}
+    <div id="drc-sselect-popover" class="sselect-popover" style="display: none;">
+        <div class="sselect-search-wrap">
+            <input type="text" id="drc-sselect-input" class="sselect-search" placeholder="Ketik untuk mencari..." autocomplete="off">
+        </div>
+        <div id="drc-sselect-list" class="sselect-list"></div>
+    </div>
+
+    <script>
+        (function () {
+            const popover = document.getElementById('drc-sselect-popover');
+            const searchInput = document.getElementById('drc-sselect-input');
+            const listEl = document.getElementById('drc-sselect-list');
+            let activeSelect = null;
+            let filteredOptions = [];
+            let highlightIndex = 0;
+
+            function closePopover() {
+                if (!activeSelect) return;
+                popover.style.display = 'none';
+                activeSelect = null;
+            }
+
+            function renderOptions() {
+                if (!activeSelect) return;
+                const q = (searchInput.value || '').trim().toLowerCase();
+                const allOpts = Array.from(activeSelect.options);
+
+                filteredOptions = allOpts.filter(opt => {
+                    if (!q) return true;
+                    return (opt.text || '').toLowerCase().includes(q) || (opt.value || '').toLowerCase().includes(q);
+                });
+
+                if (highlightIndex >= filteredOptions.length) {
+                    highlightIndex = Math.max(0, filteredOptions.length - 1);
+                }
+
+                listEl.innerHTML = '';
+                if (filteredOptions.length === 0) {
+                    const empty = document.createElement('div');
+                    empty.className = 'sselect-empty';
+                    empty.textContent = 'Data tidak ditemukan';
+                    listEl.appendChild(empty);
+                    return;
+                }
+
+                filteredOptions.forEach((opt, idx) => {
+                    const item = document.createElement('div');
+                    const isSelected = String(opt.value) === String(activeSelect.value);
+                    item.className = 'sselect-opt' + (idx === highlightIndex ? ' active' : '') + (isSelected ? ' selected' : '');
+                    item.textContent = opt.text;
+                    item.addEventListener('mousedown', (e) => {
+                        e.preventDefault();
+                        selectOption(opt);
+                    });
+                    listEl.appendChild(item);
+                });
+            }
+
+            function selectOption(opt) {
+                if (!activeSelect || !opt) return;
+                const target = activeSelect;
+                target.value = opt.value;
+                target.dispatchEvent(new Event('input', { bubbles: true }));
+                target.dispatchEvent(new Event('change', { bubbles: true }));
+                closePopover();
+            }
+
+            function openForSelect(selectEl) {
+                if (selectEl.disabled) return;
+                activeSelect = selectEl;
+                searchInput.value = '';
+                highlightIndex = 0;
+                renderOptions();
+                popover.style.display = 'flex';
+
+                const rect = selectEl.getBoundingClientRect();
+                const popW = Math.min(Math.max(rect.width, 240), window.innerWidth - 16);
+                popover.style.width = popW + 'px';
+                popover.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - popW - 8)) + 'px';
+
+                const spaceBelow = window.innerHeight - rect.bottom;
+                const popH = Math.min(250, popover.offsetHeight || 220);
+                if (spaceBelow < popH && rect.top > popH) {
+                    popover.style.top = Math.max(8, rect.top - popH - 4) + 'px';
+                } else {
+                    popover.style.top = (rect.bottom + 4) + 'px';
+                }
+
+                setTimeout(() => searchInput.focus(), 10);
+            }
+
+            document.addEventListener('mousedown', (e) => {
+                const sel = e.target.closest('select');
+                if (sel && !sel.disabled && !sel.hasAttribute('data-native-select')) {
+                    e.preventDefault();
+                    if (activeSelect === sel) closePopover();
+                    else openForSelect(sel);
+                    return;
+                }
+                if (activeSelect && !popover.contains(e.target)) {
+                    closePopover();
+                }
+            });
+
+            searchInput.addEventListener('input', () => {
+                highlightIndex = 0;
+                renderOptions();
+            });
+        })();
+    </script>
 </body>
 </html>

@@ -120,7 +120,7 @@
                     <div>
                         <label class="lbl">Qty Inbound (<span x-text="selectedItem?.uom"></span>)</label>
                         <input type="text" name="qty" x-model="qtyExpr" required
-                               placeholder="Contoh: 100 atau 4*25"
+                               placeholder="Input Qty"
                                class="num w-full h-14 text-2xl text-center font-bold">
                         <div class="text-xs text-slate-500 mt-1 text-center" x-show="evalQty() !== null">
                             Hasil Kalkulasi: <b class="num text-emerald-700" x-text="'+' + evalQty() + ' ' + (selectedItem?.uom ?? '')"></b>
@@ -128,7 +128,7 @@
                     </div>
 
                     <button type="submit" class="btn btn-primary btn-lg w-full">
-                        Simpan Inbound (+ Stok)
+                    Simpan Inbound
                     </button>
                 </form>
 
