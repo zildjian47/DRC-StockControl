@@ -11,6 +11,7 @@ return new class extends Migration
         Schema::create('problem_delays', function (Blueprint $table) {
             $table->id();
             $table->timestamp('date_time')->useCurrent();
+            $table->date('incident_date')->nullable()->index();
             $table->foreignId('company_id')->constrained('companies')->onDelete('restrict');
             $table->foreignId('item_id')->constrained('items')->onDelete('restrict');
             $table->foreignId('user_id')->nullable()->constrained('users')->nullOnDelete();

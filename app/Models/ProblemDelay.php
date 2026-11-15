@@ -9,10 +9,18 @@ class ProblemDelay extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['date_time', 'company_id', 'item_id', 'user_id', 'problem_reason'];
+    protected $fillable = [
+        'date_time',
+        'incident_date',
+        'company_id',
+        'item_id',
+        'user_id',
+        'problem_reason',
+    ];
 
     protected $casts = [
-        'date_time' => 'datetime',
+        'date_time'     => 'datetime',
+        'incident_date' => 'date',
     ];
 
     public function company()

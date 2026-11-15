@@ -44,11 +44,11 @@ class ProblemDelayController extends Controller
         }
 
         if ($request->filled('start_date')) {
-            $query->whereDate('date_time', '>=', $request->start_date);
+            $query->whereDate('incident_date', '>=', $request->start_date);
         }
 
         if ($request->filled('end_date')) {
-            $query->whereDate('date_time', '<=', $request->end_date);
+            $query->whereDate('incident_date', '<=', $request->end_date);
         }
 
         if ($request->filled('start_time')) {
@@ -59,7 +59,7 @@ class ProblemDelayController extends Controller
             $query->whereTime('date_time', '<=', $request->end_time . ':59');
         }
 
-        $delays  = $query->orderBy('id', 'desc')->get();
+        $delays  = $query->orderByDesc('incident_date')->orderByDesc('id')->get();
         $reasons = self::REASONS;
 
         return view('problem_delays.index', compact('delays', 'companies', 'items', 'reasons'));
@@ -68,18 +68,31 @@ class ProblemDelayController extends Controller
     public function store(Request $request)
     {
         $request->validate([
+            'incident_date'  => 'required|date',
             'company_id'     => 'required|exists:companies,id',
             'item_id'        => 'required|exists:items,id',
             'problem_reason' => 'required|in:' . implode(',', self::REASONS),
         ]);
 
-        $item = Item::findOrFail($request->item_id);
-        if ((int) $item->company_id !== (int) $request->company_id) {
-            return back()->with('error', 'Item yang dipilih tidak terdaftar pada perusahaan tersebut.');
+        $company = Company::findOrFail($request->company_id);
+        $item    = Item::findOrFail($request->item_id);
+
+        if ($company->type_company === 'CUSTOMER') {
+            $allowedForCustomer = ((int) $item->company_id === (int) $company->id)
+                || in_array($item->type, ['FG/KOMPONEN', 'TRANSIT'], true);
+
+            if (!$allowedForCustomer) {
+                return back()->withInput()->with('error', 'Item yang dipilih tidak sesuai untuk pelanggan (Customer) tersebut.');
+            }
+        } else {
+            if ((int) $item->company_id !== (int) $company->id) {
+                return back()->withInput()->with('error', 'Item yang dipilih tidak terdaftar pada perusahaan tersebut.');
+            }
         }
 
         ProblemDelay::create([
             'date_time'      => now(),
+            'incident_date'  => $request->incident_date,
             'company_id'     => $request->company_id,
             'item_id'        => $request->item_id,
             'user_id'        => Auth::id(),
