@@ -2,54 +2,56 @@
     <x-slot name="header">Scanner Material Return</x-slot>
 
     @php
-        $rawScans = $allScans ?? \App\Models\MaterialReturn::with(['materialItem', 'targetItem', 'user'])
+        $allScansData = \App\Models\MaterialReturn::with(['materialItem', 'targetItem', 'user'])
             ->orderBy('date_time', 'desc')
             ->orderBy('id', 'desc')
-            ->get();
+            ->limit(300)
+            ->get()
+            ->map(function ($s) {
+                $dt = \Carbon\Carbon::parse($s->date_time);
+                return [
+                    'id'         => $s->id,
+                    'date'       => $dt->format('Y-m-d'),
+                    'time'       => $dt->format('H:i'),
+                    'date_fmt'   => $dt->format('d M Y, H:i'),
+                    'lot_number' => $s->lot_number,
+                    'mat_no'     => $s->materialItem->part_no ?: '-',
+                    'mat_name'   => $s->materialItem->part_name ?? '-',
+                    'mat_uom'    => $s->materialItem->uom ?? '',
+                    'tgt_no'     => $s->targetItem->part_no ?: '-',
+                    'tgt_name'   => $s->targetItem->part_name ?? '-',
+                    'qty'        => (float) $s->qty,
+                    'user_name'  => $s->user->name ?? 'Operator',
+                ];
+            })->values();
 
-        $allScansList = $rawScans->map(function ($s) {
-            return [
-                'id'          => $s->id,
-                'date'        => \Carbon\Carbon::parse($s->date_time)->format('Y-m-d'),
-                'time_fmt'    => \Carbon\Carbon::parse($s->date_time)->format('d M Y, H:i'),
-                'lot_number'  => $s->lot_number,
-                'mat_no'      => $s->materialItem->part_no ?: '-',
-                'mat_name'    => $s->materialItem->part_name ?? '-',
-                'mat_uom'     => $s->materialItem->uom ?? '',
-                'target_no'   => $s->targetItem->part_no ?: '-',
-                'target_name' => $s->targetItem->part_name ?? '-',
-                'qty'         => (float) $s->qty,
-                'user'        => $s->user->name ?? 'Operator',
-                'search'      => strtolower(($s->lot_number ?? '') . ' ' . ($s->materialItem->part_no ?? '') . ' ' . ($s->materialItem->part_name ?? '') . ' ' . ($s->targetItem->part_no ?? '') . ' ' . ($s->targetItem->part_name ?? '') . ' ' . floatval($s->qty)),
-            ];
-        })->values();
-
-        $itemsJs = ($items ?? collect())->map(fn ($i) => [
+        $itemsPayload = $items->map(fn ($i) => [
             'id'           => $i->id,
-            'part_no'      => $i->part_no ?: '',
-            'part_name'    => $i->part_name,
+            'part_no'      => $i->part_no ? strtoupper(trim($i->part_no)) : '',
+            'part_name'    => strtoupper(trim($i->part_name)),
             'type'         => $i->type,
             'uom'          => $i->uom,
             'company_type' => $i->company->type_company ?? 'INTERNAL',
-            'stock'        => (float) ($i->inventoryStock->current_stock ?? 0),
+            'stock'        => $i->inventoryStock ? (float) $i->inventoryStock->current_stock : 0,
         ])->values();
 
-        $lotsJs = ($activeLots ?? collect())->map(fn ($lt) => [
+        $activeLotsPayload = $activeLots->map(fn ($lt) => [
             'id'               => $lt->id,
             'lot_number'       => $lt->lot_number,
-            'material_item_id' => (int) $lt->material_item_id,
-            'target_item_id'   => (int) $lt->target_item_id,
-            'qty_out'          => (float) $lt->qty_material_out,
+            'material_item_id' => $lt->material_item_id,
+            'target_item_id'   => $lt->target_item_id,
+            'mat_out'          => (float) $lt->qty_material_out,
             'mat_saat_ini'     => (float) $lt->material_saat_ini,
+            'target_name'      => $lt->targetItem->part_name ?? '-',
+            'mat_uom'          => $lt->materialItem->uom ?? '',
         ])->values();
     @endphp
 
-    <div x-data="materialReturnScanner({{ Js::from($itemsJs) }}, {{ Js::from($lotsJs) }}, {{ Js::from($allScansList) }}, '{{ now()->format('Y-m-d') }}')"
-         x-init="initScanner()"
-         class="space-y-3.5">
+    <div x-data="matReturnScanner({{ Js::from($itemsPayload) }}, {{ Js::from($activeLotsPayload) }}, {{ Js::from($allScansData) }}, '{{ now()->format('Y-m-d') }}')"
+         x-init="initScanner()">
 
-        {{-- VISUAL STEPPER 3 LANGKAH --}}
-        <div class="scan-stepper">
+        {{-- VISUAL STEPPER --}}
+        <div class="scan-stepper mb-3">
             <div class="scan-step" :class="step === 1 ? 'active' : (step > 1 ? 'done' : '')">
                 <span class="scan-step-num" x-text="step > 1 ? '✓' : '1'"></span>
                 <span class="truncate">Scan Material</span>
@@ -60,277 +62,302 @@
             </div>
             <div class="scan-step" :class="step === 3 ? 'active' : ''">
                 <span class="scan-step-num">3</span>
-                <span class="truncate">Lot &amp; Qty</span>
+                <span class="truncate">Lot &amp; Qty Return</span>
             </div>
         </div>
 
-        <div x-show="errMsg" x-cloak class="alert alert-crit">
-            <div class="flex-1" x-text="errMsg"></div>
-            <button type="button" @click="errMsg = ''" class="font-bold">✕</button>
+        <div x-show="errorMsg" x-cloak class="alert alert-crit mb-3 flex items-center justify-between">
+            <span x-text="errorMsg"></span>
+            <button type="button" @click="errorMsg = ''" class="act-btn"><x-icon name="x" /></button>
         </div>
 
-        <div class="panel panel-body space-y-3.5">
-            <div class="flex items-center justify-between">
-                <h3 class="panel-title"
-                    x-text="step === 1 ? 'Scan Material yang Dikembalikan' : (step === 2 ? 'Scan Target Output' : 'Pilih Nomor Lot & Qty Return')"></h3>
-                <span class="pill pill-info" x-text="'Langkah ' + step + '/3'"></span>
+        <div class="panel">
+            <div class="panel-head">
+                <div class="panel-title">
+                    <span x-show="step === 1">Langkah 1 · Scan Material Dikembalikan</span>
+                    <span x-show="step === 2" x-cloak>Langkah 2 · Scan Target Output</span>
+                    <span x-show="step === 3" x-cloak>Langkah 3 · Pilih Lot &amp; Input Qty Return</span>
+                </div>
+                <span class="pill pill-info">1x Return / Lot</span>
             </div>
 
-            {{-- KAMERA PERSEGI (STEP 1 & STEP 2) --}}
-            <div x-show="step === 1 || step === 2" class="space-y-3">
-                <div x-show="step === 2 && materialItem" class="p-2.5 rounded bg-slate-50 border border-slate-200 text-xs flex items-center justify-between">
-                    <div>
-                        <span class="text-slate-500 block text-[10.5px]">Material Dikembalikan:</span>
-                        <b class="text-slate-900" x-text="materialItem?.part_name"></b>
-                    </div>
-                    <span class="pill pill-neu" x-text="materialItem?.uom"></span>
-                </div>
+            <div class="panel-body space-y-4">
+                {{-- AREA KAMERA (STEP 1 & 2) --}}
+                <div x-show="step === 1 || step === 2">
+                    <div class="camera-box mb-3">
+                        <div id="qr-reader" x-show="cameraActive"></div>
+                        <div class="scan-scope-guide" x-show="cameraActive"></div>
 
-                <div class="camera-box">
-                    <div id="qr-reader" x-show="camPermitted"></div>
-                    <div class="scan-scope-guide" x-show="camPermitted"></div>
-
-                    <div x-show="!camPermitted" x-cloak class="p-5 text-center text-white space-y-3 z-20">
-                        <div class="w-11 h-11 rounded bg-white/10 mx-auto grid place-items-center text-sky-400">
-                            <x-icon name="scan" class="w-6 h-6" />
+                        <div x-show="!cameraActive" class="p-6 text-center space-y-3">
+                            <div class="w-12 h-12 rounded bg-white/10 text-white grid place-items-center mx-auto">
+                                <x-icon name="scan" class="w-6 h-6" />
+                            </div>
+                            <div class="text-xs text-slate-300 leading-relaxed">
+                                Aktifkan izin kamera 1 kali untuk perangkat ini, atau gunakan input kode manual di bawah.
+                            </div>
+                            <button type="button" @click="activateCamera()" class="btn btn-primary">
+                                <x-icon name="scan" /> Aktifkan Kamera Scanner
+                            </button>
                         </div>
-                        <div class="space-y-1">
-                            <div class="text-xs font-bold uppercase tracking-wider">Akses Kamera Diperlukan</div>
-                            <p class="text-[11px] text-slate-300 leading-relaxed">
-                                Izinkan akses kamera 1 kali pada perangkat ini. Untuk penggunaan berikutnya kamera akan aktif otomatis.
-                            </p>
+                    </div>
+
+                    <div x-show="step === 2 && materialItem" x-cloak class="p-3 rounded bg-slate-50 border border-slate-200 mb-3 flex items-center justify-between gap-2">
+                        <div class="min-w-0 flex-1">
+                            <div class="text-[11px] font-semibold uppercase text-slate-500">Material Dikembalikan</div>
+                            <div class="num text-xs font-bold text-accent mt-0.5" x-text="materialItem?.part_no || materialItem?.type"></div>
+                            <div class="text-xs font-semibold text-slate-900 break-words" x-text="materialItem?.part_name"></div>
                         </div>
-                        <button type="button" @click="requestCamera()" class="btn btn-primary w-full">
-                            Aktifkan &amp; Izinkan Kamera
-                        </button>
-                    </div>
-                </div>
-
-                <div>
-                    <label class="lbl" x-text="step === 1 ? 'Input Manual Material (Part No / Part Name)' : 'Input Manual Target Output (Part No / Part Name)'"></label>
-                    <div class="flex gap-2">
-                        <input type="text" x-model="manualCode"
-                               @keydown.enter.prevent="handleScan(manualCode)"
-                               oninput="this.value = this.value.toUpperCase()"
-                               placeholder="Ketik Part No atau Part Name..."
-                               class="num uppercase flex-1 h-10 text-xs">
-                        <button type="button" @click="handleScan(manualCode)" class="btn btn-primary h-10 px-4">
-                            Verifikasi
-                        </button>
-                    </div>
-                </div>
-
-                <button type="button" x-show="step === 2" @click="resetAll()" class="btn w-full">
-                    Ganti Material
-                </button>
-            </div>
-
-            {{-- STEP 3: PILIH LOT AKTIF & QTY RETURN --}}
-            <div x-show="step === 3" x-cloak class="space-y-3.5">
-                <div class="p-3 rounded bg-slate-50 border border-slate-200 text-xs space-y-1.5">
-                    <div>Material: <b class="text-slate-900" x-text="materialItem?.part_name"></b></div>
-                    <div>Target Output: <b class="text-slate-900" x-text="targetItem?.part_name"></b></div>
-                </div>
-
-                <form action="{{ route('material_returns.store') }}" method="POST" class="space-y-3.5">
-                    @csrf
-                    <input type="hidden" name="mode" value="scanner">
-                    <input type="hidden" name="material_item_id" :value="materialItem?.id">
-                    <input type="hidden" name="target_item_id" :value="targetItem?.id">
-
-                    <div>
-                        <label class="lbl">Cari &amp; Pilih Nomor Lot Aktif</label>
-                        <input type="text" x-model="lotSearch"
-                               placeholder="Ketik Nomor Lot untuk menyaring..."
-                               class="num uppercase w-full h-8 text-xs mb-1.5">
-                        <select name="lot_number" x-model="selectedLotNo" required class="w-full h-10 text-xs num font-semibold">
-                            <option value="">-- Pilih Nomor Lot --</option>
-                            <template x-for="lt in availableLots" :key="lt.lot_number">
-                                <option :value="lt.lot_number"
-                                        x-text="lt.lot_number + ' (Material Saat Ini: ' + lt.mat_saat_ini + ' ' + (materialItem?.uom ?? '') + ')'"></option>
-                            </template>
-                        </select>
-                    </div>
-
-                    <div x-show="selectedLotObj" class="p-2.5 rounded bg-blue-50/70 border border-blue-200 text-xs flex items-center justify-between">
-                        <span>Batas Maksimal Return (Material Saat Ini):</span>
-                        <b class="num text-accent" x-text="(selectedLotObj?.mat_saat_ini ?? 0) + ' ' + (materialItem?.uom ?? '')"></b>
+                        <button type="button" @click="resetAll()" class="text-xs font-semibold text-rose-600 hover:underline flex-none">Ganti</button>
                     </div>
 
                     <div>
-                        <label class="lbl">Qty Material Return (<span x-text="materialItem?.uom"></span>)</label>
-                        <input type="text" name="qty" x-model="qtyExpr" required
-                               placeholder="0"
-                               class="num w-full h-14 text-2xl text-center font-bold">
-                        <p x-show="selectedLotObj && evalQty() > selectedLotObj.mat_saat_ini" class="text-xs text-rose-600 font-semibold mt-1">
-                            Ditolak: Qty Return melebihi sisa Material Saat Ini di mesin (<span x-text="selectedLotObj?.mat_saat_ini"></span>).
-                        </p>
+                        <label class="lbl" x-text="step === 1 ? 'Ketik Part No / Part Name Material' : 'Ketik Part No / Part Name Target Output'"></label>
+                        <div class="flex gap-2">
+                            <input type="text" x-model="manualCode"
+                                   @keydown.enter.prevent="handleScan(manualCode)"
+                                   :placeholder="step === 1 ? 'Contoh: SHEET TRAPESIUM SPHC 2.3MM' : 'Contoh: FG-GUS-R'"
+                                   class="num uppercase flex-1 h-10 text-xs font-semibold">
+                            <button type="button" @click="handleScan(manualCode)" class="btn btn-primary px-4 h-10">
+                                Cek Kode
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                {{-- STEP 3: PILIH LOT & INPUT QTY RETURN --}}
+                <div x-show="step === 3" x-cloak class="space-y-4">
+                    <div class="p-3 rounded bg-slate-50 border border-slate-200 space-y-2 text-xs">
+                        <div class="flex items-center justify-between gap-2">
+                            <div class="min-w-0 flex-1">
+                                <div class="text-[11px] font-semibold text-slate-500 uppercase">Material Trigger</div>
+                                <div class="font-bold text-slate-900 break-words" x-text="(materialItem?.part_no ? materialItem.part_no + ' — ' : '') + (materialItem?.part_name || '')"></div>
+                            </div>
+                            <span class="pill pill-neu flex-none" x-text="materialItem?.uom"></span>
+                        </div>
+                        <div class="pt-2 border-t border-slate-200 flex items-center justify-between gap-2">
+                            <div class="min-w-0 flex-1">
+                                <div class="text-[11px] font-semibold text-slate-500 uppercase">Target Output</div>
+                                <div class="font-bold text-accent break-words" x-text="(targetItem?.part_no ? targetItem.part_no + ' — ' : '') + (targetItem?.part_name || '')"></div>
+                            </div>
+                        </div>
                     </div>
 
-                    <button type="submit"
-                            :disabled="!selectedLotObj || !evalQty() || evalQty() > selectedLotObj.mat_saat_ini"
-                            class="btn btn-primary btn-lg w-full">
-                        Simpan Material Return (+ Stok)
+                    <form action="{{ route('material_returns.store') }}" method="POST" class="space-y-4">
+                        @csrf
+                        <input type="hidden" name="mode" value="scanner">
+                        <input type="hidden" name="material_item_id" :value="materialItem?.id">
+                        <input type="hidden" name="target_item_id" :value="targetItem?.id">
+
+                        <div>
+                            <label class="lbl">Pilih Nomor Lot Aktif (Klik &amp; Ketik untuk Mencari)</label>
+                            <select name="lot_number" x-model="lotNumber" required class="w-full h-11 text-xs font-semibold">
+                                <option value="">-- Pilih Nomor Lot --</option>
+                                <template x-for="lt in matchingLots" :key="lt.lot_number">
+                                    <option :value="lt.lot_number"
+                                            x-text="lt.lot_number + ' — Sisa Material Saat Ini: ' + lt.mat_saat_ini + ' ' + lt.mat_uom"></option>
+                                </template>
+                            </select>
+                        </div>
+
+                        <div x-show="selectedLotObj" class="p-3 rounded bg-blue-50/70 border border-blue-200 flex items-center justify-between text-xs">
+                            <span class="text-blue-900 font-medium">Batas Maksimal Return (Material Saat Ini):</span>
+                            <b class="num text-sm text-accent" x-text="(selectedLotObj?.mat_saat_ini ?? 0) + ' ' + (materialItem?.uom || '')"></b>
+                        </div>
+
+                        <div>
+                            <label class="lbl">Qty Material Return (<span x-text="materialItem?.uom || 'Unit'"></span>) — Mendukung Kalkulator</label>
+                            <input type="text" name="qty" x-model="rawQty" required
+                                   placeholder="Contoh: 5"
+                                   class="num w-full h-14 text-2xl text-center font-bold">
+                            <div x-show="selectedLotObj && parsedQty > selectedLotObj.mat_saat_ini" class="text-xs text-rose-600 font-semibold mt-1">
+                                Ditolak: Qty Return (<span class="num" x-text="parsedQty"></span>) melebihi sisa Material Saat Ini di mesin (<span class="num" x-text="selectedLotObj?.mat_saat_ini"></span>).
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary btn-lg w-full" :disabled="!canSubmit">
+                            Simpan Material Return (+ Stok)
+                        </button>
+                    </form>
+
+                    <button type="button" @click="resetAll()" class="btn w-full">
+                        Batal &amp; Scan Ulang
                     </button>
-                </form>
-
-                <button type="button" @click="resetAll()" class="btn w-full">
-                    Batal &amp; Scan Ulang
-                </button>
+                </div>
             </div>
         </div>
 
-        {{-- RIWAYAT SCAN DENGAN FILTER TANGGAL & SEARCH --}}
+        {{-- PANEL RIWAYAT SCAN --}}
         <div class="panel">
             <div class="panel-head">
                 <div class="panel-title">
                     <span>Riwayat Scan Material Return</span>
-                    <span class="count-chip"><span x-text="filteredHistory.length"></span> Data</span>
+                    <span class="count-chip"><span x-text="filteredHistory.length"></span><span>Scan</span></span>
                 </div>
-                <button type="button" x-show="histDate || histSearch" x-cloak
-                        @click="histDate = todayStr; histSearch = ''" class="btn btn-sm">
+            </div>
+            <div class="p-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center gap-2">
+                <input type="date" x-model="histDate" class="h-8 text-xs px-2 w-36">
+                <input type="text" x-model="histSearch" placeholder="Cari Lot / Part / Qty..." class="h-8 text-xs px-2.5 flex-1 min-w-[140px]">
+                <button type="button" x-show="histSearch || histDate !== todayStr" x-cloak
+                        @click="histSearch = ''; histDate = todayStr" class="btn btn-sm">
                     Hari Ini
                 </button>
             </div>
-
-            <div class="p-2.5 bg-slate-50 border-b border-slate-200 flex items-center gap-2">
-                <input type="date" x-model="histDate" class="h-8 text-xs px-2 w-32 num">
-                <input type="text" x-model="histSearch"
-                       placeholder="Cari Lot / Part / Qty..."
-                       class="h-8 text-xs px-2.5 flex-1 min-w-0">
-            </div>
-
             <div class="divide-y divide-slate-200 max-h-80 overflow-y-auto">
-                <template x-for="row in filteredHistory" :key="row.id">
-                    <div class="px-3.5 py-2.5 flex items-center justify-between gap-2 text-xs">
-                        <div class="min-w-0">
-                            <div class="flex items-center gap-1.5">
-                                <span class="pill pill-info num" x-text="row.lot_number"></span>
-                                <span class="text-[11px] text-slate-400 num" x-text="row.time_fmt"></span>
+                <template x-for="s in filteredHistory" :key="s.id">
+                    <div class="p-3 flex items-center justify-between gap-3 text-xs bg-white hover:bg-slate-50">
+                        <div class="min-w-0 flex-1">
+                            <div class="flex items-center gap-1.5 flex-wrap">
+                                <span class="pill pill-info num text-[10.5px]" x-text="s.lot_number"></span>
+                                <span class="num text-[11px] text-slate-500" x-text="s.date_fmt"></span>
+                                <span class="text-[11px] text-slate-500" x-text="'· ' + s.user_name"></span>
                             </div>
-                            <div class="font-semibold text-slate-900 truncate mt-0.5" x-text="row.mat_name"></div>
-                            <div class="text-[11px] text-slate-500" x-text="'Petugas: ' + row.user"></div>
+                            <div class="font-semibold text-slate-900 mt-1 break-words" x-text="(s.mat_no !== '-' ? s.mat_no + ' — ' : '') + s.mat_name"></div>
+                            <div class="text-[11px] text-slate-500 break-words" x-text="'Target: ' + (s.tgt_no !== '-' ? s.tgt_no + ' — ' : '') + s.tgt_name"></div>
                         </div>
-                        <div class="num font-bold text-emerald-700 whitespace-nowrap"
-                             x-text="'+' + row.qty + ' ' + row.mat_uom"></div>
+                        <div class="text-right whitespace-nowrap flex-none">
+                            <span class="num text-sm font-bold text-emerald-700" x-text="'+' + s.qty + ' ' + s.mat_uom"></span>
+                        </div>
                     </div>
                 </template>
                 <div x-show="filteredHistory.length === 0" class="empty">
-                    Tidak ada riwayat scan pada tanggal/filter ini.
+                    Tidak ada riwayat scan pada tanggal / pencarian ini.
                 </div>
             </div>
         </div>
     </div>
 
     <script>
-        function materialReturnScanner(itemsList, lotsList, scansList, todayStr) {
+        function matReturnScanner(items, activeLots, allScans, todayStr) {
             return {
-                items: itemsList,
-                lots: lotsList,
-                scans: scansList,
-                todayStr: todayStr,
                 step: 1,
-                camPermitted: window.DRCScanner.isPermitted(),
+                cameraActive: false,
                 manualCode: '',
-                materialItem: null,
-                targetItem: null,
-                lotSearch: '',
-                selectedLotNo: '',
-                qtyExpr: '',
-                errMsg: '',
+                errorMsg: '',
+                items: items,
+                activeLots: activeLots,
+                allScans: allScans,
+                todayStr: todayStr,
                 histDate: todayStr,
                 histSearch: '',
 
-                get filteredHistory() {
-                    return this.scans.filter(r => {
-                        if (this.histDate && r.date !== this.histDate) return false;
-                        if (this.histSearch && !r.search.includes(this.histSearch.toLowerCase())) return false;
-                        return true;
-                    });
-                },
-                get availableLots() {
-                    if (!this.materialItem || !this.targetItem) return [];
-                    return this.lots.filter(l => {
-                        const matchPair = l.material_item_id === this.materialItem.id && l.target_item_id === this.targetItem.id;
-                        if (!matchPair) return false;
-                        if (this.lotSearch && !l.lot_number.toLowerCase().includes(this.lotSearch.toLowerCase())) return false;
-                        return true;
-                    });
-                },
-                get selectedLotObj() {
-                    return this.availableLots.find(l => l.lot_number === this.selectedLotNo) || null;
-                },
+                materialItem: null,
+                targetItem: null,
+                lotNumber: '',
+                rawQty: '',
+
                 initScanner() {
-                    if (this.camPermitted) {
-                        this.$nextTick(() => this.startCamera());
+                    if (window.DRCScanner && window.DRCScanner.isPermitted()) {
+                        this.activateCamera();
                     }
                 },
-                async requestCamera() {
-                    this.errMsg = '';
-                    const ok = await window.DRCScanner.start('qr-reader', (txt) => this.handleScan(txt), (msg) => { this.errMsg = msg; });
-                    if (ok) this.camPermitted = true;
+                async activateCamera() {
+                    this.errorMsg = '';
+                    this.cameraActive = true;
+                    await this.$nextTick();
+                    const ok = await window.DRCScanner.start(
+                        'qr-reader',
+                        (decoded) => this.handleScan(decoded),
+                        (err) => {
+                            this.cameraActive = false;
+                            this.errorMsg = err;
+                        }
+                    );
+                    if (!ok) this.cameraActive = false;
                 },
-                async startCamera() {
-                    await window.DRCScanner.start('qr-reader', (txt) => this.handleScan(txt), (msg) => { this.errMsg = msg; });
+                findItem(code) {
+                    const c = String(code || '').trim().toUpperCase();
+                    if (!c) return null;
+                    return this.items.find(i => i.part_no === c || i.part_name === c) || null;
                 },
-                handleScan(raw) {
-                    this.errMsg = '';
-                    const code = String(raw || '').trim().toUpperCase();
-                    if (!code) return;
-
-                    const found = this.items.find(i => i.part_no.toUpperCase() === code || i.part_name.toUpperCase() === code);
+                handleScan(rawCode) {
+                    this.errorMsg = '';
+                    const found = this.findItem(rawCode);
                     if (!found) {
-                        this.errMsg = `Ditolak: Item "${code}" tidak ditemukan pada Master Item aktif.`;
+                        this.errorMsg = `Ditolak: Kode "${rawCode}" tidak ditemukan di Master Item aktif.`;
                         return;
                     }
 
                     if (this.step === 1) {
-                        const hasActiveLot = this.lots.some(l => l.material_item_id === found.id);
-                        if (!hasActiveLot) {
-                            this.errMsg = `Ditolak: Tidak ada Nomor Lot aktif (ON PROGRESS) yang memiliki sisa Material Saat Ini untuk ${found.part_name}.`;
+                        const hasLot = this.activeLots.some(l => String(l.material_item_id) === String(found.id));
+                        if (!hasLot) {
+                            this.errorMsg = `Ditolak: Material [${found.part_name}] tidak memiliki Lot ON PROGRESS yang dapat diretur.`;
                             return;
                         }
                         this.materialItem = found;
                         this.manualCode = '';
                         this.step = 2;
-                        return;
-                    }
-
-                    if (this.step === 2) {
-                        const pairLots = this.lots.filter(l => l.material_item_id === this.materialItem.id && l.target_item_id === found.id);
-                        if (pairLots.length === 0) {
-                            this.errMsg = `Ditolak: Tidak ditemukan Lot aktif dengan pasangan ${this.materialItem.part_name} → ${found.part_name} yang belum diretur.`;
+                    } else if (this.step === 2) {
+                        const matched = this.activeLots.filter(l =>
+                            String(l.material_item_id) === String(this.materialItem.id) &&
+                            String(l.target_item_id) === String(found.id)
+                        );
+                        if (matched.length === 0) {
+                            this.errorMsg = `Ditolak: Tidak ada Lot aktif yang memakai [${this.materialItem.part_name}] untuk memproduksi [${found.part_name}].`;
                             return;
                         }
-                        window.DRCScanner.stop();
                         this.targetItem = found;
-                        this.selectedLotNo = pairLots.length === 1 ? pairLots[0].lot_number : '';
+                        this.lotNumber = matched.length === 1 ? matched[0].lot_number : '';
                         this.manualCode = '';
                         this.step = 3;
+                        window.DRCScanner.stop();
+                        this.cameraActive = false;
                     }
                 },
-                evalQty() {
-                    if (!this.qtyExpr) return null;
-                    const expr = String(this.qtyExpr).replace(/,/g, '.').replace(/\s+/g, '');
-                    if (!/^[0-9\.\+\-\*\/\(\)]+$/.test(expr)) return null;
+                get matchingLots() {
+                    if (!this.materialItem || !this.targetItem) return [];
+                    const map = {};
+                    this.activeLots.forEach(l => {
+                        if (String(l.material_item_id) === String(this.materialItem.id) &&
+                            String(l.target_item_id) === String(this.targetItem.id)) {
+                            map[l.lot_number] = l;
+                        }
+                    });
+                    return Object.values(map);
+                },
+                get selectedLotObj() {
+                    return this.matchingLots.find(l => l.lot_number === this.lotNumber) || null;
+                },
+                evalMath(expr) {
+                    const clean = String(expr || '').replace(/,/g, '.').replace(/\s+/g, '');
+                    if (!clean || !/^[0-9\.\+\-\*\/\(\)]+$/.test(clean)) return 0;
                     try {
-                        const r = Function('return (' + expr + ')')();
-                        return (typeof r === 'number' && isFinite(r) && r > 0) ? Math.round(r * 100) / 100 : null;
+                        const r = Function('return (' + clean + ')')();
+                        return (typeof r === 'number' && isFinite(r) && r > 0) ? Math.round(r * 100) / 100 : 0;
                     } catch (e) {
-                        return null;
+                        return 0;
                     }
+                },
+                get parsedQty() {
+                    return this.evalMath(this.rawQty);
+                },
+                get canSubmit() {
+                    return this.materialItem &&
+                           this.targetItem &&
+                           this.selectedLotObj &&
+                           this.parsedQty > 0 &&
+                           this.parsedQty <= this.selectedLotObj.mat_saat_ini;
+                },
+                get filteredHistory() {
+                    return this.allScans.filter(s => {
+                        if (this.histDate && s.date !== this.histDate) return false;
+                        if (this.histSearch) {
+                            const q = this.histSearch.toLowerCase();
+                            const hay = `${s.lot_number} ${s.mat_no} ${s.mat_name} ${s.tgt_no} ${s.tgt_name} ${s.qty} ${s.user_name}`.toLowerCase();
+                            if (!hay.includes(q)) return false;
+                        }
+                        return true;
+                    });
                 },
                 resetAll() {
                     this.materialItem = null;
                     this.targetItem = null;
-                    this.lotSearch = '';
-                    this.selectedLotNo = '';
-                    this.qtyExpr = '';
+                    this.lotNumber = '';
+                    this.rawQty = '';
                     this.manualCode = '';
-                    this.errMsg = '';
+                    this.errorMsg = '';
                     this.step = 1;
-                    if (this.camPermitted) {
-                        this.$nextTick(() => this.startCamera());
+                    if (window.DRCScanner && window.DRCScanner.isPermitted()) {
+                        this.activateCamera();
                     }
                 }
             };
