@@ -1,55 +1,4 @@
-<div x-data="{
-        open: false,
-        info: null,
-        histSearch: '',
-        histStartDate: '',
-        histEndDate: '',
-        histStartTime: '',
-        histEndTime: '',
-
-        showModal(payload) {
-            this.info = payload;
-            this.histSearch = '';
-            this.histStartDate = '';
-            this.histEndDate = '';
-            this.histStartTime = '';
-            this.histEndTime = '';
-            this.open = true;
-        },
-        pillClass(status) {
-            if (status === 'EMPTY STOCK') return 'pill-empty';
-            if (status === 'VERY LOW') return 'pill-crit';
-            if (status === 'LOW STOCK') return 'pill-warn';
-            if (status === 'NORMAL STOCK') return 'pill-good';
-            if (status === 'OVERSTOCK') return 'pill-info';
-            return 'pill-neu';
-        },
-        get filteredHistory() {
-            if (!this.info || !this.info.history) return [];
-            return this.info.history.filter(h => {
-                if (this.histSearch) {
-                    let q = this.histSearch.toLowerCase();
-                    let matchType = String(h.type_label || '').toLowerCase().includes(q);
-                    let matchRef  = String(h.reference || '').toLowerCase().includes(q);
-                    let matchUser = String(h.user_name || '').toLowerCase().includes(q);
-                    let matchStat = String(h.status || '').toLowerCase().includes(q);
-                    if (!matchType && !matchRef && !matchUser && !matchStat) return false;
-                }
-                if (this.histStartDate && h.date < this.histStartDate) return false;
-                if (this.histEndDate && h.date > this.histEndDate) return false;
-                if (this.histStartTime && h.time < this.histStartTime) return false;
-                if (this.histEndTime && h.time > this.histEndTime) return false;
-                return true;
-            });
-        },
-        resetHistoryFilter() {
-            this.histSearch = '';
-            this.histStartDate = '';
-            this.histEndDate = '';
-            this.histStartTime = '';
-            this.histEndTime = '';
-        }
-     }"
+<div x-data="materialInfo()"
      @open-material-info.window="showModal($event.detail)"
      @keydown.escape.window="open = false"
      x-show="open"
@@ -57,214 +6,202 @@
      class="modal-backdrop"
      @click.self="open = false">
 
-    <div class="panel w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden">
+    <div class="panel dlg w-full max-w-5xl" role="dialog" aria-label="Informasi Material">
         <div class="panel-head">
             <div>
                 <h3 class="panel-title">Informasi Material, Keterkaitan BOM &amp; Riwayat Mutasi Stok</h3>
-                <p class="text-xs text-slate-500 mt-0.5" x-text="(info?.part_no && info?.part_no !== '-' ? info.part_no + ' · ' : '') + (info?.part_name ?? '')"></p>
+                <p class="hint" style="margin-top: 2px"
+                   x-text="(info?.part_no && info?.part_no !== '-' ? info.part_no + ' · ' : '') + (info?.part_name ?? '')"></p>
             </div>
             <button type="button" @click="open = false" class="act-btn" aria-label="Tutup">
                 <x-icon name="x" />
             </button>
         </div>
 
-        <div class="panel-body overflow-y-auto overflow-x-hidden space-y-4" x-show="info">
-            {{-- 1. Ringkasan Parameter & Status Stok --}}
-            <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5 p-3 rounded border border-slate-200 bg-slate-50">
-                <div class="col-span-2">
-                    <div class="text-[11px] font-semibold uppercase text-slate-500">Part No &amp; Nama Item</div>
-                    <div class="num text-xs font-semibold text-accent mt-0.5" x-text="info?.part_no"></div>
-                    <div class="font-semibold text-slate-900 text-xs break-words" x-text="info?.part_name"></div>
-                </div>
+        <div class="dlg-split dlg-split-wide" x-show="info">
+            {{-- PANEL KIRI (abu): Identitas + Parameter Stok --}}
+            <aside class="dlg-side">
                 <div>
-                    <div class="text-[11px] font-semibold uppercase text-slate-500">Tipe &amp; UOM</div>
-                    <div class="mt-1 flex items-center gap-1.5 flex-wrap">
-                        <span class="pill pill-neu" x-text="info?.type"></span>
-                        <span class="num text-xs font-semibold text-slate-700" x-text="info?.uom"></span>
+                    <div class="dlg-code num" x-text="info?.part_no !== '-' ? info?.part_no : ''"></div>
+                    <div class="dlg-name" x-text="info?.part_name"></div>
+                </div>
+                <div class="flex items-center gap-2 flex-wrap">
+                    <span class="ty" :class="tyClass(info?.type)" x-text="info?.type"></span>
+                    <span class="num text-xs font-semibold" style="color: var(--ink2)" x-text="info?.uom"></span>
+                    <span class="text-xs font-semibold" style="color: var(--ink)" x-text="info?.company"></span>
+                </div>
+
+                <div>
+                    <div class="dlg-k">Stok saat ini</div>
+                    <div class="num" style="font-size: 22px; font-weight: 600; line-height: 1.2"
+                         x-text="(info?.current_stock ?? 0) + ' ' + (info?.uom ?? '')"></div>
+                    <div class="sbar">
+                        <i :style="'width:' + pct(info?.current_stock) + '%; background:' + barColor(info?.status_stock)"></i>
+                        <u :style="'left:' + pct(info?.std_day_2) + '%'"></u>
+                        <u :style="'left:' + pct(info?.std_day_3) + '%'"></u>
+                    </div>
+                    <div class="sbar-lbl">
+                        <span x-text="'Min ' + (info?.std_day_2 ?? 0)"></span>
+                        <span x-text="'Max ' + (info?.std_day_3 ?? 0)"></span>
                     </div>
                 </div>
+
                 <div>
-                    <div class="text-[11px] font-semibold uppercase text-slate-500">Perusahaan</div>
-                    <div class="text-xs font-semibold text-slate-800 mt-1 break-words" x-text="info?.company"></div>
-                </div>
-                <div>
-                    <div class="text-[11px] font-semibold uppercase text-slate-500">Std Day 1 / 2 / 3</div>
-                    <div class="num text-xs font-semibold text-slate-800 mt-1"
+                    <div class="dlg-k">Std Day 1 / 2 / 3</div>
+                    <div class="num text-xs font-semibold mt-1" style="color: var(--ink)"
                          x-text="(info?.std_day_1 ?? 0) + ' / ' + (info?.std_day_2 ?? 0) + ' / ' + (info?.std_day_3 ?? 0)"></div>
                 </div>
                 <div>
-                    <div class="text-[11px] font-semibold uppercase text-slate-500">Ratio Stock</div>
-                    <div class="num text-sm font-bold text-accent mt-1" x-text="(info?.ratio_stock ?? 0) + ' Hari'"></div>
+                    <div class="dlg-k">Ratio stock</div>
+                    <div class="num text-sm font-bold mt-1" style="color: var(--accent)" x-text="(info?.ratio_stock ?? 0) + ' Hari'"></div>
                 </div>
                 <div>
-                    <div class="text-[11px] font-semibold uppercase text-slate-500">Current Stock</div>
-                    <div class="num text-sm font-bold text-slate-900 mt-1" x-text="(info?.current_stock ?? 0) + ' ' + (info?.uom ?? '')"></div>
+                    <span class="pill" :class="pillClass(info?.status_stock)" x-text="info?.status_stock"></span>
                 </div>
-                <div>
-                    <div class="text-[11px] font-semibold uppercase text-slate-500">Status Stock</div>
-                    <div class="mt-1">
-                        <span class="pill" :class="pillClass(info?.status_stock)" x-text="info?.status_stock"></span>
-                    </div>
-                </div>
-            </div>
+            </aside>
 
-            {{-- 2. Resep Input BOM & Where-Used --}}
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div class="border border-slate-200 rounded flex flex-col">
-                    <div class="px-3.5 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-                        <h4 class="text-xs font-semibold uppercase tracking-wider text-slate-700">
-                            Material / Komponen Pembentuk Item Ini
-                        </h4>
-                        <span class="count-chip" x-text="(info?.inputs?.length || 0) + ' Material'"></span>
-                    </div>
-                    <template x-if="info?.inputs && info.inputs.length > 0">
-                        <div class="divide-y divide-slate-200 max-h-44 overflow-y-auto">
-                            <template x-for="(inp, idx) in info.inputs" :key="'inp-' + idx">
-                                <div class="p-3 flex items-center justify-between gap-3 text-xs hover:bg-slate-50">
-                                    <div class="min-w-0 flex-1">
-                                        <div class="flex items-center gap-1.5 flex-wrap">
-                                            <span class="font-semibold text-slate-700" x-text="inp.process"></span>
+            {{-- PANEL KANAN: Alur BOM 3 Kolom + Linimasa Riwayat Mutasi --}}
+            <div class="dlg-main">
+                {{-- ALUR BOM --}}
+                <section>
+                    <h4 class="sec-h">Alur BOM</h4>
+                    <div class="flow">
+                        {{-- Material masuk --}}
+                        <div>
+                            <div class="flow-cap" x-text="'Material masuk (' + (info?.inputs?.length || 0) + ')'"></div>
+                            <div class="flow-col">
+                                <template x-for="(inp, idx) in (info?.inputs || [])" :key="'inp-' + idx">
+                                    <div class="rel">
+                                        <div class="rel-t">
+                                            <span x-text="inp.process"></span>
                                             <span class="pill" :class="inp.is_trigger ? 'pill-good' : 'pill-neu'" x-text="inp.is_trigger ? 'Trigger' : 'Pendamping'"></span>
                                         </div>
-                                        <div class="num text-accent font-semibold mt-0.5" x-text="inp.part_no !== '-' ? inp.part_no : inp.type"></div>
-                                        <div class="font-semibold text-slate-900 break-words" x-text="inp.part_name"></div>
-                                    </div>
-                                    <div class="text-right whitespace-nowrap">
-                                        <div class="num font-semibold text-slate-900" x-text="'Usage: ' + inp.qty_usage + ' ' + inp.uom"></div>
-                                        <div class="num text-slate-600 mt-0.5" x-text="'Stok: ' + inp.current_stock + ' ' + inp.uom + ' (' + inp.ratio_stock + ' Hr)'"></div>
-                                        <div class="mt-1">
-                                            <span class="pill" :class="pillClass(inp.status_stock)" x-text="inp.status_stock"></span>
+                                        <div class="flex items-center gap-2 flex-wrap">
+                                            <span class="ty" :class="tyClass(inp.type)" x-text="inp.type"></span>
+                                            <span class="rel-part num" x-text="inp.part_no !== '-' ? inp.part_no : ''"></span>
                                         </div>
+                                        <div class="font-medium break-words text-xs" x-text="inp.part_name"></div>
+                                        <div class="rel-m num">
+                                            <span x-text="'Usage: ' + inp.qty_usage + ' ' + inp.uom"></span>
+                                            <span x-text="'Stok: ' + inp.current_stock + ' ' + inp.uom + ' (' + inp.ratio_stock + ' Hr)'"></span>
+                                        </div>
+                                        <div><span class="pill" :class="pillClass(inp.status_stock)" x-text="inp.status_stock"></span></div>
                                     </div>
-                                </div>
-                            </template>
+                                </template>
+                                <template x-if="!info?.inputs || info.inputs.length === 0">
+                                    <div class="rel hint">Tidak memiliki komponen pembentuk di BOM.</div>
+                                </template>
+                            </div>
                         </div>
-                    </template>
-                    <template x-if="!info?.inputs || info.inputs.length === 0">
-                        <div class="p-4 text-xs text-slate-500 text-center">
-                            Item ini tidak memiliki komponen pembentuk di BOM.
-                        </div>
-                    </template>
-                </div>
 
-                <div class="border border-slate-200 rounded flex flex-col">
-                    <div class="px-3.5 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-                        <h4 class="text-xs font-semibold uppercase tracking-wider text-slate-700">
-                            Digunakan Untuk Produksi Part (Where-Used)
-                        </h4>
-                        <span class="count-chip" x-text="(info?.outputs?.length || 0) + ' Output'"></span>
-                    </div>
-                    <template x-if="info?.outputs && info.outputs.length > 0">
-                        <div class="divide-y divide-slate-200 max-h-44 overflow-y-auto">
-                            <template x-for="(out, idx) in info.outputs" :key="'out-' + idx">
-                                <div class="p-3 flex items-center justify-between gap-3 text-xs hover:bg-slate-50">
-                                    <div class="min-w-0 flex-1">
-                                        <div class="flex items-center gap-1.5 flex-wrap">
-                                            <span class="font-semibold text-slate-700" x-text="out.process"></span>
+                        <div class="flow-ar"><x-icon name="chevron-right" /></div>
+
+                        {{-- Item ini --}}
+                        <div>
+                            <div class="flow-cap">Item ini</div>
+                            <div class="rel rel-now">
+                                <div class="rel-t"><span class="num" x-text="info?.part_no !== '-' ? info?.part_no : info?.type"></span></div>
+                                <div class="font-medium break-words text-xs" x-text="info?.part_name"></div>
+                                <div class="rel-m num">
+                                    <span x-text="'Stok ' + (info?.current_stock ?? 0) + ' ' + (info?.uom ?? '')"></span>
+                                    <span x-text="(info?.ratio_stock ?? 0) + ' Hr'"></span>
+                                </div>
+                                <div><span class="pill" :class="pillClass(info?.status_stock)" x-text="info?.status_stock"></span></div>
+                            </div>
+                        </div>
+
+                        <div class="flow-ar"><x-icon name="chevron-right" /></div>
+
+                        {{-- Dipakai di --}}
+                        <div>
+                            <div class="flow-cap" x-text="'Dipakai di (' + (info?.outputs?.length || 0) + ')'"></div>
+                            <div class="flow-col">
+                                <template x-for="(out, idx) in (info?.outputs || [])" :key="'out-' + idx">
+                                    <div class="rel">
+                                        <div class="rel-t">
+                                            <span x-text="out.process"></span>
                                             <span class="pill pill-info" x-text="out.group_type"></span>
                                         </div>
-                                        <div class="num text-accent font-semibold mt-0.5" x-text="out.part_no"></div>
-                                        <div class="font-semibold text-slate-900 break-words" x-text="out.part_name"></div>
-                                    </div>
-                                    <div class="text-right whitespace-nowrap">
-                                        <div class="num font-semibold text-slate-900" x-text="'Usage: ' + out.qty_usage"></div>
-                                        <div class="num text-slate-600 mt-0.5" x-text="'Stok: ' + out.current_stock + ' ' + out.uom + ' (' + out.ratio_stock + ' Hr)'"></div>
-                                        <div class="mt-1">
-                                            <span class="pill" :class="pillClass(out.status_stock)" x-text="out.status_stock"></span>
+                                        <div class="flex items-center gap-2 flex-wrap">
+                                            <span class="ty" :class="tyClass(out.type)" x-text="out.type"></span>
+                                            <span class="rel-part num" x-text="out.part_no !== '-' ? out.part_no : ''"></span>
                                         </div>
+                                        <div class="font-medium break-words text-xs" x-text="out.part_name"></div>
+                                        <div class="rel-m num">
+                                            <span x-text="'Usage: ' + out.qty_usage"></span>
+                                            <span x-text="'Stok: ' + out.current_stock + ' ' + out.uom + ' (' + out.ratio_stock + ' Hr)'"></span>
+                                        </div>
+                                        <div><span class="pill" :class="pillClass(out.status_stock)" x-text="out.status_stock"></span></div>
                                     </div>
-                                </div>
-                            </template>
+                                </template>
+                                <template x-if="!info?.outputs || info.outputs.length === 0">
+                                    <div class="rel hint">Produk akhir, tidak dipakai sebagai material part lain.</div>
+                                </template>
+                            </div>
                         </div>
-                    </template>
-                    <template x-if="!info?.outputs || info.outputs.length === 0">
-                        <div class="p-4 text-xs text-slate-500 text-center">
-                            Item ini merupakan produk akhir (tidak dipakai sebagai material input untuk part lain).
-                        </div>
-                    </template>
-                </div>
-            </div>
-
-            {{-- 3. Riwayat Penambahan & Pengurangan Stok --}}
-            <div class="border border-slate-200 rounded overflow-hidden">
-                <div class="px-3.5 py-2.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
-                    <div class="flex items-center gap-2">
-                        <h4 class="text-xs font-semibold uppercase tracking-wider text-slate-700">
-                            Riwayat Penambahan &amp; Pengurangan Stok
-                        </h4>
-                        <span class="count-chip" x-text="filteredHistory.length + ' Transaksi'"></span>
                     </div>
+                </section>
 
-                    <div class="flex flex-wrap items-center gap-2">
-                        <input type="text" x-model="histSearch"
-                               placeholder="Cari Transaksi / Lot / Petugas..."
-                               class="h-8 text-xs px-2.5 w-48">
+                {{-- RIWAYAT MUTASI STOK (LINIMASA) --}}
+                <section>
+                    <h4 class="sec-h flex items-center gap-2">
+                        <span>Riwayat penambahan &amp; pengurangan stok</span>
+                        <span class="count-chip"><span x-text="filteredHistory.length"></span><span x-text="'dari ' + (info?.history?.length || 0)"></span></span>
+                    </h4>
 
-                        <div class="flex items-center gap-1 text-xs text-slate-600">
-                            <span>Tgl:</span>
-                            <input type="date" x-model="histStartDate"
+                    <div class="fbar">
+                        <input type="text" x-model="histSearch" placeholder="Cari transaksi, lot, petugas"
+                               aria-label="Cari riwayat" class="h-8 text-xs px-2.5 flex-1" style="min-width: 150px">
+                        <label>Tgl
+                            <input type="date" x-model="histStartDate" aria-label="Dari tanggal"
                                    @change="if(histEndDate && histEndDate < histStartDate) histEndDate = histStartDate"
                                    class="h-8 text-xs px-2 w-32">
-                            <span>-</span>
-                            <input type="date" x-model="histEndDate" :min="histStartDate"
+                            <span>–</span>
+                            <input type="date" x-model="histEndDate" :min="histStartDate" aria-label="Sampai tanggal"
                                    class="h-8 text-xs px-2 w-32">
-                        </div>
-
-                        <div class="flex items-center gap-1 text-xs text-slate-600">
-                            <span>Jam:</span>
-                            <input type="time" x-model="histStartTime" class="h-8 text-xs px-2 w-24">
-                            <span>-</span>
-                            <input type="time" x-model="histEndTime" class="h-8 text-xs px-2 w-24">
-                        </div>
-
-                        <button type="button"
-                                x-show="histSearch || histStartDate || histEndDate || histStartTime || histEndTime"
-                                @click="resetHistoryFilter()"
-                                class="btn btn-sm">
-                            Reset
-                        </button>
+                        </label>
+                        <label>Jam
+                            <input type="time" x-model="histStartTime" aria-label="Dari jam" class="h-8 text-xs px-2 w-24">
+                            <span>–</span>
+                            <input type="time" x-model="histEndTime" aria-label="Sampai jam" class="h-8 text-xs px-2 w-24">
+                        </label>
+                        <button type="button" class="btn btn-sm"
+                                x-show="histSearch || histStartDate || histEndDate || histStartTime || histEndTime" x-cloak
+                                @click="resetHistoryFilter()">Reset</button>
                     </div>
-                </div>
 
-                <div class="max-h-60 overflow-y-auto relative">
-                    <table class="tbl">
-                        <thead>
-                            <tr>
-                                <th class="w-12 text-center">No</th>
-                                <th class="w-36 text-left col-time">Tanggal &amp; Waktu</th>
-                                <th class="w-44">Jenis Transaksi</th>
-                                <th>Keterangan / Referensi</th>
-                                <th class="w-36">Petugas</th>
-                                <th class="w-28 text-center">Status</th>
-                                <th class="num w-32">Mutasi Qty</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <template x-for="(h, i) in filteredHistory" :key="'hist-' + i">
-                                <tr>
-                                    <td class="num text-center text-xs text-slate-500" x-text="i + 1"></td>
-                                    <td class="num text-left col-time text-xs text-slate-600 whitespace-nowrap" x-text="h.datetime_fmt"></td>
-                                    <td class="font-semibold text-slate-900 text-xs" x-text="h.type_label"></td>
-                                    <td class="text-xs text-slate-600 break-words" x-text="h.reference"></td>
-                                    <td class="text-xs font-medium text-slate-700 whitespace-nowrap" x-text="h.user_name || '-'"></td>
-                                    <td class="text-center">
-                                        <span class="pill"
-                                              :class="h.status === 'TIDAK SESUAI' ? 'pill-info' : 'pill-good'"
-                                              x-text="h.status === 'TIDAK SESUAI' ? 'DIKOREKSI' : (h.status === 'SESUAI' || h.status === 'PENDING' ? 'TERCATAT' : h.status)"></span>
-                                    </td>
-                                    <td class="num font-bold whitespace-nowrap"
-                                        :class="h.qty_change >= 0 ? 'text-emerald-700' : 'text-rose-700'"
-                                        x-text="(h.qty_change >= 0 ? '+' : '') + h.qty_change + ' ' + h.uom"></td>
-                                </tr>
-                            </template>
-                            <tr x-show="filteredHistory.length === 0">
-                                <td colspan="7">
-                                    <div class="empty">Tidak ada riwayat mutasi stok pada filter ini.</div>
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
+                    <div class="tl-box" style="margin-top: 10px">
+                        <template x-for="g in historyGroups" :key="g.date">
+                            <div>
+                                <div class="tl-day">
+                                    <span style="font-weight: 600; letter-spacing: .08em; text-transform: uppercase" x-text="g.label"></span>
+                                    <span x-text="g.rows.length + ' transaksi'"></span>
+                                </div>
+                                <template x-for="(h, i) in g.rows" :key="g.date + '-' + i">
+                                    <div class="tl-item" :class="h.qty_change >= 0 ? 'tl-in' : 'tl-out'">
+                                        <div class="tl-time" x-text="h.time"></div>
+                                        <div class="tl-dot"><i></i></div>
+                                        <div class="min-w-0">
+                                            <div class="flex items-center gap-2 flex-wrap">
+                                                <span class="font-semibold text-xs" style="color: var(--ink)" x-text="h.type_label"></span>
+                                                <span class="pill pill-info" x-show="h.status === 'TIDAK SESUAI'" x-text="'DIKOREKSI'"></span>
+                                            </div>
+                                            <div class="hint break-words" style="margin-top: 0" x-text="h.reference"></div>
+                                            <div class="hint" style="margin-top: 0" x-text="h.user_name || '-'"></div>
+                                        </div>
+                                        <div class="tl-qty num">
+                                            <span x-text="(h.qty_change >= 0 ? '+' : '') + h.qty_change"></span>
+                                            <small x-text="h.uom"></small>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
+                        <div x-show="filteredHistory.length === 0" class="empty" style="padding-bottom: 24px">
+                            Tidak ada riwayat mutasi stok pada filter ini.
+                        </div>
+                    </div>
+                </section>
             </div>
         </div>
 
@@ -272,4 +209,95 @@
             <button type="button" class="btn" @click="open = false">Tutup</button>
         </div>
     </div>
+
+    <script>
+        function materialInfo() {
+            const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+            return {
+                open: false,
+                info: null,
+                histSearch: '',
+                histStartDate: '',
+                histEndDate: '',
+                histStartTime: '',
+                histEndTime: '',
+
+                showModal(payload) {
+                    this.info = payload;
+                    this.resetHistoryFilter();
+                    this.open = true;
+                },
+                resetHistoryFilter() {
+                    this.histSearch = '';
+                    this.histStartDate = '';
+                    this.histEndDate = '';
+                    this.histStartTime = '';
+                    this.histEndTime = '';
+                },
+                pillClass(status) {
+                    if (status === 'EMPTY STOCK') return 'pill-empty';
+                    if (status === 'VERY LOW') return 'pill-crit';
+                    if (status === 'LOW STOCK') return 'pill-warn';
+                    if (status === 'NORMAL STOCK') return 'pill-good';
+                    if (status === 'OVERSTOCK') return 'pill-info';
+                    return 'pill-neu';
+                },
+                tyClass(t) {
+                    return 'ty-' + (t === 'FG/KOMPONEN' ? 'FGK' : t);
+                },
+                barColor(status) {
+                    const m = {
+                        'EMPTY STOCK': '#334155',
+                        'VERY LOW': 'var(--crit)',
+                        'LOW STOCK': 'var(--warn)',
+                        'NORMAL STOCK': 'var(--good)',
+                        'OVERSTOCK': 'var(--accent)'
+                    };
+                    return m[status] || 'var(--mut)';
+                },
+                get scaleMax() {
+                    if (!this.info) return 1;
+                    return Math.max(Number(this.info.current_stock) || 0, Number(this.info.std_day_3) || 0, 1) * 1.15;
+                },
+                pct(v) {
+                    return Math.min(100, Math.max(0, ((Number(v) || 0) / this.scaleMax) * 100)).toFixed(1);
+                },
+                dayLabel(d) {
+                    const p = String(d).split('-');
+                    return p.length === 3 ? (parseInt(p[2], 10) + ' ' + MON[parseInt(p[1], 10) - 1] + ' ' + p[0]) : d;
+                },
+                get filteredHistory() {
+                    if (!this.info || !this.info.history) return [];
+                    return this.info.history
+                        .slice()
+                        .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+                        .filter(h => {
+                            if (this.histSearch) {
+                                const q = this.histSearch.toLowerCase();
+                                const hit = [h.type_label, h.reference, h.user_name, h.status]
+                                    .some(v => String(v || '').toLowerCase().includes(q));
+                                if (!hit) return false;
+                            }
+                            if (this.histStartDate && h.date < this.histStartDate) return false;
+                            if (this.histEndDate && h.date > this.histEndDate) return false;
+                            if (this.histStartTime && h.time < this.histStartTime) return false;
+                            if (this.histEndTime && h.time > this.histEndTime) return false;
+                            return true;
+                        });
+                },
+                get historyGroups() {
+                    const out = [];
+                    const idx = {};
+                    this.filteredHistory.forEach(h => {
+                        if (!(h.date in idx)) {
+                            idx[h.date] = out.length;
+                            out.push({ date: h.date, label: this.dayLabel(h.date), rows: [] });
+                        }
+                        out[idx[h.date]].rows.push(h);
+                    });
+                    return out;
+                }
+            };
+        }
+    </script>
 </div>

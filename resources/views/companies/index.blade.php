@@ -4,7 +4,7 @@
                        subtitle="Daftar perusahaan pemasok (Supplier), lini internal, dan pelanggan (Customer)">
             <x-slot name="actions">
                 <button type="button" class="btn btn-primary" @click="$dispatch('open-add-company')">
-                    <x-icon name="plus" /> Tambah Perusahaan
+                    <x-icon name="plus" /> <span>Tambah Perusahaan</span>
                 </button>
             </x-slot>
         </x-page-header>
@@ -47,8 +47,8 @@
                 <thead>
                     <tr>
                         <th class="w-[6%] text-center">No</th>
-                        <th class="w-[18%]">Kode Perusahaan</th>
-                        <th class="w-[46%]">Nama Perusahaan</th>
+                        <th class="w-[18%] text-left">Kode Perusahaan</th>
+                        <th class="w-[46%] text-left">Nama Perusahaan</th>
                         <th class="w-[18%] text-center">Tipe Perusahaan</th>
                         <th class="w-[12%] text-center">Aksi</th>
                     </tr>
@@ -60,8 +60,8 @@
                             data-type="{{ $comp->type_company }}"
                             x-show="matchRow($el)">
                             <td class="text-center num font-semibold text-slate-500">{{ $idx + 1 }}</td>
-                            <td class="num font-bold text-accent">{{ $comp->company_code }}</td>
-                            <td class="font-semibold text-slate-900">{{ $comp->company_name }}</td>
+                            <td class="num text-left font-bold text-accent">{{ $comp->company_code }}</td>
+                            <td class="text-left font-semibold text-slate-900">{{ $comp->company_name }}</td>
                             <td class="text-center">
                                 @if($comp->type_company === 'SUPPLIER')
                                     <span class="pill pill-info">SUPPLIER</span>

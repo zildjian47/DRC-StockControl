@@ -9,15 +9,16 @@ Trigger: "ikuti Navy Console", atau setiap pembuatan/pengubahan view Blade.
 - Pesan sukses/error: `<x-flash />`.
 
 ## Komponen (class di resources/css/app.css, jangan ditulis ulang dengan utility)
-panel, panel-head, panel-title, panel-body, panel-foot, btn, btn-primary, btn-danger, btn-sm, btn-lg,
-link-act, lbl, hint, seg, tbl-wrap, tbl, num, empty, pill (+ pill-good/warn/crit/info/neu),
-alert, kpis/kpi, track.
+panel, panel-head, panel-title, panel-body, panel-foot, btn, btn-primary, btn-danger, btn-sm, btn-lg, btn-group,
+link-act, act-btn, lbl, hint, seg, tbl-wrap, tbl, num, empty, pill (+ pill-good/warn/crit/info/neu/empty),
+ty (+ ty-RM/FG/KOMPONEN/TRANSIT/FGK), dlg, dlg-split, dlg-split-wide, dlg-side, dlg-main, dlg-k, dlg-list,
+opt-chips, sbar, rel, flow, fbar, tl-*, alert, kpis/kpi, track.
 
 ## Aturan
-- Satu tombol `btn-primary` per area aksi. Tombol Edit/Hapus di tabel memakai `link-act`.
-- Status SELALU `pill` + teks, tanpa glyph. good=selesai/sesuai/berjalan, warn=pending/menunggu, crit=NG/hold/tidak sesuai/delay, info=dikoreksi/informasi, neu=netral.
-- Angka, qty, lot number, ID, tanggal-jam: class `num` (IBM Plex Mono). Angka di tabel rata kanan.
-- Label form `lbl`, input tanpa class warna (gaya dari base). Tinggi sentuh di HP minimal 44px.
-- Radius 4px, tanpa shadow, tanpa gradasi, tanpa emoji. Warna hanya dari token `:root` dan palet Tailwind yang sudah dipetakan.
-- Jangan memakai: indigo, purple, gray-*, rounded-xl, rounded-full pada tombol/kartu, shadow-md ke atas, nilai hex langsung (`bg-[#...]`).
-- Jangan mengubah controller, route, name input, atau logika Alpine saat merapikan tampilan.
+- Dua aksi bersebelahan di header halaman dibungkus `<span class="btn-group">`: aksi biasa di kiri, satu `btn-primary` di kanan.
+- Form tambah/edit/input utama berbentuk modal dua panel: `<div class="panel dlg w-full max-w-3xl">` berisi `dlg-split` dengan `dlg-side` (abu, pratinjau hidup) dan `dlg-main` (field), bebas scrollbar kanan-kiri (`overflow-x: hidden`).
+- Pilihan tipe/kategori dengan sedikit opsi memakai `opt-chips` (radio).
+- Tipe item memakai `ty` berwarna (`ty-RM`, `ty-FG`, `ty-KOMPONEN`, `ty-TRANSIT`, `ty-FGK`), tanpa simbol. `pill` digunakan untuk status dengan warna indikator sistem yang sudah ditetapkan.
+- Riwayat mutasi stok pada Informasi Material memakai linimasa (`tl-*`), dikelompokkan per tanggal.
+- Font utama dan angka menggunakan `Inter` (`tabular-nums`).
+- Jangan mengubah nama input, nama event, controller, route, atau logika Alpine saat merapikan tampilan.

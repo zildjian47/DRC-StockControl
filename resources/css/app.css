@@ -41,6 +41,18 @@
     --font-head: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     --font-mono: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+    /* Warna tipe item: teks gelap di atas latar tint */
+    --t-rm: #0B5CAD;
+    --t-rm-bg: #E4EEF8;
+    --t-fg: #0B7A6B;
+    --t-fg-bg: #DCF1EE;
+    --t-km: #5B4BB7;
+    --t-km-bg: #ECE9F8;
+    --t-tr: #8E3A86;
+    --t-tr-bg: #F3E5F1;
+    --t-fk: #4A6B0C;
+    --t-fk-bg: #EAF2D9;
   }
 
   html {
@@ -121,7 +133,8 @@
   .ic {
     width: 16px;
     height: 16px;
-    flex: none;
+    flex: 0 0 16px;
+    display: block;
   }
 
   .num,
@@ -137,6 +150,7 @@
     overflow: hidden;
   }
 
+  /* ---------- Sidebar dengan Animasi Smooth & Posisi Ikon Tetap ---------- */
   .sidebar {
     width: var(--side-w);
     flex: none;
@@ -145,6 +159,11 @@
     display: flex;
     flex-direction: column;
     border-right: 1px solid var(--side-edge);
+    overflow-x: hidden;
+  }
+
+  html.sb-ready .sidebar {
+    transition: width 0.24s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .sb-brand {
@@ -157,6 +176,7 @@
     color: var(--side-brand);
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     flex: none;
+    overflow: hidden;
   }
 
   .sb-mark {
@@ -177,11 +197,13 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    transition: opacity 0.18s ease;
   }
 
   .sb-nav {
     flex: 1;
     overflow-y: auto;
+    overflow-x: hidden;
     padding: 10px 8px;
     scrollbar-width: thin;
     scrollbar-color: #2A3F5C transparent;
@@ -191,28 +213,42 @@
     padding-bottom: 8px;
   }
 
+  /* Tinggi .sb-title dikunci 24px baik saat terbuka maupun tertutup agar ikon tidak pernah naik/turun */
   .sb-title {
-    padding: 5px 10px 3px;
+    height: 24px;
+    padding: 0 10px;
+    display: flex;
+    align-items: center;
     font-size: 10px;
     font-weight: 600;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--side-mut);
     white-space: nowrap;
+    overflow: hidden;
+    position: relative;
   }
 
   .sb-item {
     display: flex;
     align-items: center;
-    gap: 9px;
-    height: 32px;
+    gap: 10px;
+    height: 34px;
     width: 100%;
     padding: 0 10px;
     border-radius: var(--r);
     font-size: 12.5px;
+    line-height: 1;
     color: var(--side-ink);
     text-align: left;
     white-space: nowrap;
+    overflow: hidden;
+    transition: background-color 0.14s ease, color 0.14s ease, padding 0.2s ease;
+  }
+
+  .sb-item span {
+    line-height: 1.2;
+    transition: opacity 0.16s ease;
   }
 
   .sb-item:hover {
@@ -237,9 +273,25 @@
   }
 
   html.sb-collapsed .sb-name,
-  html.sb-collapsed .sb-title,
   html.sb-collapsed .sb-item span {
     display: none !important;
+  }
+
+  /* Saat sidebar diperkecil, judul grup berubah menjadi garis strip (-) dengan tinggi tetap 24px */
+  html.sb-collapsed .sb-title {
+    font-size: 0 !important;
+    color: transparent !important;
+    justify-content: center;
+    padding: 0;
+  }
+
+  html.sb-collapsed .sb-title::after {
+    content: "";
+    display: block;
+    width: 16px;
+    height: 2px;
+    border-radius: 1px;
+    background-color: rgba(170, 183, 201, 0.32);
   }
 
   html.sb-collapsed .sb-brand {
@@ -254,6 +306,7 @@
   html.sb-collapsed .sb-item {
     justify-content: center;
     padding: 0;
+    gap: 0;
   }
 
   .topbar {
@@ -396,7 +449,7 @@
     background: var(--sunk);
   }
 
-  /* Modal Backdrop Global (Menjamin semua pop-up tampil di tengah layar) */
+  /* Modal Backdrop Global */
   .modal-backdrop {
     position: fixed;
     inset: 0;
@@ -409,7 +462,7 @@
     margin-top: 0 !important;
   }
 
-  /* Indikator Kotak dengan Jarak Spasi Pasti (Tidak Menempel 3Data) */
+  /* Indikator Kotak dengan Jarak Spasi Pasti */
   .count-chip {
     display: inline-flex;
     align-items: center;
@@ -432,23 +485,33 @@
     border-color: var(--line2);
   }
 
+  /* ---------- Tombol dengan Simetri Vertikal & Horizontal Presisi ---------- */
   .btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 6px;
-    height: 32px;
-    padding: 0 12px;
+    gap: 7px;
+    height: 34px;
+    padding: 0 13px;
     border: 1px solid var(--line2);
     border-radius: var(--r);
     background: var(--surface);
     color: var(--ink);
     font-size: 12.5px;
     font-weight: 500;
-    line-height: 1;
+    line-height: 1 !important;
     white-space: nowrap;
+    vertical-align: middle;
     cursor: pointer;
-    transition: background 0.12s, filter 0.12s;
+    transition: background 0.12s, filter 0.12s, border-color 0.12s;
+  }
+
+  .btn > .ic {
+    width: 15px;
+    height: 15px;
+    flex: 0 0 15px;
+    display: block;
+    margin: 0;
   }
 
   .btn:hover {
@@ -482,9 +545,16 @@
   }
 
   .btn-sm {
-    height: 26px;
-    padding: 0 9px;
+    height: 28px;
+    padding: 0 10px;
     font-size: 11.5px;
+    gap: 5px;
+  }
+
+  .btn-sm > .ic {
+    width: 14px;
+    height: 14px;
+    flex: 0 0 14px;
   }
 
   .btn-lg {
@@ -492,9 +562,449 @@
     padding: 0 16px;
     font-size: 14px;
     font-weight: 600;
+    gap: 8px;
   }
 
-  /* Ikon Aksi Tabel Seragam Tanpa Kotak (Sejajar dengan Master Item) */
+  /* ===== Tombol Grup Opsi C: Dua Tombol Menyatu Simetris ===== */
+  .btn-group {
+    display: inline-flex;
+    align-items: center;
+    vertical-align: middle;
+  }
+
+  .btn-group > .btn {
+    border-radius: 0;
+    margin-left: -1px;
+  }
+
+  .btn-group > .btn:first-child {
+    border-radius: var(--r) 0 0 var(--r);
+    margin-left: 0;
+  }
+
+  .btn-group > .btn:last-child {
+    border-radius: 0 var(--r) var(--r) 0;
+  }
+
+  .btn-group > .btn:hover,
+  .btn-group > .btn:focus-visible {
+    position: relative;
+    z-index: 1;
+  }
+
+  /* ===== Tipe Item (Chip Berwarna) ===== */
+  .ty {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 20px;
+    padding: 0 7px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .ty-RM       { background: var(--t-rm-bg); color: var(--t-rm); }
+  .ty-FG       { background: var(--t-fg-bg); color: var(--t-fg); }
+  .ty-KOMPONEN { background: var(--t-km-bg); color: var(--t-km); }
+  .ty-TRANSIT  { background: var(--t-tr-bg); color: var(--t-tr); }
+  .ty-FGK      { background: var(--t-fk-bg); color: var(--t-fk); }
+
+  /* ===== Dialog Dua Panel (Opsi D, Panel Kiri Abu, Bebas Scroll Kanan-Kiri) ===== */
+  .dlg {
+    display: flex;
+    flex-direction: column;
+    max-height: 92vh;
+    overflow: hidden;
+  }
+
+  .dlg-split {
+    display: grid;
+    grid-template-columns: 240px minmax(0, 1fr);
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .dlg-split-wide {
+    grid-template-columns: 260px minmax(0, 1fr);
+  }
+
+  .dlg-side {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-width: 0;
+    padding: 16px 18px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    background: var(--sunk);
+    border-right: 1px solid var(--line);
+  }
+
+  .dlg-main {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-width: 0;
+    padding: 16px 18px;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  .dlg-k {
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--mut);
+  }
+
+  .dlg-code {
+    min-height: 20px;
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--accent);
+    word-break: break-word;
+  }
+
+  .dlg-name {
+    min-height: 20px;
+    font-weight: 600;
+    color: var(--ink);
+    word-break: break-word;
+  }
+
+  .dlg-list {
+    display: grid;
+    gap: 6px;
+  }
+
+  .dlg-list > div {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    color: var(--ink2);
+    font-size: 12px;
+  }
+
+  .dlg-list b {
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+
+  @media (max-width: 767px) {
+    .dlg-split,
+    .dlg-split-wide {
+      grid-template-columns: 1fr;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+    .dlg-side {
+      border-right: 0;
+      border-bottom: 1px solid var(--line);
+      overflow: visible;
+    }
+    .dlg-main {
+      overflow: visible;
+    }
+    .dlg-side.hide-sm {
+      display: none;
+    }
+  }
+
+  /* Pilihan Tipe / Kategori Berbentuk Chip (Radio) */
+  .opt-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .opt-chips label {
+    position: relative;
+  }
+
+  .opt-chips input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .opt-chips span {
+    display: inline-flex;
+    align-items: center;
+    height: 30px;
+    padding: 0 10px;
+    border: 1px solid var(--line2);
+    border-radius: var(--r);
+    background: var(--surface);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink2);
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s, color 0.12s;
+  }
+
+  .opt-chips span:hover {
+    background: var(--sunk);
+  }
+
+  .opt-chips input:checked + span {
+    border-color: var(--accent);
+    background: var(--info-bg);
+    color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+
+  .opt-chips input:focus-visible + span {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  .opt-chips input:disabled + span {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  /* ===== Komponen Informasi Material (Alur BOM & Linimasa) ===== */
+  .sbar {
+    position: relative;
+    height: 8px;
+    margin: 8px 0 4px;
+    border-radius: 4px;
+    background: var(--line);
+    overflow: hidden;
+  }
+
+  .sbar > i {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    border-radius: 4px;
+  }
+
+  .sbar > u {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 1.5px;
+    background: var(--ink2);
+    opacity: 0.7;
+  }
+
+  .sbar-lbl {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--mut);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .sec-h {
+    margin: 0 0 8px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--mut);
+  }
+
+  .flow {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 20px minmax(0, 1fr) 20px minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .flow > * {
+    min-width: 0;
+  }
+
+  .flow-ar {
+    display: grid;
+    place-items: center;
+    color: var(--line2);
+  }
+
+  .flow-col {
+    display: grid;
+    gap: 8px;
+    align-content: start;
+  }
+
+  .flow-cap {
+    margin-bottom: 4px;
+    font-size: 11px;
+    color: var(--mut);
+  }
+
+  @media (max-width: 1023px) {
+    .flow {
+      grid-template-columns: 1fr;
+      gap: 10px;
+    }
+    .flow-ar {
+      display: none;
+    }
+  }
+
+  .rel {
+    display: grid;
+    gap: 6px;
+    padding: 10px 12px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    min-width: 0;
+  }
+
+  .rel-now {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+
+  .rel-t {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+    font-size: 12px;
+  }
+
+  .rel-m {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 6px;
+    font-size: 11.5px;
+    color: var(--ink2);
+  }
+
+  .rel-part {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+  }
+
+  .fbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    background: var(--sunk);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+  }
+
+  .fbar label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--mut);
+  }
+
+  .tl-box {
+    padding: 14px 14px 0;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+  }
+
+  .tl-day {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-bottom: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--mut);
+  }
+
+  .tl-day span:last-child {
+    font-weight: 500;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+
+  .tl-item {
+    display: grid;
+    grid-template-columns: 48px 14px minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: start;
+    padding-bottom: 14px;
+  }
+
+  .tl-time {
+    font-size: 11.5px;
+    font-weight: 500;
+    color: var(--ink2);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tl-dot {
+    position: relative;
+    display: flex;
+    justify-content: center;
+  }
+
+  .tl-dot::before {
+    content: "";
+    position: absolute;
+    top: 5px;
+    bottom: -19px;
+    width: 1px;
+    background: var(--line2);
+  }
+
+  .tl-item:last-child .tl-dot::before {
+    display: none;
+  }
+
+  .tl-dot i {
+    position: relative;
+    width: 9px;
+    height: 9px;
+    margin-top: 5px;
+    border-radius: 50%;
+    background: var(--surface);
+    border: 2px solid var(--line2);
+  }
+
+  .tl-in .tl-dot i  { border-color: var(--good); }
+  .tl-out .tl-dot i { border-color: var(--crit); }
+
+  .tl-qty {
+    font-size: 14px;
+    font-weight: 600;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tl-qty small {
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--mut);
+    margin-left: 2px;
+  }
+
+  .tl-in .tl-qty  { color: var(--good); }
+  .tl-out .tl-qty { color: var(--crit); }
+
+  /* Ikon Aksi Tabel Seragam Tanpa Kotak */
   .act-icon,
   .act-btn {
     display: inline-flex;
@@ -654,7 +1164,7 @@
     text-align: center !important;
   }
 
-  /* Sub-baris Tabel Berkelompok (Menjamin Kesejajaran Simetris Material & Qty) */
+  /* Sub-baris Tabel Berkelompok */
   .subrow {
     height: 54px;
     min-height: 54px;
@@ -685,6 +1195,7 @@
     font-size: 12.5px;
   }
 
+  /* Warna Indikator Sistem Tetap Dipertahankan */
   .pill {
     display: inline-flex;
     align-items: center;
@@ -750,6 +1261,12 @@
     color: var(--crit);
     background: var(--crit-bg);
     border-color: rgba(168, 42, 32, 0.25);
+  }
+
+  .alert-info {
+    color: var(--info);
+    background: var(--info-bg);
+    border-color: rgba(11, 92, 173, 0.25);
   }
 
   .kpis {
