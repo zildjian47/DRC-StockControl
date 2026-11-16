@@ -1,14 +1,16 @@
 <x-app-layout>
     <x-slot name="header">
-        <x-page-header title="Form NG"
-                       subtitle="Pencatatan temuan produk cacat (Not Good) per Nomor Lot yang mengurangi Act FG dan saldo stok gudang">
+        <x-page-header title="Form NG (Quality Control)"
+                       subtitle="Pencatatan temuan barang cacat (Reject QC) per Nomor Lot aktif beserta pemotongan otomatis Act FG & Stok Gudang">
             <x-slot name="actions">
                 <span class="btn-group">
                     <a href="{{ route('production_ngs.index', ['mode' => 'scanner']) }}" class="btn">
-                        <x-icon name="scan" /> <span>Buka Mobile Scanner</span>
+                        <x-icon name="scan" />
+                        <span>Scan</span>
                     </a>
                     <button type="button" class="btn btn-primary" @click="$dispatch('open-add-ng')">
-                        <x-icon name="plus" /> <span>Input NG</span>
+                        <x-icon name="plus" />
+                        <span>Input NG</span>
                     </button>
                 </span>
             </x-slot>
@@ -17,51 +19,64 @@
 
     <x-flash />
 
+    @php
+        $lotsJs = $activeLots->map(fn ($lt) => [
+            'id'        => $lt->id,
+            'lot_no'    => $lt->lot_number,
+            'part_no'   => $lt->targetItem->part_no ?: '-',
+            'part_name' => $lt->targetItem->part_name ?? '-',
+            'type'      => $lt->targetItem->type ?? 'FG',
+            'uom'       => $lt->targetItem->uom ?? 'PCS',
+            'act_prod'  => floatval($lt->actual_qty_prod),
+            'qty_ng'    => floatval($lt->qty_ng),
+            'act_fg'    => floatval($lt->act_fg),
+        ])->values();
+    @endphp
+
     <div class="panel"
-         x-data="prodNgPage({{ $ngs->count() }}, {{ $errors->any() ? 'true' : 'false' }})"
+         x-data="prodNgPage({{ $ngs->count() }}, {{ Js::from($lotsJs) }}, {{ $errors->any() ? 'true' : 'false' }})"
          @open-add-ng.window="addOpen = true"
          x-init="recalc()"
          @table-refreshed.window="recalc()">
 
         <div class="panel-head">
             <div class="panel-title">
-                <span>Riwayat Pencatatan Production NG</span>
-                <span class="count-chip"><span x-text="visibleCount"></span><span>Data</span></span>
+                <span>Daftar Riwayat Pencatatan NG</span>
+                <span class="count-chip"><span x-text="visibleCount"></span><span>DATA</span></span>
             </div>
 
             <div class="flex flex-wrap items-center gap-2">
                 <input type="text" x-model="q" @input="recalc()"
-                       placeholder="Cari No. Lot / Part / Petugas..."
+                       placeholder="Cari Lot / Part / Petugas QC..."
                        class="h-8 text-xs px-2.5 w-48">
 
+                <div class="inline-flex items-center gap-1.5">
+                    <span class="text-[11px] font-semibold text-slate-500">Tgl</span>
+                    <input type="date" x-model="startDate"
+                           @change="if(endDate && endDate < startDate) endDate = startDate; recalc()"
+                           class="h-8 text-xs px-2 w-32">
+                    <span class="text-slate-400">–</span>
+                    <input type="date" x-model="endDate" :min="startDate" @change="recalc()"
+                           class="h-8 text-xs px-2 w-32">
+                </div>
+
+                <div class="inline-flex items-center gap-1.5">
+                    <span class="text-[11px] font-semibold text-slate-500">Jam</span>
+                    <input type="time" x-model="startTime" @change="recalc()" class="h-8 text-xs px-2 w-24">
+                    <span class="text-slate-400">–</span>
+                    <input type="time" x-model="endTime" @change="recalc()" class="h-8 text-xs px-2 w-24">
+                </div>
+
                 <select x-model="fReason" @change="recalc()" class="h-8 text-xs py-0 pl-2 pr-7">
-                    <option value="">Semua Alasan NG</option>
+                    <option value="">Semua Problem Reason</option>
                     @foreach($reasons as $r)
                         <option value="{{ $r }}">{{ $r }}</option>
                     @endforeach
                 </select>
 
-                <div class="flex items-center gap-1 text-xs text-slate-600">
-                    <span>Tgl:</span>
-                    <input type="date" x-model="startDate"
-                           @change="if(endDate && endDate < startDate) endDate = startDate; recalc()"
-                           class="h-8 text-xs px-2 w-32">
-                    <span>-</span>
-                    <input type="date" x-model="endDate" :min="startDate" @change="recalc()"
-                           class="h-8 text-xs px-2 w-32">
-                </div>
-
-                <div class="flex items-center gap-1 text-xs text-slate-600">
-                    <span>Jam:</span>
-                    <input type="time" x-model="startTime" @change="recalc()" class="h-8 text-xs px-2 w-24">
-                    <span>-</span>
-                    <input type="time" x-model="endTime" @change="recalc()" class="h-8 text-xs px-2 w-24">
-                </div>
-
                 <button type="button"
-                        x-show="q || fReason || startDate || endDate || startTime || endTime" x-cloak
-                        @click="q=''; fReason=''; startDate=''; endDate=''; startTime=''; endTime=''; recalc()"
-                        class="btn btn-sm">
+                        x-show="q || startDate || endDate || startTime || endTime || fReason" x-cloak
+                        @click="resetFilter()" class="btn btn-sm">
                     Reset
                 </button>
             </div>
@@ -71,107 +86,134 @@
             <table class="tbl">
                 <thead>
                     <tr>
-                        <th class="w-[6%] text-center">No</th>
-                        <th class="w-[16%] col-time">Waktu Pencatatan</th>
+                        <th class="w-[5%] text-center">No</th>
+                        <th class="w-[15%] col-time">Waktu Pencatatan</th>
                         <th class="w-[15%]">Petugas QC</th>
                         <th class="w-[12%] text-center">No. Lot</th>
-                        <th class="w-[26%]">Part No &amp; Part Name</th>
-                        <th class="w-[13%] text-center">Problem Reason</th>
-                        <th class="num w-[12%]">Qty NG</th>
+                        <th class="w-[24%]">Part No &amp; Part Name</th>
+                        <th class="w-[9%] text-center">Tipe</th>
+                        <th class="w-[11%] text-center">Problem Reason</th>
+                        <th class="num w-[9%]">Qty NG</th>
                     </tr>
                 </thead>
                 <tbody>
                     @forelse($ngs as $idx => $ng)
                         @php
-                            $dt = \Carbon\Carbon::parse($ng->date_time);
-                            $uName = $ng->user->name ?? 'QC';
-                            $pNo = $ng->item->part_no ?: '-';
-                            $pName = $ng->item->part_name ?? '-';
-                            $pType = $ng->item->type ?? 'FG';
-                            $tyCls = 'ty-' . ($pType === 'FG/KOMPONEN' ? 'FGK' : $pType);
-                            $uom = $ng->item->uom ?? 'PCS';
-                            $searchStr = strtolower($ng->lot_number . ' ' . $pNo . ' ' . $pName . ' ' . $uName . ' ' . $ng->problem_reason);
+                            $dt       = \Carbon\Carbon::parse($ng->date_time);
+                            $uName    = $ng->user->name ?? 'QC';
+                            $partNo   = $ng->item->part_no ?: '-';
+                            $partName = $ng->item->part_name ?? '-';
+                            $itemType = $ng->item->type ?? '-';
+                            $uom      = $ng->item->uom ?? 'PCS';
+                            $tyCls    = 'ty-' . ($itemType === 'FG/KOMPONEN' ? 'FGK' : $itemType);
                         @endphp
-                        <tr data-ng-row
-                            data-search="{{ $searchStr }}"
-                            data-reason="{{ $ng->problem_reason }}"
+                        <tr data-row
+                            data-search="{{ strtolower($ng->lot_number . ' ' . $partNo . ' ' . $partName . ' ' . $uName . ' ' . $ng->problem_reason) }}"
                             data-date="{{ $dt->format('Y-m-d') }}"
                             data-time="{{ $dt->format('H:i') }}"
+                            data-reason="{{ $ng->problem_reason }}"
                             x-show="matchRow($el)">
                             <td class="text-center num font-semibold text-slate-500">{{ $idx + 1 }}</td>
-                            <td class="num col-time whitespace-nowrap">{{ $dt->format('d M Y, H:i') }}</td>
+                            <td class="num col-time text-left whitespace-nowrap">
+                                <div class="font-semibold text-slate-900">{{ $dt->format('d M Y') }}</div>
+                                <div class="text-xs text-slate-500">{{ $dt->format('H:i') }} WIB</div>
+                            </td>
                             <td>
-                                <div class="font-semibold text-slate-800">{{ $uName }}</div>
-                                <div class="text-[11px] text-slate-500">{{ $ng->user->role ?? 'QC' }}</div>
+                                <div class="font-semibold text-slate-900">{{ $uName }}</div>
+                                <div class="text-[11px] text-slate-500">{{ $ng->user->role ?? 'PPIC' }}</div>
+                            </td>
+                            <td class="text-center num font-bold text-accent">{{ $ng->lot_number }}</td>
+                            <td>
+                                <div class="num text-xs font-bold text-accent">{{ $partNo }}</div>
+                                <div class="font-semibold text-slate-900">{{ $partName }}</div>
                             </td>
                             <td class="text-center">
-                                <span class="num font-bold text-accent">{{ $ng->lot_number }}</span>
-                            </td>
-                            <td>
-                                <div class="flex items-center gap-1.5 flex-wrap">
-                                    <span class="ty {{ $tyCls }}">{{ $pType }}</span>
-                                    <span class="num text-xs font-bold text-accent">{{ $pNo }}</span>
-                                </div>
-                                <div class="font-semibold text-slate-900 mt-0.5">{{ $pName }}</div>
+                                <span class="ty {{ $tyCls }}">{{ $itemType }}</span>
                             </td>
                             <td class="text-center">
                                 <span class="pill pill-crit">{{ $ng->problem_reason }}</span>
                             </td>
                             <td class="num whitespace-nowrap">
-                                <div class="inline-flex items-baseline justify-end gap-1 leading-none">
-                                    <span class="font-bold text-rose-700">-{{ floatval($ng->qty_ng) }}</span>
-                                    <span class="text-xs font-semibold text-slate-500">{{ $uom }}</span>
-                                </div>
+                                <span class="text-[13.5px] font-bold text-rose-700">-{{ floatval($ng->qty_ng) }}</span>
+                                <span class="text-[11px] text-slate-500">{{ $uom }}</span>
                             </td>
                         </tr>
                     @empty
-                        <tr><td colspan="7"><div class="empty">Belum ada data temuan Production NG.</div></td></tr>
+                        <tr><td colspan="8"><div class="empty">Belum ada data pencatatan Production NG.</div></td></tr>
                     @endforelse
                 </tbody>
             </table>
         </div>
 
-        {{-- POP-UP MODAL INPUT NG --}}
-        <div x-show="addOpen" x-cloak class="modal-backdrop" @click.self="addOpen = false">
-            <div class="panel w-full max-w-lg overflow-hidden">
+        {{-- POP-UP MODAL INPUT NG (dua panel, panel kiri abu) --}}
+        <div x-show="addOpen" x-cloak class="modal-backdrop" @click.self="addOpen = false" @keydown.escape.window="addOpen = false">
+            <div class="panel dlg w-full max-w-3xl" role="dialog" aria-label="Input Production NG">
                 <div class="panel-head">
-                    <h3 class="panel-title">Input Production NG Baru</h3>
-                    <button type="button" class="act-btn" @click="addOpen = false">
+                    <h3 class="panel-title">Input Production NG (Reject QC)</h3>
+                    <button type="button" class="act-btn" @click="addOpen = false" aria-label="Tutup">
                         <x-icon name="x" />
                     </button>
                 </div>
 
-                <form action="{{ route('production_ngs.store') }}" method="POST">
+                <form action="{{ route('production_ngs.store') }}" method="POST" class="flex flex-col min-h-0 flex-1">
                     @csrf
-                    <div class="panel-body space-y-4">
-                        <div>
-                            <label class="lbl">Pilih Nomor Lot Aktif (ON PROGRESS)</label>
-                            <select name="lot_tracer_id" required class="w-full h-9 text-xs">
-                                <option value="">-- Pilih Nomor Lot &amp; Produk --</option>
-                                @foreach($activeLots as $lt)
-                                    @php $maxNg = max(0, (float)$lt->actual_qty_prod - (float)$lt->qty_ng); @endphp
-                                    <option value="{{ $lt->id }}">
-                                        {{ $lt->lot_number }} — {{ $lt->targetItem->part_name ?? '-' }} (Act FG: {{ floatval($maxNg) }} {{ $lt->targetItem->uom ?? 'PCS' }})
-                                    </option>
-                                @endforeach
-                            </select>
-                        </div>
+                    <div class="dlg-split">
+                        <aside class="dlg-side hide-sm">
+                            <div class="dlg-k">Ringkasan Lot Aktif</div>
+                            <template x-if="selectedLot">
+                                <div class="sumc">
+                                    <div class="pill pill-info w-fit num" x-text="'LOT: ' + selectedLot.lot_no"></div>
+                                    <div class="dlg-code num mt-1" x-text="selectedLot.part_no"></div>
+                                    <div class="dlg-name" x-text="selectedLot.part_name"></div>
+                                    <div class="mt-1">
+                                        <span class="ty" :class="'ty-' + (selectedLot.type === 'FG/KOMPONEN' ? 'FGK' : selectedLot.type)" x-text="selectedLot.type"></span>
+                                    </div>
+                                </div>
+                            </template>
+                            <template x-if="!selectedLot">
+                                <p class="hint">Pilih Nomor Lot yang sedang berjalan untuk melihat batas maksimal input NG (Act FG).</p>
+                            </template>
 
-                        <div>
-                            <span class="lbl">Problem Reason (Alasan NG)</span>
-                            <div class="opt-chips">
-                                @foreach($reasons as $r)
-                                    <label>
-                                        <input type="radio" name="problem_reason" value="{{ $r }}" {{ $loop->first ? 'checked' : '' }} required>
-                                        <span>{{ $r }}</span>
-                                    </label>
-                                @endforeach
+                            <div class="dlg-list" x-show="selectedLot">
+                                <div><span>Actual Prod</span><b class="num" x-text="(selectedLot?.act_prod ?? 0) + ' ' + (selectedLot?.uom || '')"></b></div>
+                                <div><span>NG Tercatat</span><b class="num text-rose-700" x-text="(selectedLot?.qty_ng ?? 0) + ' ' + (selectedLot?.uom || '')"></b></div>
+                                <div><span>Batas Input (Act FG)</span><b class="num text-emerald-700" x-text="(selectedLot?.act_fg ?? 0) + ' ' + (selectedLot?.uom || '')"></b></div>
                             </div>
-                        </div>
+                        </aside>
 
-                        <div>
-                            <label class="lbl">Qty NG (Maksimal sebesar Act FG)</label>
-                            <input type="number" step="0.01" min="0.01" name="qty_ng" required placeholder="0" class="num w-full h-9 font-bold">
+                        <div class="dlg-main">
+                            <div>
+                                <label class="lbl" for="ng_lot">Pilih Nomor Lot &amp; Target Item (ON PROGRESS)</label>
+                                <select id="ng_lot" name="lot_tracer_id" x-model="selectedLotId" required class="w-full h-9 text-xs">
+                                    <option value="">-- Pilih Nomor Lot --</option>
+                                    @foreach($activeLots as $lt)
+                                        <option value="{{ $lt->id }}">
+                                            {{ $lt->lot_number }} — {{ $lt->targetItem->part_name ?? '-' }} (Act FG: {{ floatval($lt->act_fg) }} {{ $lt->targetItem->uom ?? 'PCS' }})
+                                        </option>
+                                    @endforeach
+                                </select>
+                            </div>
+
+                            <div>
+                                <span class="lbl">Problem Reason (Kategori Penyebab NG)</span>
+                                <div class="opt-chips">
+                                    @foreach($reasons as $r)
+                                        <label>
+                                            <input type="radio" name="problem_reason" value="{{ $r }}" x-model="selectedReason" required>
+                                            <span>{{ $r }}</span>
+                                        </label>
+                                    @endforeach
+                                </div>
+                            </div>
+
+                            <div>
+                                <label class="lbl" for="ng_qty">Qty NG (Maksimal sebesar Act FG)</label>
+                                <input id="ng_qty" type="number" step="0.01" min="0.01"
+                                       :max="selectedLot ? selectedLot.act_fg : undefined"
+                                       name="qty_ng" x-model="qtyNg" required
+                                       placeholder="Masukkan jumlah NG..."
+                                       class="num w-full h-9 font-semibold">
+                            </div>
                         </div>
                     </div>
 
@@ -185,33 +227,51 @@
     </div>
 
     <script>
-        function prodNgPage(initialCount, openInitially) {
+        function prodNgPage(initialCount, lotsList, openInitially) {
             return {
                 q: '',
-                fReason: '',
                 startDate: '',
                 endDate: '',
                 startTime: '',
                 endTime: '',
-                addOpen: openInitially,
+                fReason: '',
                 visibleCount: initialCount,
+                lotsList: lotsList,
+                addOpen: openInitially,
+                selectedLotId: '',
+                selectedReason: 'PROSES',
+                qtyNg: '',
+
+                get selectedLot() {
+                    return this.lotsList.find(x => String(x.id) === String(this.selectedLotId)) || null;
+                },
+                resetFilter() {
+                    this.q = '';
+                    this.startDate = '';
+                    this.endDate = '';
+                    this.startTime = '';
+                    this.endTime = '';
+                    this.fReason = '';
+                    this.recalc();
+                },
                 matchRow(el) {
-                    const s = (el.dataset.search || '').toLowerCase();
-                    const r = el.dataset.reason || '';
+                    const s = el.dataset.search || '';
                     const d = el.dataset.date || '';
                     const t = el.dataset.time || '';
+                    const r = el.dataset.reason || '';
+
                     if (this.q && !s.includes(this.q.toLowerCase())) return false;
-                    if (this.fReason && r !== this.fReason) return false;
                     if (this.startDate && d < this.startDate) return false;
                     if (this.endDate && d > this.endDate) return false;
                     if (this.startTime && t < this.startTime) return false;
                     if (this.endTime && t > this.endTime) return false;
+                    if (this.fReason && r !== this.fReason) return false;
                     return true;
                 },
                 recalc() {
                     this.$nextTick(() => {
                         let c = 0;
-                        this.$el.querySelectorAll('tbody tr[data-ng-row]').forEach(tr => {
+                        this.$el.querySelectorAll('tbody tr[data-row]').forEach(tr => {
                             if (this.matchRow(tr)) c++;
                         });
                         this.visibleCount = c;
