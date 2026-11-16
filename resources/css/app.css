@@ -213,7 +213,6 @@
     padding-bottom: 8px;
   }
 
-  /* Tinggi .sb-title dikunci 24px baik saat terbuka maupun tertutup agar ikon tidak pernah naik/turun */
   .sb-title {
     height: 24px;
     padding: 0 10px;
@@ -277,7 +276,6 @@
     display: none !important;
   }
 
-  /* Saat sidebar diperkecil, judul grup berubah menjadi garis strip (-) dengan tinggi tetap 24px */
   html.sb-collapsed .sb-title {
     font-size: 0 !important;
     color: transparent !important;
@@ -417,14 +415,20 @@
     border-radius: var(--r);
   }
 
+  /* Bar Judul & Filter Panel Terkunci (Sticky) Saat Scroll */
   .panel-head {
+    position: sticky;
+    top: 0;
+    z-index: 25;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 10px;
     flex-wrap: wrap;
     padding: 10px 14px;
+    background: var(--surface);
     border-bottom: 1px solid var(--line);
+    border-radius: var(--r) var(--r) 0 0;
   }
 
   .panel-title {
@@ -462,20 +466,23 @@
     margin-top: 0 !important;
   }
 
-  /* Indikator Kotak dengan Jarak Spasi Pasti */
+  /* Indikator Kotak dengan Huruf Kapital (CAPSLOCK) & Jarak Spasi Pasti */
   .count-chip {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 4px;
-    height: 21px;
-    padding: 0 8px;
+    height: 20px;
+    padding: 0 7px;
     border-radius: 3px;
     background: var(--info-bg);
     color: var(--info);
     border: 1px solid #C5D9EE;
-    font: 600 11px var(--font-mono);
+    font: 600 10.5px var(--font-mono);
     font-variant-numeric: tabular-nums;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    line-height: 1;
     white-space: nowrap;
   }
 
@@ -490,7 +497,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 7px;
+    gap: 6px;
     height: 34px;
     padding: 0 13px;
     border: 1px solid var(--line2);
@@ -498,7 +505,7 @@
     background: var(--surface);
     color: var(--ink);
     font-size: 12.5px;
-    font-weight: 500;
+    font-weight: 600;
     line-height: 1 !important;
     white-space: nowrap;
     vertical-align: middle;
@@ -512,6 +519,12 @@
     flex: 0 0 15px;
     display: block;
     margin: 0;
+  }
+
+  .btn > span {
+    display: inline-flex;
+    align-items: center;
+    line-height: 1;
   }
 
   .btn:hover {
@@ -544,6 +557,24 @@
     background: var(--crit-bg);
   }
 
+  /* ===== Tombol bahaya solid (Hapus Permanen) ===== */
+  .btn-crit {
+    background: var(--crit);
+    border-color: var(--crit);
+    color: #fff;
+    font-weight: 600;
+  }
+
+  .btn-crit:hover {
+    background: var(--crit);
+    filter: brightness(1.1);
+  }
+
+  .btn-crit:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
   .btn-sm {
     height: 28px;
     padding: 0 10px;
@@ -563,6 +594,21 @@
     font-size: 14px;
     font-weight: 600;
     gap: 8px;
+  }
+
+  .link-act {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    cursor: pointer;
+  }
+
+  .link-act:hover {
+    text-decoration: underline;
+  }
+
+  .link-act.danger {
+    color: var(--crit);
   }
 
   /* ===== Tombol Grup Opsi C: Dua Tombol Menyatu Simetris ===== */
@@ -592,7 +638,36 @@
     z-index: 1;
   }
 
-  /* ===== Tipe Item (Chip Berwarna) ===== */
+  /* ===== Wrapper Kolom Input dengan Ikon Kalkulator di Dalamnya ===== */
+  .inp-calc {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+  }
+
+  .inp-calc > input {
+    padding-right: 30px !important;
+    width: 100%;
+  }
+
+  .inp-calc-ic {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--mut);
+    pointer-events: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .inp-calc:focus-within .inp-calc-ic {
+    color: var(--accent);
+  }
+
+  /* ===== Tipe Item (Chip Berwarna CAPSLOCK) ===== */
   .ty {
     display: inline-flex;
     align-items: center;
@@ -603,6 +678,7 @@
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.03em;
+    text-transform: uppercase;
     line-height: 1;
     white-space: nowrap;
   }
@@ -621,6 +697,10 @@
     overflow: hidden;
   }
 
+  .dlg .panel-head {
+    position: static;
+  }
+
   .dlg-split {
     display: grid;
     grid-template-columns: 240px minmax(0, 1fr);
@@ -630,7 +710,7 @@
   }
 
   .dlg-split-wide {
-    grid-template-columns: 260px minmax(0, 1fr);
+    grid-template-columns: 268px minmax(0, 1fr);
   }
 
   .dlg-side {
@@ -774,6 +854,195 @@
     cursor: not-allowed;
   }
 
+  /* ===== Dialog Hapus / Proses / Perusahaan (Bagian C Prompt v3) ===== */
+  .sumc {
+    display: grid;
+    gap: 4px;
+    padding: 10px 12px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+  }
+
+  .cons {
+    display: grid;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .cons li {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    color: var(--ink2);
+  }
+
+  .cons li i {
+    flex: none;
+    width: 6px;
+    height: 6px;
+    margin-top: 7px;
+    border-radius: 1px;
+    background: var(--line2);
+  }
+
+  .cons li.k i { background: var(--good); }
+  .cons li.x i { background: var(--crit); }
+
+  .plist {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .plist span {
+    display: inline-flex;
+    align-items: center;
+    height: 22px;
+    padding: 0 8px;
+    border: 1px solid var(--line2);
+    border-radius: 3px;
+    background: var(--surface);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--ink2);
+  }
+
+  .plist span.new {
+    border-color: var(--accent);
+    background: var(--info-bg);
+    color: var(--accent);
+  }
+
+  .mono-tile {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    border: 1px solid #C9DBEF;
+    border-radius: var(--r);
+    background: var(--info-bg);
+    color: var(--accent);
+    font-size: 15px;
+    font-weight: 700;
+  }
+
+  /* ===== Form BOM: Alur Node (Input -> Proses -> Output) ===== */
+  .flow3 {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 200px minmax(0, 1fr);
+    gap: 0 56px;
+    align-items: start;
+  }
+
+  .flow3-links {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: visible;
+  }
+
+  .flow3-links path {
+    fill: none;
+    stroke: var(--line2);
+    stroke-width: 1.5;
+  }
+
+  .fcol {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .fh3 {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--mut);
+  }
+
+  .fmid {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    padding-top: 28px;
+  }
+
+  .nodec {
+    display: grid;
+    gap: 8px;
+    padding: 10px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+  }
+
+  .nodec.inp { background: var(--sunk); }
+  .nodec.out { border-color: #C9DBEF; }
+
+  .pnode {
+    display: grid;
+    justify-items: start;
+    gap: 8px;
+    padding: 12px;
+    background: var(--surface);
+    border: 1px solid var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+    border-radius: var(--r);
+  }
+
+  .pnode select {
+    width: 100%;
+  }
+
+  .rr {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .trg {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .hasil {
+    font-size: 11px;
+    color: var(--mut);
+  }
+
+  .hasil b {
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+
+  @media (max-width: 900px) {
+    .flow3 {
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+    .flow3-links {
+      display: none;
+    }
+    .fmid {
+      padding-top: 0;
+    }
+  }
+
   /* ===== Komponen Informasi Material (Alur BOM & Linimasa) ===== */
   .sbar {
     position: relative;
@@ -836,14 +1105,21 @@
 
   .flow-col {
     display: grid;
-    gap: 8px;
+    gap: 10px;
     align-content: start;
   }
 
   .flow-cap {
-    margin-bottom: 4px;
+    margin-bottom: 6px;
     font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
     color: var(--mut);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
   }
 
   @media (max-width: 1023px) {
@@ -854,6 +1130,28 @@
     .flow-ar {
       display: none;
     }
+  }
+
+  /* Kotak Pengelompokan BOM ID di Informasi Material */
+  .bom-grp-box {
+    border: 1px solid var(--line2);
+    border-radius: var(--r);
+    background: var(--sunk);
+    padding: 8px;
+    display: grid;
+    gap: 8px;
+  }
+
+  .bom-grp-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--line);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--ink2);
   }
 
   .rel {
@@ -875,6 +1173,7 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
+    justify-content: space-between;
     gap: 6px;
     font-weight: 600;
     font-size: 12px;
@@ -1104,14 +1403,19 @@
     font-weight: 600;
   }
 
+  /* Pembungkus Tabel dengan Freeze Header (th) & Freeze Filter (.panel-head) */
   .tbl-wrap {
     overflow-x: auto;
+    overflow-y: auto;
+    max-height: calc(100vh - 208px);
     width: 100%;
+    position: relative;
   }
 
   .tbl {
     width: 100%;
-    border-collapse: collapse;
+    border-collapse: separate;
+    border-spacing: 0;
     font-size: 12.5px;
     line-height: 20px;
   }
@@ -1119,12 +1423,13 @@
   .tbl th {
     position: sticky;
     top: 0;
-    z-index: 15;
+    z-index: 20;
     padding: 8px 12px;
     text-align: left;
     white-space: nowrap;
     background: var(--sunk);
-    border-bottom: 1px solid var(--line);
+    border-bottom: 1px solid var(--line2);
+    box-shadow: 0 1px 0 var(--line);
     font-size: 10.5px;
     font-weight: 600;
     letter-spacing: 0.05em;
@@ -1195,7 +1500,7 @@
     font-size: 12.5px;
   }
 
-  /* Warna Indikator Sistem Tetap Dipertahankan */
+  /* Warna Indikator Sistem Tetap Dipertahankan & CAPSLOCK */
   .pill {
     display: inline-flex;
     align-items: center;
@@ -1203,8 +1508,10 @@
     height: 20px;
     padding: 0 8px;
     border-radius: var(--pill);
-    font-size: 11px;
+    font-size: 10.5px;
     font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
     line-height: 1;
     white-space: nowrap;
   }
@@ -1241,14 +1548,13 @@
   }
 
   .alert {
-    display: flex;
-    align-items: flex-start;
-    gap: 8px;
-    padding: 9px 12px;
+    display: block;
+    padding: 10px 13px;
     border: 1px solid;
     border-radius: var(--r);
     font-size: 12.5px;
     font-weight: 500;
+    line-height: 1.5;
   }
 
   .alert-good {

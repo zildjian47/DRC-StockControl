@@ -1,11 +1,10 @@
 <x-app-layout>
     <x-slot name="header">
-        <x-page-header title="Profil" subtitle="Informasi akun, password, dan penghapusan akun" />
+        <x-page-header title="Profil Pengguna"
+                       subtitle="Kelola informasi nama petugas, alamat email login, dan keamanan password akun Anda" />
     </x-slot>
 
-    <x-flash />
-
-    <div class="grid grid-cols-1 xl:grid-cols-2 gap-[18px]">
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-[18px] items-start">
         <section class="panel">
             <div class="panel-body">
                 <div class="max-w-xl">

@@ -468,6 +468,7 @@ class Item extends Model
         $std1         = $this->calculated_std_day_1;
         $ratio        = $std1 > 0 ? round($currentStock / $std1, 2) : 0.0;
         $status       = $stock ? $stock->calculateDynamicStatus() : 'EMPTY STOCK';
+        $wipQty       = round((float) $this->lotTracersAsTarget()->where('status_lot', 'ON PROGRESS')->sum('qty_wip'), 2);
 
         $inputs = $this->bomsAsOutput()->with(['inputItem.inventoryStock', 'process'])->get()->map(function ($b) {
             $inItem  = $b->inputItem;
@@ -477,6 +478,8 @@ class Item extends Model
             $inStat  = $inItem && $inItem->inventoryStock ? $inItem->inventoryStock->calculateDynamicStatus() : 'EMPTY STOCK';
 
             return [
+                'bom_group'     => $b->bom_group ?: ('SG-' . $b->id),
+                'group_type'    => $b->group_type,
                 'process'       => $b->process->process_name ?? '-',
                 'part_no'       => $inItem->part_no ?: '-',
                 'part_name'     => $inItem->part_name ?? '-',
@@ -498,13 +501,15 @@ class Item extends Model
             $outStat  = $outItem && $outItem->inventoryStock ? $outItem->inventoryStock->calculateDynamicStatus() : 'EMPTY STOCK';
 
             return [
-                'process'       => $b->process->process_name ?? '-',
+                'bom_group'     => $b->bom_group ?: ('SG-' . $b->id),
                 'group_type'    => $b->group_type,
+                'process'       => $b->process->process_name ?? '-',
                 'part_no'       => $outItem->part_no ?: '-',
                 'part_name'     => $outItem->part_name ?? '-',
                 'type'          => $outItem->type ?? '-',
                 'uom'           => $outItem->uom ?? '',
                 'qty_usage'     => $b->formatted_qty_usage,
+                'is_trigger'    => (bool) $b->is_trigger,
                 'current_stock' => $outStock,
                 'ratio_stock'   => $outRatio,
                 'status_stock'  => $outStat,
@@ -517,8 +522,10 @@ class Item extends Model
             'part_name'     => $this->part_name,
             'type'          => $this->type,
             'uom'           => $this->uom,
-            'company'       => $this->company ? ($this->company->company_code . ' (' . $this->company->type_company . ')') : 'INTERNAL',
+            'company'       => $this->company ? ($this->company->company_code . ' — ' . $this->company->company_name) : 'INTERNAL',
+            'company_type'  => $this->company ? $this->company->type_company : 'INTERNAL',
             'current_stock' => $currentStock,
+            'wip_qty'       => $wipQty,
             'std_day_1'     => $std1,
             'std_day_2'     => $this->std_day_2,
             'std_day_3'     => $this->std_day_3,

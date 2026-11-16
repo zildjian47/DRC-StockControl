@@ -1,6 +1,11 @@
 @php
     $u = Auth::user();
-    $uname = $u->username ?: $u->name;
+    $displayName = $u->name;
+    $words = preg_split('/\s+/', trim((string) $displayName));
+    $initials = count($words) >= 2
+        ? strtoupper(substr($words[0], 0, 1) . substr($words[1], 0, 1))
+        : strtoupper(substr((string) $displayName, 0, 2));
+
     $current = collect(config('plantline_menu'))->flatMap(fn ($g) => $g['items'])
                 ->first(fn ($i) => request()->routeIs($i['match']));
     $pageLabel = $current['label'] ?? (request()->routeIs('profile.*') ? 'Profil' : 'Halaman');
@@ -28,32 +33,14 @@
                     }
                 } catch (e) {}
             }
-
             syncSidebarState();
-
-            // Menjamin saat menekan Alt + Left Arrow / Right Arrow (BFCache), kondisi sidebar tetap konsisten
             window.addEventListener('pageshow', function () {
                 syncSidebarState();
                 window.dispatchEvent(new CustomEvent('sb-sync'));
             });
-
             window.addEventListener('popstate', function () {
                 syncSidebarState();
                 window.dispatchEvent(new CustomEvent('sb-sync'));
-            });
-
-            window.addEventListener('storage', function (e) {
-                if (e.key === 'drc_sb_collapsed') {
-                    syncSidebarState();
-                    window.dispatchEvent(new CustomEvent('sb-sync'));
-                }
-            });
-
-            // Aktifkan animasi slide smooth setelah halaman selesai digambar
-            requestAnimationFrame(function () {
-                requestAnimationFrame(function () {
-                    document.documentElement.classList.add('sb-ready');
-                });
             });
         })();
     </script>
@@ -62,39 +49,22 @@
 </head>
 <body x-data="{
         nav: false,
-        sbCollapsed: localStorage.getItem('drc_sb_collapsed') === '1',
-        confirmModal: { open: false, title: '', message: '', form: null },
+        collapsed: localStorage.getItem('drc_sb_collapsed') === '1',
         toggleSidebar() {
             document.documentElement.classList.add('sb-ready');
-            this.sbCollapsed = !this.sbCollapsed;
-            if (this.sbCollapsed) {
-                document.documentElement.classList.add('sb-collapsed');
-                localStorage.setItem('drc_sb_collapsed', '1');
-            } else {
-                document.documentElement.classList.remove('sb-collapsed');
-                localStorage.setItem('drc_sb_collapsed', '0');
-            }
-        },
-        openConfirm(detail) {
-            this.confirmModal.title = detail.title || 'Konfirmasi Tindakan';
-            this.confirmModal.message = detail.message || 'Apakah Anda yakin ingin melanjutkan tindakan ini?';
-            this.confirmModal.form = detail.form || null;
-            this.confirmModal.open = true;
-        },
-        proceedConfirm() {
-            if (this.confirmModal.form) {
-                this.confirmModal.form.submit();
-            }
-            this.confirmModal.open = false;
+            this.collapsed = !this.collapsed;
+            localStorage.setItem('drc_sb_collapsed', this.collapsed ? '1' : '0');
+            document.documentElement.classList.toggle('sb-collapsed', this.collapsed);
         }
       }"
-      @sb-sync.window="sbCollapsed = localStorage.getItem('drc_sb_collapsed') === '1'"
-      @open-confirm.window="openConfirm($event.detail)"
-      @keydown.escape.window="nav = false; confirmModal.open = false">
-
+      x-init="$nextTick(() => document.documentElement.classList.add('sb-ready'))"
+      @sb-sync.window="collapsed = localStorage.getItem('drc_sb_collapsed') === '1'"
+      @keydown.escape.window="nav = false">
 <div class="app-shell">
+
     <div x-show="nav" x-cloak @click="nav = false" class="fixed inset-0 z-30 bg-slate-950/50 lg:hidden"></div>
 
+    {{-- SIDEBAR --}}
     <aside class="sidebar fixed inset-y-0 left-0 z-40 transition-transform lg:static lg:translate-x-0"
            :class="nav ? 'translate-x-0' : '-translate-x-full'">
         <div class="sb-brand">
@@ -104,10 +74,10 @@
             </div>
             <button type="button"
                     @click="toggleSidebar()"
-                    class="hidden lg:grid place-items-center w-7 h-7 rounded text-slate-300 hover:text-white hover:bg-white/10 flex-none transition-colors"
-                    :title="sbCollapsed ? 'Perlebar Sidebar' : 'Perkecil Sidebar'">
-                <x-icon x-show="!sbCollapsed" name="chevron-left" />
-                <x-icon x-show="sbCollapsed" x-cloak name="chevron-right" />
+                    class="hidden lg:grid place-items-center w-7 h-7 rounded text-slate-300 hover:text-white hover:bg-white/10 flex-none"
+                    :title="collapsed ? 'Perlebar Sidebar' : 'Perkecil Sidebar'">
+                <x-icon x-show="!collapsed" name="chevron-left" />
+                <x-icon x-show="collapsed" x-cloak name="chevron-right" />
             </button>
         </div>
 
@@ -126,6 +96,7 @@
         </div>
     </aside>
 
+    {{-- AREA UTAMA --}}
     <div class="flex-1 flex flex-col min-w-0">
         <header class="topbar">
             <button type="button" class="icon-btn lg:hidden" @click="nav = true" aria-label="Buka menu">
@@ -137,15 +108,15 @@
             </div>
 
             <a href="{{ route('profile.edit') }}" class="user-chip" title="Profil saya">
-                <span class="avatar">{{ strtoupper(substr($uname, 0, 2)) }}</span>
-                <span class="hidden sm:flex flex-col leading-tight">
-                    <b class="text-[12.5px] font-semibold" style="color:var(--ink)">{{ $uname }}</b>
-                    <small class="text-[11px]" style="color:var(--mut)">{{ $u->role }}</small>
+                <span class="avatar">{{ $initials }}</span>
+                <span class="hidden sm:flex flex-col leading-tight text-left">
+                    <b class="text-[12.5px] font-semibold" style="color:var(--ink)">{{ $displayName }}</b>
+                    <small class="text-[11px] font-semibold uppercase" style="color:var(--mut)">{{ $u->role }}</small>
                 </span>
             </a>
         </header>
 
-        <main class="flex-1 overflow-y-auto" id="main-content">
+        <main class="flex-1 overflow-y-auto">
             <div class="page">
                 @isset($header)
                     <div class="page-head">{{ $header }}</div>
@@ -156,181 +127,242 @@
     </div>
 </div>
 
-{{-- POP-UP KONFIRMASI SISTEM --}}
-<div x-show="confirmModal.open" x-cloak
-     class="modal-backdrop"
-     @click.self="confirmModal.open = false">
-    <div class="panel w-full max-w-md overflow-hidden">
+{{-- MODAL KONFIRMASI SISTEM GLOBAL --}}
+<div x-data="{
+        open: false,
+        title: 'Konfirmasi Tindakan',
+        message: 'Apakah Anda yakin ingin melanjutkan tindakan ini?',
+        formEl: null,
+        show(detail) {
+            this.title = detail?.title || 'Konfirmasi Tindakan';
+            this.message = detail?.message || 'Apakah Anda yakin ingin melanjutkan tindakan ini?';
+            this.formEl = detail?.form || null;
+            this.open = true;
+        },
+        confirm() {
+            if (this.formEl) {
+                this.formEl.submit();
+            }
+            this.open = false;
+        }
+    }"
+    @open-confirm.window="show($event.detail)"
+    @keydown.escape.window="open = false"
+    x-show="open"
+    x-cloak
+    class="modal-backdrop">
+    <div class="panel w-full max-w-md" @click.away="open = false">
         <div class="panel-head">
-            <h3 class="panel-title" x-text="confirmModal.title"></h3>
-            <button type="button" @click="confirmModal.open = false" class="act-btn" aria-label="Tutup">
+            <h3 class="panel-title" x-text="title"></h3>
+            <button type="button" class="act-btn" @click="open = false">
                 <x-icon name="x" />
             </button>
         </div>
         <div class="panel-body">
-            <p class="text-xs text-slate-600 leading-relaxed" x-text="confirmModal.message"></p>
+            <p class="text-slate-700 text-xs leading-relaxed" x-text="message"></p>
         </div>
         <div class="panel-foot">
-            <button type="button" class="btn" @click="confirmModal.open = false">Batal</button>
-            <button type="button" class="btn btn-primary" @click="proceedConfirm()">Ya, Lanjutkan</button>
+            <button type="button" class="btn" @click="open = false">Batal</button>
+            <button type="button" class="btn btn-primary" @click="confirm()">Ya, Lanjutkan</button>
         </div>
     </div>
 </div>
 
-{{-- GLOBAL SEARCHABLE DROPDOWN ENGINE (Mendukung semua <select> di dalam & luar form) --}}
-<div id="drc-sselect-popover" class="sselect-popover" style="display: none;">
+{{-- GLOBAL SEARCHABLE SELECT ENGINE (Ketik & Pilih untuk Seluruh Dropdown) --}}
+<div x-data="globalSearchSelect()"
+     x-init="initEngine()"
+     @keydown.escape.window="close()"
+     x-show="isOpen"
+     x-cloak
+     :style="popoverStyle"
+     class="sselect-popover"
+     @mousedown.outside="close()">
     <div class="sselect-search-wrap">
-        <input type="text" id="drc-sselect-input" class="sselect-search" placeholder="Ketik untuk mencari..." autocomplete="off">
+        <input type="text"
+               x-ref="searchInput"
+               x-model="q"
+               @keydown.down.prevent="move(1)"
+               @keydown.up.prevent="move(-1)"
+               @keydown.enter.prevent="chooseActive()"
+               placeholder="Ketik untuk mencari pilihan..."
+               class="sselect-search">
     </div>
-    <div id="drc-sselect-list" class="sselect-list"></div>
+    <div class="sselect-list" x-ref="optList">
+        <template x-for="(opt, idx) in filteredOptions" :key="idx">
+            <div class="sselect-opt"
+                 :class="{ 'active': idx === activeIndex, 'selected': String(opt.value) === String(currentValue) }"
+                 @mouseenter="activeIndex = idx"
+                 @mousedown.prevent="selectOption(opt)">
+                <span x-text="opt.label" class="truncate"></span>
+                <span x-show="String(opt.value) === String(currentValue)" class="text-accent font-bold text-xs">✓</span>
+            </div>
+        </template>
+        <div x-show="filteredOptions.length === 0" class="sselect-empty">
+            Pilihan tidak ditemukan.
+        </div>
+    </div>
 </div>
 
 <script>
-    (function () {
-        let activeSelect = null;
-        const popover = document.getElementById('drc-sselect-popover');
-        const searchInput = document.getElementById('drc-sselect-input');
-        const listEl = document.getElementById('drc-sselect-list');
+    function globalSearchSelect() {
+        return {
+            isOpen: false,
+            targetSelect: null,
+            q: '',
+            options: [],
+            currentValue: '',
+            activeIndex: 0,
+            popoverStyle: '',
 
-        function closePopover() {
-            if (!activeSelect) return;
-            popover.style.display = 'none';
-            activeSelect = null;
-        }
+            initEngine() {
+                document.addEventListener('mousedown', (e) => {
+                    const sel = e.target.closest('select');
+                    if (!sel || sel.disabled || sel.dataset.nativeSelect === '1') return;
 
-        function renderOptions(query) {
-            if (!activeSelect) return;
-            const q = (query || '').trim().toLowerCase();
-            listEl.innerHTML = '';
-            let count = 0;
-
-            Array.from(activeSelect.options).forEach((opt, index) => {
-                const text = (opt.textContent || opt.innerText || '').trim();
-                if (q && !text.toLowerCase().includes(q)) return;
-
-                const row = document.createElement('div');
-                row.className = 'sselect-opt' + (activeSelect.selectedIndex === index ? ' selected' : '');
-                row.textContent = text;
-                row.addEventListener('mousedown', function (e) {
                     e.preventDefault();
-                    e.stopPropagation();
-                    activeSelect.selectedIndex = index;
-                    activeSelect.value = opt.value;
-                    activeSelect.dispatchEvent(new Event('input', { bubbles: true }));
-                    activeSelect.dispatchEvent(new Event('change', { bubbles: true }));
-                    closePopover();
+                    sel.focus();
+                    this.openFor(sel);
+                }, true);
+
+                document.addEventListener('keydown', (e) => {
+                    const sel = document.activeElement;
+                    if (!sel || sel.tagName !== 'SELECT' || sel.disabled) return;
+                    if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        this.openFor(sel);
+                    }
                 });
-                listEl.appendChild(row);
-                count++;
-            });
 
-            if (count === 0) {
-                const empty = document.createElement('div');
-                empty.className = 'sselect-empty';
-                empty.textContent = 'Pilihan tidak ditemukan.';
-                listEl.appendChild(empty);
-            }
-        }
+                window.addEventListener('scroll', (e) => {
+                    if (!this.isOpen) return;
+                    if (this.$el && this.$el.contains(e.target)) return;
+                    this.updatePosition();
+                }, true);
 
-        function openForSelect(sel) {
-            if (sel.disabled) return;
-            activeSelect = sel;
-            const rect = sel.getBoundingClientRect();
-            const minW = Math.max(rect.width, 220);
-            const leftPos = Math.min(rect.left, window.innerWidth - minW - 12);
-            const spaceBelow = window.innerHeight - rect.bottom;
+                window.addEventListener('resize', () => {
+                    if (this.isOpen) this.updatePosition();
+                });
+            },
 
-            popover.style.width = minW + 'px';
-            popover.style.left = Math.max(8, leftPos) + 'px';
-
-            if (spaceBelow < 240 && rect.top > 250) {
-                popover.style.top = 'auto';
-                popover.style.bottom = (window.innerHeight - rect.top + 4) + 'px';
-            } else {
-                popover.style.bottom = 'auto';
-                popover.style.top = (rect.bottom + 4) + 'px';
-            }
-
-            popover.style.display = 'flex';
-            searchInput.value = '';
-            renderOptions('');
-            setTimeout(() => searchInput.focus(), 10);
-        }
-
-        document.addEventListener('mousedown', function (e) {
-            if (popover.contains(e.target)) return;
-            const sel = e.target.closest('select');
-            if (sel && !sel.hasAttribute('data-native-select')) {
-                e.preventDefault();
-                if (activeSelect === sel) {
-                    closePopover();
-                } else {
-                    openForSelect(sel);
+            openFor(sel) {
+                if (this.isOpen && this.targetSelect === sel) {
+                    this.close();
+                    return;
                 }
-            } else {
-                closePopover();
+                this.targetSelect = sel;
+                this.readOptions();
+                this.q = '';
+                this.activeIndex = Math.max(0, this.options.findIndex(o => String(o.value) === String(this.currentValue)));
+                this.isOpen = true;
+                this.updatePosition();
+
+                this.$nextTick(() => {
+                    if (this.$refs.searchInput) {
+                        this.$refs.searchInput.focus();
+                    }
+                });
+            },
+
+            readOptions() {
+                if (!this.targetSelect) return;
+                this.currentValue = this.targetSelect.value;
+                this.options = Array.from(this.targetSelect.options)
+                    .filter(o => !o.disabled || o.value === '')
+                    .map(o => ({
+                        value: o.value,
+                        label: (o.textContent || o.innerText || '').trim()
+                    }));
+            },
+
+            updatePosition() {
+                if (!this.targetSelect) return;
+                const rect = this.targetSelect.getBoundingClientRect();
+                const width = Math.max(rect.width, 230);
+                const spaceBelow = window.innerHeight - rect.bottom;
+                const top = spaceBelow < 260 && rect.top > 260
+                    ? Math.max(8, rect.top - 256)
+                    : rect.bottom + 4;
+                const left = Math.min(rect.left, window.innerWidth - width - 8);
+
+                this.popoverStyle = `top:${top}px; left:${Math.max(8, left)}px; width:${width}px;`;
+            },
+
+            get filteredOptions() {
+                const kw = this.q.trim().toLowerCase();
+                if (!kw) return this.options;
+                return this.options.filter(o => o.label.toLowerCase().includes(kw));
+            },
+
+            move(step) {
+                const max = this.filteredOptions.length - 1;
+                if (max < 0) return;
+                this.activeIndex = Math.min(max, Math.max(0, this.activeIndex + step));
+            },
+
+            chooseActive() {
+                const opt = this.filteredOptions[this.activeIndex];
+                if (opt) this.selectOption(opt);
+            },
+
+            selectOption(opt) {
+                if (!this.targetSelect) return;
+                this.targetSelect.value = opt.value;
+                this.currentValue = opt.value;
+                this.targetSelect.dispatchEvent(new Event('input', { bubbles: true }));
+                this.targetSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                this.close();
+            },
+
+            close() {
+                this.isOpen = false;
+                this.targetSelect = null;
             }
-        }, true);
+        };
+    }
 
-        document.addEventListener('keydown', function (e) {
-            if (e.key === 'Escape' && activeSelect) {
-                closePopover();
-            }
-        });
-
-        searchInput.addEventListener('input', function () {
-            renderOptions(this.value);
-        });
-
-        window.addEventListener('scroll', function (e) {
-            if (activeSelect && !popover.contains(e.target)) {
-                closePopover();
-            }
-        }, true);
-
-        window.addEventListener('resize', closePopover);
-    })();
-
-    // Smart Auto-Update Saat Idle (15 Detik)
+    // Auto-Update Tabel Saat Idle (Setiap 15 Detik)
     (function () {
         let lastActivity = Date.now();
-        ['mousemove', 'keydown', 'mousedown', 'touchstart', 'input'].forEach(ev => {
-            window.addEventListener(ev, () => { lastActivity = Date.now(); }, { passive: true });
+        ['mousemove', 'keydown', 'mousedown', 'touchstart', 'input'].forEach(evt => {
+            window.addEventListener(evt, () => { lastActivity = Date.now(); }, { passive: true });
         });
 
-        let fetchCtrl = null;
+        let activeController = null;
         window.addEventListener('beforeunload', () => {
-            if (fetchCtrl) fetchCtrl.abort();
+            if (activeController) activeController.abort();
         });
 
         setInterval(async () => {
-            if (Date.now() - lastActivity < 12000) return;
+            if (Date.now() - lastActivity < 6000) return;
             const activeEl = document.activeElement;
             if (activeEl && ['INPUT', 'SELECT', 'TEXTAREA'].includes(activeEl.tagName)) return;
-            if (document.getElementById('drc-sselect-popover')?.style.display === 'flex') return;
 
-            const openModals = Array.from(document.querySelectorAll('.modal-backdrop')).some(el => el.offsetParent !== null);
-            if (openModals) return;
+            const openModal = Array.from(document.querySelectorAll('.modal-backdrop')).some(el => el.offsetParent !== null);
+            if (openModal) return;
+
+            const currentTbl = document.querySelector('main .tbl tbody');
+            if (!currentTbl) return;
 
             try {
-                if (fetchCtrl) fetchCtrl.abort();
-                fetchCtrl = new AbortController();
+                if (activeController) activeController.abort();
+                activeController = new AbortController();
+
                 const res = await fetch(window.location.href, {
                     headers: { 'X-Requested-With': 'XMLHttpRequest' },
-                    signal: fetchCtrl.signal
+                    signal: activeController.signal
                 });
                 if (!res.ok) return;
+
                 const html = await res.text();
                 const doc = new DOMParser().parseFromString(html, 'text/html');
-                const newTbodies = doc.querySelectorAll('table.tbl tbody');
-                const curTbodies = document.querySelectorAll('table.tbl tbody');
-                if (newTbodies.length === curTbodies.length && newTbodies.length > 0) {
-                    curTbodies.forEach((tb, idx) => {
-                        if (tb.innerHTML !== newTbodies[idx].innerHTML) {
-                            tb.innerHTML = newTbodies[idx].innerHTML;
-                            window.dispatchEvent(new CustomEvent('table-refreshed'));
-                        }
-                    });
+                const newTbl = doc.querySelector('main .tbl tbody');
+
+                if (newTbl && newTbl.innerHTML !== currentTbl.innerHTML) {
+                    currentTbl.innerHTML = newTbl.innerHTML;
+                    if (window.Alpine) {
+                        window.Alpine.initTree(currentTbl);
+                    }
+                    window.dispatchEvent(new CustomEvent('table-refreshed'));
                 }
             } catch (e) {}
         }, 15000);
