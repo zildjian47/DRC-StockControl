@@ -1738,4 +1738,51 @@
     font-size: 11.5px;
     color: var(--mut);
   }
+
+  /* Warna Tipe Item Permanen (Anti-Purge untuk 5 Tipe Item) */
+  .ty {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 20px;
+    padding: 0 7px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .ty-RM {
+    background-color: #E4EEF8 !important;
+    color: #0B5CAD !important;
+    border: 1px solid #BDD4EC;
+  }
+
+  .ty-FG {
+    background-color: #DCF1EE !important;
+    color: #0B7A6B !important;
+    border: 1px solid #B2DFD9;
+  }
+
+  .ty-KOMPONEN {
+    background-color: #ECE9F8 !important;
+    color: #5B4BB7 !important;
+    border: 1px solid #D0C9F0;
+  }
+
+  .ty-TRANSIT {
+    background-color: #F3E5F1 !important;
+    color: #8E3A86 !important;
+    border: 1px solid #E2C4DF;
+  }
+
+  .ty-FGK {
+    background-color: #EAF2D9 !important;
+    color: #3F6212 !important;
+    border: 1px solid #CBE0A6;
+  }
+
 }

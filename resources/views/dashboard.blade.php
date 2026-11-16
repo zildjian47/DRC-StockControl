@@ -139,7 +139,6 @@
             $ratioFg = $std1 > 0 ? round($currStock / $std1, 2) : 0.0;
             $statusNow = $st ? $st->calculateDynamicStatus() : 'EMPTY STOCK';
 
-            // Posisi stok pukul 07:00 pagi
             $deltaAfter07 = (float) ($netAfter07[$itm->id] ?? 0.0);
             $stock07 = round(max(0, $currStock - $deltaAfter07), 2);
             if ($stock07 <= 0) {
@@ -157,17 +156,15 @@
             }
             $ratio07 = $std1 > 0 ? round($stock07 / $std1, 2) : 0.0;
 
-            // WIP Aktif (Untuk FG/FGK/KOMPONEN = WIP Target; untuk RM = Sisa Material di Mesin)
             $wipTarget = (float) ($wipByTargetItem[$itm->id] ?? 0);
             $matInMach = (float) ($matInMachineByItem[$itm->id] ?? 0);
             $wipActive = $itm->type === 'RM' ? $matInMach : round($wipTarget + $matInMach, 2);
 
-            // Hitung Potensi dari Material Pembentuk (Lapis Bawah Abu-abu)
             $outBoms = $itm->bomsAsOutput;
             $potMax = 0.0;
             $potProp = 0.0;
             $hasSharedInput = false;
-            $inputBreakdown = [];
+            $materialsDetail = [];
 
             if ($outBoms->isNotEmpty()) {
                 $byGroupMax = [];
@@ -188,10 +185,8 @@
                             $hasSharedInput = true;
                         }
 
-                        // Kapasitas mandiri
                         $canMakeMax = floor(($inStock / $usage) * 100) / 100;
 
-                        // Kapasitas proporsional PO
                         $myReq = $std1 * $usage;
                         $totReq = (float) ($totalDailyReqByInput[$inItm->id] ?? $myReq);
                         $shareFactor = ($usedCount > 1 && $totReq > 0) ? min(1.0, $myReq / $totReq) : 1.0;
@@ -201,7 +196,17 @@
                         if ($minMax === null || $canMakeMax < $minMax) $minMax = $canMakeMax;
                         if ($minProp === null || $canMakeProp < $minProp) $minProp = $canMakeProp;
 
-                        $inputBreakdown[] = ($inItm->part_no ?: $inItm->part_name) . ': ' . floatval($inStock) . ' ' . $inItm->uom . ' (Usage ' . floatval($usage) . ' → ' . round($canMakeMax) . ' ' . $itm->uom . ')';
+                        $materialsDetail[] = [
+                            'name'       => ($inItm->part_no ? $inItm->part_no . ' — ' : '') . $inItm->part_name,
+                            'stock'      => floatval($inStock),
+                            'uom'        => $inItm->uom,
+                            'usage'      => $bRow->formatted_qty_usage,
+                            'make_prop'  => round($canMakeProp),
+                            'make_max'   => round($canMakeMax),
+                            'is_shared'  => $usedCount > 1,
+                            'share_pct'  => round($shareFactor * 100),
+                            'used_count' => $usedCount,
+                        ];
                     }
 
                     if ($minMax !== null) $byGroupMax[] = $minMax;
@@ -233,7 +238,7 @@
                 'pot_prop'         => $potProp,
                 'has_shared_input' => $hasSharedInput,
                 'input_ids'        => $inputIds,
-                'input_Hover'      => implode(' | ', $inputBreakdown),
+                'materials_detail' => $materialsDetail,
                 'std_day_1'        => $std1,
                 'std_day_2'        => $std2,
                 'std_day_3'        => $std3,
@@ -253,13 +258,9 @@
                 'type' => $c->type_company,
             ])->values();
 
-        // Default perusahaan untuk grafik stok: Customer pertama penerima FG
         $defaultFgCustomer = $allCompaniesList->firstWhere('type', 'CUSTOMER');
         $defaultStockCompanyId = $defaultFgCustomer ? (string) $defaultFgCustomer['id'] : '';
 
-        // =========================================================================
-        // DATA GRAFIK DELAY DELIVERY (PER CUSTOMER & PER PROBLEM REASON)
-        // =========================================================================
         $monthNamesShort = [
             1 => 'Jan', 2 => 'Feb', 3 => 'Mar', 4 => 'Apr',
             5 => 'Mei', 6 => 'Jun', 7 => 'Jul', 8 => 'Agu',
@@ -614,7 +615,7 @@
     </section>
 
     {{-- ======================================================================= --}}
-    {{-- 5. GRAFIK KETERSEDIAAN STOK 3 LAPIS (BATANG VERTIKAL DARI BAWAH KE ATAS)--}}
+    {{-- 5. GRAFIK KETERSEDIAAN STOK 3 LAPIS (DENGAN KARTU HOVER SEDERHANA)     --}}
     {{-- ======================================================================= --}}
     <section class="panel"
              x-data="dashboardStockVerticalChart({{ Js::from($dashboardItems) }}, {{ Js::from($sharedMaterialsList) }}, '{{ $defaultStockCompanyId }}')">
@@ -625,10 +626,10 @@
                     <span class="count-chip"><span x-text="chartItems.length"></span><span>ITEM</span></span>
                 </div>
                 <p class="hint" style="margin-top: 2px">
-                    Batang vertikal dari bawah ke atas (diurutkan dari stok terkecil di kiri ke terbesar di kanan):
-                    <b>Lapis Bawah (Abu-abu)</b> = Potensi dari Material Pembentuk,
+                    Batang vertikal dari bawah ke atas (urut stok terkecil di kiri ke terbesar di kanan):
+                    <b>Lapis Bawah (Abu)</b> = Bisa dibuat dari Material,
                     <b>Lapis Tengah (Kuning)</b> = WIP di Lot Tracer,
-                    <b>Lapis Atas (Biru)</b> = Stok Gudang Siap Kirim.
+                    <b>Lapis Atas (Biru)</b> = Stok Siap Kirim.
                 </p>
             </div>
 
@@ -659,11 +660,11 @@
                 </select>
 
                 <div class="seg" role="radiogroup" aria-label="Mode Alokasi Material Bersama">
-                    <label title="Membagi stok material bersama secara proporsional sesuai target PO agar tidak terhitung ganda">
+                    <label>
                         <input type="radio" value="prop" x-model="allocMode">
                         <span>Alokasi Proporsional</span>
                     </label>
-                    <label title="Menampilkan kapasitas maksimal mandiri seandainya 100% material dipakai untuk part ini">
+                    <label>
                         <input type="radio" value="max" x-model="allocMode">
                         <span>Maks Mandiri</span>
                     </label>
@@ -679,37 +680,123 @@
         </div>
 
         <div class="panel-body space-y-3">
-            {{-- Legenda Grafik 3 Lapis --}}
+            {{-- Legenda Grafik & Penjelasan Singkat Mode Alokasi --}}
             <div class="flex flex-wrap items-center justify-between gap-3 px-3 py-2 rounded border border-slate-200 bg-slate-50 text-xs">
                 <div class="flex flex-wrap items-center gap-4">
                     <span class="inline-flex items-center gap-1.5 font-semibold text-slate-700">
                         <i class="inline-block w-3 h-3 rounded-sm" style="background: #0B5CAD"></i>
-                        Lapis Atas: Stok FG / Gudang Siap Kirim
+                        Stok FG / Gudang (Siap Kirim)
                     </span>
                     <span class="inline-flex items-center gap-1.5 font-semibold text-slate-700">
                         <i class="inline-block w-3 h-3 rounded-sm" style="background: #F59E0B"></i>
-                        Lapis Tengah: WIP Aktif di Lot Tracer
+                        WIP di Lot Tracer (Sedang Diproses)
                     </span>
                     <span class="inline-flex items-center gap-1.5 font-semibold text-slate-700">
                         <i class="inline-block w-3 h-3 rounded-sm" style="background: #94A3B8"></i>
-                        Lapis Bawah: Potensi dari Material Pembentuk
+                        Potensi dari Material (Bahan Baku)
                     </span>
                     <span class="inline-flex items-center gap-1.5 text-slate-600">
                         <i class="inline-block w-3 h-0.5 bg-rose-600"></i>
-                        Garis Target Std Day 1
+                        Target Harian (Std Day 1)
                     </span>
                 </div>
-                <div class="text-[11px] text-slate-500">
-                    Klik batang grafik untuk membuka detail Informasi Material &amp; Alur BOM.
+                <div class="text-[11px] font-medium text-slate-600">
+                    <span x-show="allocMode === 'prop'">Mode aktif: <b>Alokasi Proporsional</b> (Bahan baku bersama dibagi adil sesuai porsi PO agar tidak terhitung ganda).</span>
+                    <span x-show="allocMode === 'max'" x-cloak>Mode aktif: <b>Maks Mandiri</b> (Simulasi jika 100% bahan baku bersama dipakai khusus untuk 1 part ini saja).</span>
                 </div>
+            </div>
+
+            {{-- PANEL RINGKASAN SAAT BATANG DI-HOVER (SEDERHANA & MUDAH DIPAHAMI) --}}
+            <div class="rounded border px-3.5 py-2.5 transition-colors"
+                 :class="hoveredItem ? 'border-[#0B5CAD] bg-[#E4EEF8]/50' : 'border-slate-200 bg-slate-50/60'">
+                <template x-if="!hoveredItem">
+                    <div class="flex items-center justify-between text-xs text-slate-500">
+                        <span>Arahkan kursor (hover) pada salah satu batang grafik di bawah untuk melihat rincian sederhana 3 lapis stok, atau klik batang untuk membuka Alur BOM lengkap.</span>
+                        <span class="pill pill-neu">ARAHKAN KURSOR KE BATANG</span>
+                    </div>
+                </template>
+
+                <template x-if="hoveredItem">
+                    <div class="grid grid-cols-1 lg:grid-cols-12 gap-3 items-center text-xs">
+                        {{-- Kolom 1: Identitas Part --}}
+                        <div class="lg:col-span-4 min-w-0">
+                            <div class="flex items-center gap-1.5 flex-wrap">
+                                <span class="ty" :class="tyClass(hoveredItem.type)" x-text="hoveredItem.type"></span>
+                                <span class="num font-bold text-accent" x-text="hoveredItem.part_no !== '-' ? hoveredItem.part_no : ''"></span>
+                                <span class="pill pill-neu" x-text="hoveredItem.company_code"></span>
+                                <span class="pill" :class="pillClass(hoveredItem.status_stock)" x-text="hoveredItem.status_stock"></span>
+                            </div>
+                            <div class="font-bold text-slate-900 mt-1 truncate" x-text="hoveredItem.part_name"></div>
+                            <div class="text-[11px] text-slate-600 mt-0.5 num">
+                                Target Harian (Std 1): <b x-text="hoveredItem.std_day_1 + ' ' + hoveredItem.uom"></b> ·
+                                Min (Std 2): <b x-text="hoveredItem.std_day_2"></b> ·
+                                Max (Std 3): <b x-text="hoveredItem.std_day_3"></b>
+                            </div>
+                        </div>
+
+                        {{-- Kolom 2: 3 Kotak Angka Sederhana (Biru + Kuning + Abu = Total) --}}
+                        <div class="lg:col-span-5 grid grid-cols-4 gap-2 text-center num">
+                            <div class="p-2 rounded bg-white border border-slate-200">
+                                <div class="text-[10px] font-semibold text-slate-500 uppercase">1. Siap Kirim (Biru)</div>
+                                <div class="text-sm font-bold text-[#0B5CAD] mt-0.5" x-text="hoveredItem.current_stock + ' ' + hoveredItem.uom"></div>
+                                <div class="text-[10px] text-slate-500" x-text="hoveredItem.ratio_stock + ' Hari'"></div>
+                            </div>
+                            <div class="p-2 rounded bg-white border border-slate-200">
+                                <div class="text-[10px] font-semibold text-slate-500 uppercase">2. WIP Mesin (Kuning)</div>
+                                <div class="text-sm font-bold text-amber-600 mt-0.5" x-text="hoveredItem.wip_active + ' ' + hoveredItem.uom"></div>
+                                <div class="text-[10px] text-slate-500">Sedang Jalan</div>
+                            </div>
+                            <div class="p-2 rounded bg-white border border-slate-200">
+                                <div class="text-[10px] font-semibold text-slate-500 uppercase">3. Dari Bahan (Abu)</div>
+                                <div class="text-sm font-bold text-slate-700 mt-0.5" x-text="matPot(hoveredItem) + ' ' + hoveredItem.uom"></div>
+                                <div class="text-[10px] text-slate-500" x-text="allocMode === 'prop' ? 'Jatah Proporsional' : 'Maks Mandiri'"></div>
+                            </div>
+                            <div class="p-2 rounded bg-slate-900 text-white">
+                                <div class="text-[10px] font-semibold text-slate-300 uppercase">Total Pipeline</div>
+                                <div class="text-sm font-bold mt-0.5" x-text="totalPipeline(hoveredItem) + ' ' + hoveredItem.uom"></div>
+                                <div class="text-[10px] text-amber-300" x-text="'Total ' + pipelineRatio(hoveredItem) + ' Hari'"></div>
+                            </div>
+                        </div>
+
+                        {{-- Kolom 3: Penjelasan Perbandingan Proporsional vs Maks Mandiri untuk Part Ini --}}
+                        <div class="lg:col-span-3 bg-white p-2.5 rounded border border-slate-200 leading-snug">
+                            <template x-if="hoveredItem.has_shared_input">
+                                <div>
+                                    <div class="font-bold text-accent flex items-center justify-between">
+                                        <span>Memakai Bahan Baku Bersama</span>
+                                        <span class="pill pill-info text-[9.5px] h-4 px-1.5">SHARED RM</span>
+                                    </div>
+                                    <div class="text-[11px] text-slate-700 mt-1">
+                                        • <b>Alokasi Proporsional:</b> bisa buat <b class="num text-slate-900" x-text="hoveredItem.pot_prop + ' ' + hoveredItem.uom"></b> (jatah dibagi adil dengan part lain).<br>
+                                        • <b>Maks Mandiri:</b> bisa buat <b class="num text-slate-900" x-text="hoveredItem.pot_max + ' ' + hoveredItem.uom"></b> (jika 100% bahan dipakai part ini).
+                                    </div>
+                                </div>
+                            </template>
+                            <template x-if="!hoveredItem.has_shared_input && hoveredItem.materials_detail && hoveredItem.materials_detail.length > 0">
+                                <div>
+                                    <div class="font-bold text-slate-800">Bahan Baku Khusus (Tidak Dibagi)</div>
+                                    <div class="text-[11px] text-slate-600 mt-0.5">
+                                        Bahan pembentuk hanya dipakai oleh part ini, sehingga nilai Proporsional &amp; Maks Mandiri sama (<b class="num" x-text="hoveredItem.pot_prop + ' ' + hoveredItem.uom"></b>).
+                                    </div>
+                                </div>
+                            </template>
+                            <template x-if="!hoveredItem.materials_detail || hoveredItem.materials_detail.length === 0">
+                                <div>
+                                    <div class="font-bold text-slate-800">Item Non-Rakitan BOM</div>
+                                    <div class="text-[11px] text-slate-600 mt-0.5">
+                                        Item ini berasal langsung dari Supplier / tidak memiliki bahan pembentuk di BOM.
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </template>
             </div>
 
             {{-- Kanvas Grafik Batang Vertikal 3 Lapis --}}
             <div class="border border-slate-200 rounded bg-white p-4 overflow-x-auto" x-show="chartItems.length > 0">
                 <div class="min-w-[680px]">
-                    {{-- Area Batang & Garis Sumbu Y --}}
                     <div class="relative h-[260px] border-b border-l border-slate-300 ml-12 mr-2 flex items-end justify-around gap-3 px-4 pt-6">
-                        {{-- Garis Grid Horizontal (25%, 50%, 75%, 100%) --}}
                         <template x-for="g in [0.25, 0.5, 0.75, 1]" :key="g">
                             <div class="absolute left-0 right-0 border-t border-dashed border-slate-200 pointer-events-none"
                                  :style="'bottom:' + (g * 210) + 'px'">
@@ -719,13 +806,12 @@
                         </template>
                         <span class="num text-[10.5px] text-slate-400 absolute -left-12 -bottom-2 w-10 text-right">0</span>
 
-                        {{-- Deretan Batang Vertikal (Urut Stok Terkecil di Kiri -> Terbesar di Kanan) --}}
                         <template x-for="it in chartItems" :key="it.id">
                             <div class="relative flex flex-col items-center justify-end h-[210px] flex-1 max-w-[92px] min-w-[62px] group cursor-pointer"
-                                 @click="$dispatch('open-material-info', it.info_payload)"
-                                 :title="tooltipText(it)">
+                                 @mouseenter="hoveredItem = it"
+                                 @focus="hoveredItem = it"
+                                 @click="$dispatch('open-material-info', it.info_payload)">
 
-                                {{-- Label Total Pipeline & Stok FG di Atas Batang --}}
                                 <div class="mb-1 text-center leading-tight">
                                     <div class="num text-[11px] font-bold text-[#0B5CAD]" x-text="it.current_stock"></div>
                                     <div class="num text-[9.5px] text-slate-500"
@@ -733,15 +819,13 @@
                                          x-text="'Tot: ' + totalPipeline(it)"></div>
                                 </div>
 
-                                {{-- Garis Horizontal Std Day 1 pada Kolom Batang --}}
                                 <template x-if="it.std_day_1 > 0">
                                     <div class="absolute left-1 right-1 border-t-2 border-rose-600 z-20 pointer-events-none"
-                                         :style="'bottom:' + barPx(it.std_day_1) + 'px'"
-                                         :title="'Target Std Day 1: ' + it.std_day_1 + ' ' + it.uom"></div>
+                                         :style="'bottom:' + barPx(it.std_day_1) + 'px'"></div>
                                 </template>
 
-                                {{-- Batang Bertumpuk 3 Lapis (Atas: FG Biru, Tengah: WIP Kuning, Bawah: Material Abu) --}}
-                                <div class="w-10 sm:w-11 flex flex-col justify-end rounded-t overflow-hidden border border-slate-300/80 bg-slate-100/50 transition-transform group-hover:scale-[1.03]">
+                                <div class="w-10 sm:w-11 flex flex-col justify-end rounded-t overflow-hidden border transition-transform group-hover:scale-[1.04]"
+                                     :class="hoveredItem?.id === it.id ? 'border-[#0B5CAD] ring-2 ring-[#0B5CAD]/25' : 'border-slate-300/80 bg-slate-100/50'">
                                     {{-- Lapis Atas: Stok FG / Gudang Siap Kirim (Biru) --}}
                                     <div class="w-full transition-all duration-200"
                                          x-show="it.current_stock > 0"
@@ -761,16 +845,18 @@
                         </template>
                     </div>
 
-                    {{-- Label Part di Bawah Sumbu X (lengkap dengan Ratio FG vs Ratio Pipeline) --}}
                     <div class="ml-12 mr-2 flex items-start justify-around gap-3 px-4 pt-2.5">
                         <template x-for="it in chartItems" :key="'lbl-' + it.id">
-                            <div class="flex-1 max-w-[92px] min-w-[62px] text-center">
+                            <div class="flex-1 max-w-[92px] min-w-[62px] text-center cursor-pointer"
+                                 @mouseenter="hoveredItem = it"
+                                 @click="$dispatch('open-material-info', it.info_payload)">
                                 <div class="num text-[11px] font-bold text-accent truncate"
                                      x-text="it.part_no !== '-' ? it.part_no : it.part_name"></div>
-                                <div class="text-[10px] text-slate-600 truncate" :title="it.part_name" x-text="it.part_name"></div>
+                                <div class="text-[10px] text-slate-600 truncate" x-text="it.part_name"></div>
 
                                 <div class="mt-1 flex flex-col items-center gap-0.5">
-                                    <span class="pill text-[9.5px] h-4 px-1.5" :class="pillClass(it.status_stock)" x-text="it.status_stock"></span>
+                                    <span class="ty text-[9.5px] h-4 px-1.5" :class="tyClass(it.type)" x-text="it.type"></span>
+                                    <span class="pill text-[9.5px] h-4 px-1.5 mt-0.5" :class="pillClass(it.status_stock)" x-text="it.status_stock"></span>
                                     <span class="num text-[10px] font-semibold text-slate-700" x-text="'FG: ' + it.ratio_stock + ' Hr'"></span>
                                     <span class="num text-[9.5px] text-slate-500" x-text="'Pipe: ' + pipelineRatio(it) + ' Hr'"></span>
                                     <span class="pill pill-info text-[9px] h-3.5 px-1" x-show="it.has_shared_input">SHARED RM</span>
@@ -788,7 +874,7 @@
     </section>
 
     {{-- ======================================================================= --}}
-    {{-- 6. DUA GRAFIK DELAY DELIVERY (BATANG VERTIKAL + LIST RINGKASAN)        --}}
+    {{-- 6. DUA GRAFIK DELAY DELIVERY (DENGAN WARNA PER BULAN & PER PROBLEM)    --}}
     {{-- ======================================================================= --}}
     <div x-data="dashboardDelayVerticalCharts({{ Js::from($allDelays) }}, {{ Js::from($allCompaniesList) }}, {{ Js::from($delayReasonsList) }}, '{{ $delayYears[0] ?? date('Y') }}')"
          class="space-y-[14px]">
@@ -845,7 +931,7 @@
             </div>
         </section>
 
-        {{-- GRAFIK DELAY 1: PER PERUSAHAAN / CUSTOMER (BATANG VERTIKAL PER BULAN + LIST PART) --}}
+        {{-- GRAFIK DELAY 1: PER PERUSAHAAN / CUSTOMER (BATANG VERTIKAL BERWARNA PER BULAN + LIST PART) --}}
         <section class="panel">
             <div class="panel-head">
                 <div>
@@ -854,12 +940,23 @@
                         <span class="count-chip"><span x-text="companyChartGroups.length"></span><span>PERUSAHAAN</span></span>
                     </div>
                     <p class="hint" style="margin-top: 2px">
-                        Setiap kelompok mewakili 1 perusahaan dengan batang vertikal dari bawah ke atas untuk setiap bulan, diikuti rincian frekuensi Part No &amp; Part Name di bawah grafik.
+                        Setiap kelompok mewakili 1 perusahaan dengan warna batang berbeda untuk setiap bulan kejadian, diikuti rincian frekuensi Part No &amp; Part Name di bawah grafik.
                     </p>
                 </div>
             </div>
 
             <div class="panel-body space-y-4">
+                {{-- Legenda Warna Bulan --}}
+                <div class="flex flex-wrap items-center gap-3 px-3 py-2 rounded border border-slate-200 bg-slate-50 text-xs">
+                    <span class="font-semibold text-slate-600">Legenda Warna Bulan:</span>
+                    <template x-for="mLeg in activeMonthsLegend" :key="mLeg.month_num">
+                        <span class="inline-flex items-center gap-1.5 font-medium text-slate-700">
+                            <i class="inline-block w-3 h-3 rounded-sm" :style="'background:' + monthColor(mLeg.month_num)"></i>
+                            <span x-text="mLeg.label"></span>
+                        </span>
+                    </template>
+                </div>
+
                 {{-- Grafik Batang Vertikal per Perusahaan --}}
                 <div class="border border-slate-200 rounded bg-white p-4 overflow-x-auto" x-show="companyChartGroups.length > 0">
                     <div class="min-w-[600px]">
@@ -876,15 +973,16 @@
                             {{-- Kelompok Perusahaan --}}
                             <template x-for="grp in companyChartGroups" :key="grp.company_id">
                                 <div class="flex flex-col items-center justify-end h-[175px] flex-1">
-                                    <div class="flex items-end justify-center gap-2 h-full px-2">
+                                    <div class="flex items-end justify-center gap-2.5 h-full px-2">
                                         <template x-for="mBar in grp.months" :key="mBar.month_key">
-                                            <div class="flex flex-col items-center justify-end h-full w-9 group">
-                                                <span class="num text-[11px] font-bold text-rose-700 mb-1" x-text="mBar.count + 'x'"></span>
-                                                <div class="w-7 rounded-t transition-all duration-200"
-                                                     style="background: #0B5CAD;"
-                                                     :style="'height:' + Math.max(6, Math.round((mBar.count / maxCompanyMonthCount) * 150)) + 'px'"
+                                            <div class="flex flex-col items-center justify-end h-full w-10 group">
+                                                <span class="num text-[11px] font-bold mb-1"
+                                                      :style="'color:' + monthColor(mBar.month_num)"
+                                                      x-text="mBar.count + 'x'"></span>
+                                                <div class="w-7 rounded-t transition-all duration-200 group-hover:brightness-110"
+                                                     :style="'height:' + Math.max(6, Math.round((mBar.count / maxCompanyMonthCount) * 150)) + 'px; background:' + monthColor(mBar.month_num) + ';'"
                                                      :title="grp.company_code + ' (' + mBar.month_label + '): ' + mBar.count + ' kasus'"></div>
-                                                <span class="num text-[10px] font-semibold text-slate-600 mt-1 whitespace-nowrap" x-text="mBar.month_short"></span>
+                                                <span class="num text-[10px] font-semibold text-slate-700 mt-1 whitespace-nowrap" x-text="mBar.month_short"></span>
                                             </div>
                                         </template>
                                     </div>
@@ -910,7 +1008,7 @@
                     </div>
                 </div>
 
-                {{-- List Part No & Part Name + Frekuensinya (Menggambarkan Grafik Customer) --}}
+                {{-- List Part No & Part Name + Frekuensinya --}}
                 <div>
                     <div class="sec-h flex items-center gap-2">
                         <span>Rincian Part Bermasalah &amp; Frekuensi per Perusahaan</span>
@@ -959,7 +1057,7 @@
             </div>
         </section>
 
-        {{-- GRAFIK DELAY 2: BERDASARKAN PROBLEM REASON (BATANG VERTIKAL PER BULAN + LIST PROBLEM) --}}
+        {{-- GRAFIK DELAY 2: BERDASARKAN PROBLEM REASON (6 WARNA KATEGORI + LIST PROBLEM) --}}
         <section class="panel">
             <div class="panel-head">
                 <div>
@@ -968,12 +1066,23 @@
                         <span class="count-chip"><span x-text="filteredDelays.length"></span><span>TOTAL FREKUENSI</span></span>
                     </div>
                     <p class="hint" style="margin-top: 2px">
-                        Setiap kelompok mewakili 1 kategori Problem Reason (<b class="text-slate-700">MATERIAL, PROSES, QC, DIES, BOX/PALET, PLANT 2</b>) dengan batang vertikal per bulan beserta daftar frekuensi problem &amp; itemnya.
+                        Setiap kategori Problem Reason memiliki warna identitas tersendiri beserta perbandingan batang per bulan dan rincian part di bawahnya.
                     </p>
                 </div>
             </div>
 
             <div class="panel-body space-y-4">
+                {{-- Legenda 6 Warna Problem Reason --}}
+                <div class="flex flex-wrap items-center gap-4 px-3 py-2 rounded border border-slate-200 bg-slate-50 text-xs">
+                    <span class="font-semibold text-slate-600">Legenda Warna Problem Reason:</span>
+                    <template x-for="rName in reasons" :key="'leg-' + rName">
+                        <span class="inline-flex items-center gap-1.5 font-semibold text-slate-700">
+                            <i class="inline-block w-3 h-3 rounded-sm" :style="'background:' + reasonColor(rName)"></i>
+                            <span x-text="rName"></span>
+                        </span>
+                    </template>
+                </div>
+
                 {{-- Grafik Batang Vertikal per Problem Reason --}}
                 <div class="border border-slate-200 rounded bg-white p-4 overflow-x-auto">
                     <div class="min-w-[680px]">
@@ -987,16 +1096,17 @@
                             </template>
                             <span class="num text-[10.5px] text-slate-400 absolute -left-10 -bottom-2 w-8 text-right">0</span>
 
-                            {{-- Kelompok 6 Problem Reason --}}
+                            {{-- Kelompok 6 Problem Reason dengan Warna Masing-Masing --}}
                             <template x-for="rGrp in reasonChartGroups" :key="rGrp.reason">
                                 <div class="flex flex-col items-center justify-end h-[175px] flex-1">
                                     <div class="flex items-end justify-center gap-1.5 h-full px-1">
                                         <template x-for="mBar in rGrp.months" :key="mBar.month_key">
-                                            <div class="flex flex-col items-center justify-end h-full w-8">
-                                                <span class="num text-[11px] font-bold text-rose-700 mb-1" x-text="mBar.count + 'x'"></span>
-                                                <div class="w-6 rounded-t transition-all duration-200"
-                                                     style="background: #A82A20;"
-                                                     :style="'height:' + Math.max(6, Math.round((mBar.count / maxReasonMonthCount) * 150)) + 'px'"
+                                            <div class="flex flex-col items-center justify-end h-full w-8 group">
+                                                <span class="num text-[11px] font-bold mb-1"
+                                                      :style="'color:' + reasonColor(rGrp.reason)"
+                                                      x-text="mBar.count + 'x'"></span>
+                                                <div class="w-6 rounded-t transition-all duration-200 group-hover:brightness-110"
+                                                     :style="'height:' + Math.max(6, Math.round((mBar.count / maxReasonMonthCount) * 150)) + 'px; background:' + reasonColor(rGrp.reason) + ';'"
                                                      :title="rGrp.reason + ' (' + mBar.month_label + '): ' + mBar.count + ' kali'"></div>
                                                 <span class="num text-[9.5px] font-semibold text-slate-600 mt-1 whitespace-nowrap" x-text="mBar.month_short"></span>
                                             </div>
@@ -1013,7 +1123,9 @@
                         <div class="ml-10 mr-2 flex items-start justify-around gap-4 px-3 pt-2.5">
                             <template x-for="rGrp in reasonChartGroups" :key="'rlbl-' + rGrp.reason">
                                 <div class="flex-1 text-center">
-                                    <span class="pill pill-crit" x-text="rGrp.reason"></span>
+                                    <span class="pill text-white"
+                                          :style="'background:' + reasonColor(rGrp.reason)"
+                                          x-text="rGrp.reason"></span>
                                     <div class="mt-1">
                                         <span class="count-chip" x-text="rGrp.total + ' KALI'"></span>
                                     </div>
@@ -1023,7 +1135,7 @@
                     </div>
                 </div>
 
-                {{-- List Problem Reason & Frekuensinya (Menggambarkan Grafik Problem) --}}
+                {{-- List Problem Reason & Frekuensinya --}}
                 <div>
                     <div class="sec-h flex items-center gap-2">
                         <span>Rincian Frekuensi Problem Reason &amp; Daftar Part Terdampak</span>
@@ -1046,7 +1158,9 @@
                                     <tr>
                                         <td class="text-center num text-slate-500 font-semibold" x-text="idx + 1"></td>
                                         <td class="text-center">
-                                            <span class="pill pill-crit" x-text="r.reason"></span>
+                                            <span class="pill text-white"
+                                                  :style="'background:' + reasonColor(r.reason)"
+                                                  x-text="r.reason"></span>
                                         </td>
                                         <td class="font-semibold text-xs text-slate-800" x-text="r.month_label"></td>
                                         <td>
@@ -1128,12 +1242,10 @@
                             const rB = this.statusRank(b.status_07);
                             if (rA !== rB) return rA - rB;
 
-                            // Jika sama-sama EMPTY STOCK (0), dahulukan yang kebutuhan Std Day 1-nya paling besar
                             if (rA === 1) {
                                 return (Number(b.std_day_1) || 0) - (Number(a.std_day_1) || 0);
                             }
 
-                            // Untuk VERY LOW dan LOW STOCK, urutkan dari Qty paling kecil di atas (1 di atas 2)
                             if (Number(a.stock_07) !== Number(b.stock_07)) {
                                 return Number(a.stock_07) - Number(b.stock_07);
                             }
@@ -1152,12 +1264,17 @@
                 fCategory: 'FG_FGK',
                 fSharedMat: '',
                 allocMode: 'prop',
+                hoveredItem: null,
 
                 resetStockChart() {
                     this.fCompany = this.defaultCompanyId;
                     this.fCategory = 'FG_FGK';
                     this.fSharedMat = '';
                     this.allocMode = 'prop';
+                    this.hoveredItem = null;
+                },
+                tyClass(t) {
+                    return 'ty-' + (t === 'FG/KOMPONEN' ? 'FGK' : t);
                 },
                 pillClass(status) {
                     if (status === 'EMPTY STOCK') return 'pill-empty';
@@ -1168,29 +1285,18 @@
                     return 'pill-neu';
                 },
                 matPot(it) {
+                    if (!it) return 0;
                     return this.allocMode === 'prop' ? (Number(it.pot_prop) || 0) : (Number(it.pot_max) || 0);
                 },
                 totalPipeline(it) {
+                    if (!it) return 0;
                     return Math.round(((Number(it.current_stock) || 0) + (Number(it.wip_active) || 0) + this.matPot(it)) * 100) / 100;
                 },
                 pipelineRatio(it) {
+                    if (!it) return 0;
                     const std1 = Number(it.std_day_1) || 0;
                     if (std1 <= 0) return 0;
                     return (this.totalPipeline(it) / std1).toFixed(2);
-                },
-                tooltipText(it) {
-                    let lines = [
-                        (it.part_no !== '-' ? it.part_no + ' — ' : '') + it.part_name + ' [' + it.type + ']',
-                        '• Stok FG / Gudang (Biru): ' + it.current_stock + ' ' + it.uom + ' (Ratio FG: ' + it.ratio_stock + ' Hr)',
-                        '• WIP Lot Tracer (Kuning): ' + it.wip_active + ' ' + it.uom,
-                        '• Potensi dari Material (Abu): ' + this.matPot(it) + ' ' + it.uom,
-                        '• Total Pipeline: ' + this.totalPipeline(it) + ' ' + it.uom + ' (Ratio Pipeline: ' + this.pipelineRatio(it) + ' Hr)',
-                        '• Target Std Day 1 / 2 / 3: ' + it.std_day_1 + ' / ' + it.std_day_2 + ' / ' + it.std_day_3 + ' ' + it.uom
-                    ];
-                    if (it.input_Hover) {
-                        lines.push('• Rincian Material: ' + it.input_Hover);
-                    }
-                    return lines.join('\n');
                 },
                 get chartItems() {
                     return this.items
@@ -1212,7 +1318,6 @@
                             return true;
                         })
                         .sort((a, b) => {
-                            // Urutkan dari Current Stock terkecil di kiri ke terbesar di kanan
                             if (Number(a.current_stock) !== Number(b.current_stock)) {
                                 return Number(a.current_stock) - Number(b.current_stock);
                             }
@@ -1239,6 +1344,30 @@
         }
 
         function dashboardDelayVerticalCharts(delays, companies, reasons, defaultYear) {
+            const MONTH_COLORS = {
+                1: '#2563EB',  // Jan: Biru
+                2: '#0891B2',  // Feb: Cyan
+                3: '#0D9488',  // Mar: Teal
+                4: '#16A34A',  // Apr: Hijau
+                5: '#65A30D',  // Mei: Lime
+                6: '#D97706',  // Jun: Amber/Oranye
+                7: '#0B5CAD',  // Jul: Biru Navy Utama
+                8: '#7C3AED',  // Agu: Ungu
+                9: '#DB2777',  // Sep: Magenta
+                10: '#EA580C', // Okt: Oranye Tua
+                11: '#C4473C', // Nov: Merah
+                12: '#334155', // Des: Slate
+            };
+
+            const REASON_COLORS = {
+                'MATERIAL':   '#0B5CAD', // Biru
+                'PROSES':     '#D97706', // Oranye Amber
+                'QC':         '#C4473C', // Merah
+                'DIES':       '#6D28D9', // Ungu
+                'BOX/PALET':  '#0D9488', // Hijau Teal
+                'PLANT 2':    '#334155', // Navy Slate
+            };
+
             return {
                 delays: delays,
                 companies: companies,
@@ -1249,6 +1378,12 @@
 
                 tyClass(t) {
                     return 'ty-' + (t === 'FG/KOMPONEN' ? 'FGK' : t);
+                },
+                monthColor(mNum) {
+                    return MONTH_COLORS[Number(mNum)] || '#0B5CAD';
+                },
+                reasonColor(rName) {
+                    return REASON_COLORS[rName] || '#A82A20';
                 },
                 toggleMonth(mNum) {
                     const idx = this.selectedMonths.indexOf(mNum);
@@ -1271,6 +1406,18 @@
                         return true;
                     });
                 },
+                get activeMonthsLegend() {
+                    const map = {};
+                    this.filteredDelays.forEach(d => {
+                        if (!map[d.month_num]) {
+                            map[d.month_num] = {
+                                month_num: Number(d.month_num),
+                                label: d.month_short
+                            };
+                        }
+                    });
+                    return Object.values(map).sort((a, b) => a.month_num - b.month_num);
+                },
                 get companyChartGroups() {
                     const byComp = {};
                     this.filteredDelays.forEach(d => {
@@ -1290,6 +1437,7 @@
                         if (!byComp[cid].monthsMap[mk]) {
                             byComp[cid].monthsMap[mk] = {
                                 month_key: mk,
+                                month_num: d.month_num,
                                 month_short: d.month_short,
                                 month_label: d.month_label,
                                 count: 0
@@ -1348,6 +1496,7 @@
                             if (!monthsMap[mk]) {
                                 monthsMap[mk] = {
                                     month_key: mk,
+                                    month_num: r.month_num,
                                     month_short: r.month_short,
                                     month_label: r.month_label,
                                     count: 0

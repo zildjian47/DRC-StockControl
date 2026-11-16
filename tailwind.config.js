@@ -9,6 +9,22 @@ export default {
         './resources/views/**/*.blade.php',
     ],
 
+    safelist: [
+        'ty',
+        'ty-RM',
+        'ty-FG',
+        'ty-KOMPONEN',
+        'ty-TRANSIT',
+        'ty-FGK',
+        'pill',
+        'pill-good',
+        'pill-warn',
+        'pill-crit',
+        'pill-info',
+        'pill-neu',
+        'pill-empty',
+    ],
+
     theme: {
         extend: {
             fontFamily: {
