@@ -476,7 +476,7 @@ class DatabaseSeeder extends Seeder
             [$fgArmLh, 95],         // NORMAL STOCK
             [$fgTestDel, 0],        // EMPTY STOCK
             [$fgkPlate, 350],       // NORMAL STOCK
-            [$fgkSharedBase, 150],  //OVERSTOCK
+            [$fgkSharedBase, 150],  // OVERSTOCK
             [$kmpStay, 200],        // OVERSTOCK
             [$kmpClipCoil, 190],    // Hasil produksi dari Coil
             [$kmpNut, 900],         // NORMAL STOCK
@@ -685,9 +685,7 @@ class DatabaseSeeder extends Seeder
             'status_lot'          => 'ON PROGRESS',
         ]);
 
-        // Lot 5: L261006 — Stamping Clip dari COIL SPHC 2.0 X 150MM (Siap Uji Set FINISH -> Top / End Coil!)
-        // Mat. Out = 100 KG Coil, qty_usage = 0.5 KG/PCS -> Target Est = 200 PCS.
-        // Sudah diproduksi 190 PCS (terpakai 95 KG), sisa di feeder (Top/End Coil) = 5 KG (WIP = 10 PCS).
+        // Lot 5: L261006 — Stamping Clip dari COIL SPHC 2.0 X 150MM
         MaterialOut::create([
             'date_time'        => now()->subMinutes(50),
             'material_item_id' => $rmCoil->id,
@@ -727,13 +725,52 @@ class DatabaseSeeder extends Seeder
             'qty_check' => 'PENDING',
         ]);
 
-        ProblemDelay::create([
-            'date_time'      => now()->subMinutes(30),
-            'company_id'     => $compAstra->id,
-            'item_id'        => $fgCover->id,
-            'user_id'        => $ppic->id,
-            'problem_reason' => 'PROSES',
-        ]);
+        // 8. Data Historis Delay Delivery Lintas Bulan (Juni, Juli, Oktober, November 2026)
+        $yr = date('Y');
+        $delaySeedRows = [
+            // Juli: Masalah MATERIAL sebanyak 8 kali (FG-BKT-001 5x, FG-CVR-002 3x) sesuai contoh diskusi
+            ["{$yr}-07-04", $compDharma->id, $fgBracket->id, 'MATERIAL'],
+            ["{$yr}-07-08", $compDharma->id, $fgBracket->id, 'MATERIAL'],
+            ["{$yr}-07-12", $compDharma->id, $fgBracket->id, 'MATERIAL'],
+            ["{$yr}-07-18", $compDharma->id, $fgBracket->id, 'MATERIAL'],
+            ["{$yr}-07-24", $compDharma->id, $fgBracket->id, 'MATERIAL'],
+            ["{$yr}-07-06", $compAstra->id,  $fgCover->id,   'MATERIAL'],
+            ["{$yr}-07-15", $compAstra->id,  $fgCover->id,   'MATERIAL'],
+            ["{$yr}-07-22", $compAstra->id,  $fgCover->id,   'MATERIAL'],
+            // Juli: Masalah DIES & PROSES
+            ["{$yr}-07-10", $compDharma->id, $fgGussetR->id, 'DIES'],
+            ["{$yr}-07-19", $compDharma->id, $fgGussetR->id, 'DIES'],
+            ["{$yr}-07-25", $compAstra->id,  $fgArmRh->id,   'PROSES'],
+
+            // Juni: Masalah MATERIAL, QC, BOX/PALET
+            ["{$yr}-06-05", $compDharma->id, $fgBracket->id, 'MATERIAL'],
+            ["{$yr}-06-14", $compDharma->id, $fgBracket->id, 'MATERIAL'],
+            ["{$yr}-06-20", $compAstra->id,  $fgCover->id,   'MATERIAL'],
+            ["{$yr}-06-11", $compAstra->id,  $fgArmLh->id,   'QC'],
+            ["{$yr}-06-17", $compAstra->id,  $fgArmLh->id,   'QC'],
+            ["{$yr}-06-26", $compDharma->id, $fgGussetL->id, 'BOX/PALET'],
+
+            // Oktober: Masalah PROSES, PLANT 2, & FG/KOMPONEN ke Customer
+            ["{$yr}-01-15", $compDharma->id, $fgkPlate->id,  'PLANT 2'],
+            ["{$yr}-10-07", $compDharma->id, $fgkPlate->id,  'PLANT 2'],
+            ["{$yr}-10-16", $compDharma->id, $fgBracket->id, 'PROSES'],
+            ["{$yr}-10-21", $compAstra->id,  $trsBolt->id,   'BOX/PALET'],
+
+            // Hari Ini / Bulan Berjalan
+            [now()->toDateString(), $compAstra->id,  $fgCover->id,   'PROSES'],
+            [now()->toDateString(), $compDharma->id, $fgBracket->id, 'MATERIAL'],
+        ];
+
+        foreach ($delaySeedRows as [$incDate, $cId, $iId, $reason]) {
+            ProblemDelay::create([
+                'date_time'      => \Carbon\Carbon::parse($incDate . ' 09:30:00'),
+                'incident_date'  => $incDate,
+                'company_id'     => $cId,
+                'item_id'        => $iId,
+                'user_id'        => $ppic->id,
+                'problem_reason' => $reason,
+            ]);
+        }
 
         StockAdjustment::create([
             'date_time'       => now()->subMinutes(20),
