@@ -53,6 +53,10 @@
     --t-tr-bg: #F3E5F1;
     --t-fk: #4A6B0C;
     --t-fk-bg: #EAF2D9;
+
+    /* Ramp bulan (grafik delay): satu hue biru, terang ke gelap */
+    --m-lo: #BCD3EA;
+    --m-hi: #0B4A8E;
   }
 
   html {
@@ -1586,9 +1590,9 @@
   .kpi {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 3px;
     min-width: 0;
-    padding: 11px 14px;
+    padding: 12px 14px;
     border-left: 1px solid var(--line);
   }
 
@@ -1599,7 +1603,7 @@
   .kpi-l {
     font-size: 10.5px;
     font-weight: 600;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--mut);
   }
@@ -1608,18 +1612,22 @@
     display: flex;
     align-items: baseline;
     gap: 5px;
-    font: 700 20px/1.15 var(--font-mono);
+    font: 600 26px/1.1 var(--font-body);
+    letter-spacing: -0.01em;
     font-variant-numeric: tabular-nums;
   }
 
   .kpi-v small {
-    font: 500 11.5px var(--font-body);
+    font: 500 12px var(--font-body);
+    letter-spacing: 0;
     color: var(--mut);
   }
 
   .kpi-s {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
+    gap: 6px;
     min-height: 20px;
     font-size: 11.5px;
     color: var(--ink2);
@@ -1739,50 +1747,85 @@
     color: var(--mut);
   }
 
-  /* Warna Tipe Item Permanen (Anti-Purge untuk 5 Tipe Item) */
-  .ty {
+  /* ===== Tab halaman (dashboard) ===== */
+  .ptabs {
+    display: flex;
+    gap: 0;
+    overflow-x: auto;
+    border-bottom: 1px solid var(--line);
+  }
+  .ptabs button {
     display: inline-flex;
     align-items: center;
-    justify-content: center;
-    height: 20px;
-    padding: 0 7px;
-    border-radius: 3px;
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.03em;
-    text-transform: uppercase;
-    line-height: 1;
+    gap: 6px;
+    padding: 10px 14px;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    background: none;
+    font: 600 13px/1.2 var(--font-body);
+    color: var(--ink2);
     white-space: nowrap;
+    cursor: pointer;
   }
-
-  .ty-RM {
-    background-color: #E4EEF8 !important;
-    color: #0B5CAD !important;
-    border: 1px solid #BDD4EC;
+  .ptabs button:hover { color: var(--ink); }
+  .ptabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+  .ptabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .ptab-n {
+    display: inline-flex;
+    align-items: center;
+    height: 18px;
+    padding: 0 6px;
+    border-radius: 9px;
+    background: var(--crit-bg);
+    color: var(--crit);
+    font-size: 10.5px;
+    font-weight: 600;
   }
+}
 
-  .ty-FG {
-    background-color: #DCF1EE !important;
-    color: #0B7A6B !important;
-    border: 1px solid #B2DFD9;
-  }
+/* Warna Tipe Item Permanen (Anti-Purge untuk 5 Tipe Item) */
+.ty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  line-height: 1;
+  white-space: nowrap;
+}
 
-  .ty-KOMPONEN {
-    background-color: #ECE9F8 !important;
-    color: #5B4BB7 !important;
-    border: 1px solid #D0C9F0;
-  }
+.ty-RM {
+  background-color: #E4EEF8 !important;
+  color: #0B5CAD !important;
+  border: 1px solid #BDD4EC;
+}
 
-  .ty-TRANSIT {
-    background-color: #F3E5F1 !important;
-    color: #8E3A86 !important;
-    border: 1px solid #E2C4DF;
-  }
+.ty-FG {
+  background-color: #DCF1EE !important;
+  color: #0B7A6B !important;
+  border: 1px solid #B2DFD9;
+}
 
-  .ty-FGK {
-    background-color: #EAF2D9 !important;
-    color: #3F6212 !important;
-    border: 1px solid #CBE0A6;
-  }
+.ty-KOMPONEN {
+  background-color: #ECE9F8 !important;
+  color: #5B4BB7 !important;
+  border: 1px solid #D0C9F0;
+}
 
+.ty-TRANSIT {
+  background-color: #F3E5F1 !important;
+  color: #8E3A86 !important;
+  border: 1px solid #E2C4DF;
+}
+
+.ty-FGK {
+  background-color: #EAF2D9 !important;
+  color: #3F6212 !important;
+  border: 1px solid #CBE0A6;
 }
