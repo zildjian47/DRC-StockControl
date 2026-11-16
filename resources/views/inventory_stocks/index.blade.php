@@ -1,7 +1,7 @@
 <x-app-layout>
     <x-slot name="header">
         <x-page-header title="Inventory Stock"
-                       subtitle="Pemantauan saldo stok gudang real-time, standar buffer harian (Std Day 1/2/3), Ratio Stock, dan Status Stock" />
+                       subtitle="Monitoring saldo stok fisik real-time, standar buffer harian (Std 1/2/3), Ratio Stock (Hari), dan status ketersediaan" />
     </x-slot>
 
     <x-flash />
@@ -13,8 +13,8 @@
 
         <div class="panel-head">
             <div class="panel-title">
-                <span>Daftar Saldo Stok Gudang</span>
-                <span class="count-chip"><span x-text="visibleCount"></span><span>Item</span></span>
+                <span>Daftar Saldo Inventory Gudang</span>
+                <span class="count-chip"><span x-text="visibleCount"></span><span>ITEM</span></span>
             </div>
 
             <div class="flex flex-wrap items-center gap-2">
@@ -44,8 +44,7 @@
                 </select>
 
                 <button type="button" x-show="q || fType || fCompType || fStatus" x-cloak
-                        @click="q=''; fType=''; fCompType=''; fStatus=''; recalc()"
-                        class="btn btn-sm">
+                        @click="q=''; fType=''; fCompType=''; fStatus=''; recalc()" class="btn btn-sm">
                     Reset
                 </button>
             </div>
@@ -60,43 +59,43 @@
                         <th class="w-[9%] text-center">Tipe</th>
                         <th class="w-[12%]">Perusahaan</th>
                         <th class="num w-[8%]">Std Day 1</th>
-                        <th class="num w-[8%]">Std Day 2 (Min)</th>
-                        <th class="num w-[8%]">Std Day 3 (Max)</th>
+                        <th class="num w-[8%]">Std 2 (Min)</th>
+                        <th class="num w-[8%]">Std 3 (Max)</th>
                         <th class="num w-[8%]">Ratio Stock</th>
                         <th class="num w-[9%]">Current Stock</th>
-                        <th class="w-[6%] text-center">Status Stock</th>
+                        <th class="w-[6%] text-center">Status</th>
                         <th class="w-[4%] text-center">Info</th>
                     </tr>
                 </thead>
                 <tbody>
-                    @forelse($stocks as $idx => $stock)
+                    @forelse($stocks as $idx => $st)
                         @php
-                            $item = $stock->item;
-                            $compCode = $item->company->company_code ?? 'INTERNAL';
-                            $compType = $item->company->type_company ?? 'INTERNAL';
-                            $std1 = $item->calculated_std_day_1;
-                            $std2 = $item->std_day_2;
-                            $std3 = $item->std_day_3;
-                            $ratio = $stock->ratio_stock;
-                            $status = $stock->status_stock;
-                            $tyCls = 'ty-' . ($item->type === 'FG/KOMPONEN' ? 'FGK' : $item->type);
+                            $itm      = $st->item;
+                            $compCode = $itm->company->company_code ?? 'INTERNAL';
+                            $compType = $itm->company->type_company ?? 'INTERNAL';
+                            $std1     = $itm->calculated_std_day_1;
+                            $std2     = $itm->std_day_2;
+                            $std3     = $itm->std_day_3;
+                            $ratio    = $st->ratio_stock;
+                            $status   = $st->status_stock;
+                            $tyCls    = 'ty-' . ($itm->type === 'FG/KOMPONEN' ? 'FGK' : $itm->type);
                         @endphp
-                        <tr data-stock-row
-                            data-search="{{ strtolower(($item->part_no ?? '') . ' ' . $item->part_name . ' ' . $compCode) }}"
-                            data-type="{{ $item->type }}"
+                        <tr data-inv-row
+                            data-search="{{ strtolower(($itm->part_no ?? '') . ' ' . $itm->part_name . ' ' . $compCode) }}"
+                            data-type="{{ $itm->type }}"
                             data-comptype="{{ $compType }}"
                             data-status="{{ $status }}"
                             x-show="matchRow($el)">
                             <td class="text-center num font-semibold text-slate-500">{{ $idx + 1 }}</td>
                             <td>
-                                <div class="num text-xs font-bold text-accent">{{ $item->part_no ?: '-' }}</div>
-                                <div class="font-semibold text-slate-900">{{ $item->part_name }}</div>
+                                <div class="num text-xs font-bold text-accent">{{ $itm->part_no ?: '-' }}</div>
+                                <div class="font-semibold text-slate-900">{{ $itm->part_name }}</div>
                             </td>
                             <td class="text-center">
-                                <span class="ty {{ $tyCls }}">{{ $item->type }}</span>
+                                <span class="ty {{ $tyCls }}">{{ $itm->type }}</span>
                             </td>
                             <td>
-                                <div class="font-bold text-slate-800">{{ $compCode }}</div>
+                                <div class="font-bold text-xs text-accent">{{ $compCode }}</div>
                                 <div class="mt-0.5">
                                     @if($compType === 'SUPPLIER')
                                         <span class="pill pill-info">SUPPLIER</span>
@@ -107,11 +106,16 @@
                                     @endif
                                 </div>
                             </td>
-                            <td class="num text-slate-700">{{ floatval($std1) }} {{ $item->uom }}</td>
-                            <td class="num text-amber-700 font-semibold">{{ floatval($std2) }} {{ $item->uom }}</td>
-                            <td class="num text-emerald-700 font-semibold">{{ floatval($std3) }} {{ $item->uom }}</td>
-                            <td class="num font-bold text-accent">{{ floatval($ratio) }} Hr</td>
-                            <td class="num font-bold text-slate-900 text-sm">{{ floatval($stock->current_stock) }} {{ $item->uom }}</td>
+                            <td class="num text-slate-700">{{ floatval($std1) }}</td>
+                            <td class="num text-slate-700">{{ floatval($std2) }}</td>
+                            <td class="num text-slate-700">{{ floatval($std3) }}</td>
+                            <td class="num font-bold text-accent">{{ floatval($ratio) }} <span class="text-[11px] font-normal text-slate-500">Hr</span></td>
+                            <td class="num">
+                                <span class="font-bold text-[13.5px] {{ $st->current_stock <= 0 ? 'text-rose-700' : 'text-slate-900' }}">
+                                    {{ floatval($st->current_stock) }}
+                                </span>
+                                <span class="text-[11px] text-slate-500">{{ $itm->uom }}</span>
+                            </td>
                             <td class="text-center">
                                 @if($status === 'EMPTY STOCK')
                                     <span class="pill pill-empty">EMPTY STOCK</span>
@@ -126,8 +130,8 @@
                                 @endif
                             </td>
                             <td class="text-center">
-                                <button type="button" class="act-btn" title="Informasi Material & Riwayat Mutasi Stok"
-                                        @click="$dispatch('open-material-info', {{ Js::from($item->material_info_payload) }})">
+                                <button type="button" class="act-btn" title="Informasi Material, BOM & Riwayat Mutasi"
+                                        @click="$dispatch('open-material-info', {{ Js::from($itm->material_info_payload) }})">
                                     <x-icon name="info" />
                                 </button>
                             </td>
@@ -164,7 +168,7 @@
                 recalc() {
                     this.$nextTick(() => {
                         let c = 0;
-                        this.$el.querySelectorAll('tbody tr[data-stock-row]').forEach(tr => {
+                        this.$el.querySelectorAll('tbody tr[data-inv-row]').forEach(tr => {
                             if (this.matchRow(tr)) c++;
                         });
                         this.visibleCount = c;

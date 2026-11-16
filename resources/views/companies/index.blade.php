@@ -4,7 +4,8 @@
                        subtitle="Daftar perusahaan pemasok (Supplier), lini internal, dan pelanggan (Customer)">
             <x-slot name="actions">
                 <button type="button" class="btn btn-primary" @click="$dispatch('open-add-company')">
-                    <x-icon name="plus" /> <span>Tambah Perusahaan</span>
+                    <x-icon name="plus" />
+                    <span>Input Perusahaan</span>
                 </button>
             </x-slot>
         </x-page-header>
@@ -20,7 +21,7 @@
         <div class="panel-head">
             <div class="panel-title">
                 <span>Daftar Perusahaan Terdaftar</span>
-                <span class="count-chip"><span x-text="visibleCount"></span><span>Perusahaan</span></span>
+                <span class="count-chip"><span x-text="visibleCount"></span><span>PERUSAHAAN</span></span>
             </div>
 
             <div class="flex flex-wrap items-center gap-2">
@@ -95,38 +96,61 @@
             </table>
         </div>
 
-        {{-- POP-UP MODAL TAMBAH PERUSAHAAN --}}
-        <div x-show="addOpen" x-cloak class="modal-backdrop" @click.self="addOpen = false">
-            <div class="panel w-full max-w-lg overflow-hidden">
+        {{-- POP-UP MODAL INPUT PERUSAHAAN (dua panel, panel kiri abu) --}}
+        <div x-show="addOpen" x-cloak class="modal-backdrop" @click.self="addOpen = false" @keydown.escape.window="addOpen = false">
+            <div class="panel dlg w-full max-w-2xl" role="dialog" aria-label="Input Perusahaan Baru">
                 <div class="panel-head">
-                    <h3 class="panel-title">Tambah Perusahaan Baru</h3>
-                    <button type="button" class="act-btn" @click="addOpen = false">
+                    <h3 class="panel-title">Input Perusahaan Baru</h3>
+                    <button type="button" class="act-btn" @click="addOpen = false" aria-label="Tutup">
                         <x-icon name="x" />
                     </button>
                 </div>
-                <form action="{{ route('companies.store') }}" method="POST">
+
+                <form action="{{ route('companies.store') }}" method="POST" class="flex flex-col min-h-0 flex-1">
                     @csrf
-                    <div class="panel-body space-y-4">
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div class="dlg-split">
+                        <aside class="dlg-side">
+                            <div class="dlg-k">Pratinjau</div>
+                            <div class="mono-tile num" x-text="(addCode || '?').slice(0, 3)"></div>
                             <div>
-                                <label class="lbl">Kode Perusahaan (Otomatis Kapital)</label>
-                                <input type="text" name="company_code" required placeholder="Contoh: DPM"
-                                       oninput="this.value = this.value.toUpperCase()" class="num uppercase w-full h-9">
+                                <div class="dlg-code num" x-text="addCode || '–'"></div>
+                                <div class="dlg-name" x-text="addName || 'Nama perusahaan'"></div>
                             </div>
                             <div>
-                                <label class="lbl">Tipe Perusahaan</label>
-                                <select name="type_company" required class="w-full h-9">
-                                    <option value="SUPPLIER">SUPPLIER</option>
-                                    <option value="INTERNAL">INTERNAL</option>
-                                    <option value="CUSTOMER">CUSTOMER</option>
-                                </select>
+                                <span class="pill" :class="typePill(addType)" x-text="addType"></span>
                             </div>
-                        </div>
-                        <div>
-                            <label class="lbl">Nama Lengkap Perusahaan</label>
-                            <input type="text" name="company_name" required placeholder="Contoh: PT. DHARMA POLIMETAL Tbk." class="w-full h-9">
+                        </aside>
+
+                        <div class="dlg-main">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="lbl" for="add_co_code">Kode Perusahaan (Otomatis Kapital)</label>
+                                    <input id="add_co_code" type="text" name="company_code" x-model="addCode" required
+                                           placeholder="Contoh: DPM"
+                                           oninput="this.value = this.value.toUpperCase()"
+                                           class="num uppercase w-full h-9">
+                                </div>
+                                <div>
+                                    <span class="lbl">Tipe Perusahaan</span>
+                                    <div class="opt-chips">
+                                        @foreach(['SUPPLIER', 'INTERNAL', 'CUSTOMER'] as $t)
+                                            <label>
+                                                <input type="radio" name="type_company" value="{{ $t }}" x-model="addType" required>
+                                                <span>{{ $t }}</span>
+                                            </label>
+                                        @endforeach
+                                    </div>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="lbl" for="add_co_name">Nama Lengkap Perusahaan</label>
+                                <input id="add_co_name" type="text" name="company_name" x-model="addName" required
+                                       placeholder="Contoh: PT. DHARMA POLIMETAL Tbk."
+                                       class="w-full h-9">
+                            </div>
                         </div>
                     </div>
+
                     <div class="panel-foot">
                         <button type="button" class="btn" @click="addOpen = false">Batal</button>
                         <button type="submit" class="btn btn-primary">Simpan Perusahaan</button>
@@ -135,39 +159,59 @@
             </div>
         </div>
 
-        {{-- POP-UP MODAL EDIT PERUSAHAAN --}}
-        <div x-show="editOpen" x-cloak class="modal-backdrop" @click.self="editOpen = false">
-            <div class="panel w-full max-w-lg overflow-hidden">
+        {{-- POP-UP MODAL EDIT PERUSAHAAN (dua panel, panel kiri abu) --}}
+        <div x-show="editOpen" x-cloak class="modal-backdrop" @click.self="editOpen = false" @keydown.escape.window="editOpen = false">
+            <div class="panel dlg w-full max-w-2xl" role="dialog" aria-label="Edit Data Perusahaan">
                 <div class="panel-head">
                     <h3 class="panel-title">Edit Data Perusahaan</h3>
-                    <button type="button" class="act-btn" @click="editOpen = false">
+                    <button type="button" class="act-btn" @click="editOpen = false" aria-label="Tutup">
                         <x-icon name="x" />
                     </button>
                 </div>
-                <form :action="'{{ url('companies') }}/' + editId" method="POST">
+
+                <form :action="'{{ url('companies') }}/' + editId" method="POST" class="flex flex-col min-h-0 flex-1">
                     @csrf
                     @method('PUT')
-                    <div class="panel-body space-y-4">
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div class="dlg-split">
+                        <aside class="dlg-side">
+                            <div class="dlg-k">Pratinjau</div>
+                            <div class="mono-tile num" x-text="(editCode || '?').slice(0, 3)"></div>
                             <div>
-                                <label class="lbl">Kode Perusahaan</label>
-                                <input type="text" name="company_code" x-model="editCode" required
-                                       oninput="this.value = this.value.toUpperCase()" class="num uppercase w-full h-9">
+                                <div class="dlg-code num" x-text="editCode || '–'"></div>
+                                <div class="dlg-name" x-text="editName || 'Nama perusahaan'"></div>
                             </div>
                             <div>
-                                <label class="lbl">Tipe Perusahaan</label>
-                                <select name="type_company" x-model="editType" required class="w-full h-9">
-                                    <option value="SUPPLIER">SUPPLIER</option>
-                                    <option value="INTERNAL">INTERNAL</option>
-                                    <option value="CUSTOMER">CUSTOMER</option>
-                                </select>
+                                <span class="pill" :class="typePill(editType)" x-text="editType"></span>
                             </div>
-                        </div>
-                        <div>
-                            <label class="lbl">Nama Lengkap Perusahaan</label>
-                            <input type="text" name="company_name" x-model="editName" required class="w-full h-9">
+                        </aside>
+
+                        <div class="dlg-main">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="lbl" for="edit_co_code">Kode Perusahaan</label>
+                                    <input id="edit_co_code" type="text" name="company_code" x-model="editCode" required
+                                           oninput="this.value = this.value.toUpperCase()"
+                                           class="num uppercase w-full h-9">
+                                </div>
+                                <div>
+                                    <span class="lbl">Tipe Perusahaan</span>
+                                    <div class="opt-chips">
+                                        @foreach(['SUPPLIER', 'INTERNAL', 'CUSTOMER'] as $t)
+                                            <label>
+                                                <input type="radio" name="type_company" value="{{ $t }}" x-model="editType" required>
+                                                <span>{{ $t }}</span>
+                                            </label>
+                                        @endforeach
+                                    </div>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="lbl" for="edit_co_name">Nama Lengkap Perusahaan</label>
+                                <input id="edit_co_name" type="text" name="company_name" x-model="editName" required class="w-full h-9">
+                            </div>
                         </div>
                     </div>
+
                     <div class="panel-foot">
                         <button type="button" class="btn" @click="editOpen = false">Batal</button>
                         <button type="submit" class="btn btn-primary">Simpan Perubahan</button>
@@ -183,12 +227,18 @@
                 q: '',
                 fType: '',
                 addOpen: openInitially,
+                addCode: '',
+                addName: '',
+                addType: 'SUPPLIER',
                 editOpen: false,
                 editId: null,
                 editCode: '',
                 editName: '',
                 editType: 'SUPPLIER',
                 visibleCount: initialCount,
+                typePill(t) {
+                    return t === 'CUSTOMER' ? 'pill-good' : (t === 'INTERNAL' ? 'pill-warn' : 'pill-info');
+                },
                 openEditModal(id, code, name, type) {
                     this.editId = id;
                     this.editCode = code;

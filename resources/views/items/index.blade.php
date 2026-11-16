@@ -1,14 +1,17 @@
 <x-app-layout>
     <x-slot name="header">
         <x-page-header title="Master Item"
-                       subtitle="Daftar barang aktif beserta kalkulasi buffer PO, Working Days, Kanban, dan BOM">
+                       subtitle="Daftar barang aktif beserta kalkulasi standar stok harian (PO/WD/Kanban & Resep BOM)">
             <x-slot name="actions">
                 <span class="btn-group">
                     <a href="{{ route('items.trashed') }}" class="btn">
-                        <x-icon name="ban" /> <span>Item Nonaktif ({{ $trashedCount }})</span>
+                        <x-icon name="ban" />
+                        <span>Item Nonaktif</span>
+                        <span class="count-chip">{{ $trashedCount }}</span>
                     </a>
                     <button type="button" class="btn btn-primary" @click="$dispatch('open-add-item')">
-                        <x-icon name="plus" /> <span>Tambah Item</span>
+                        <x-icon name="plus" />
+                        <span>Input Item</span>
                     </button>
                 </span>
             </x-slot>
@@ -18,7 +21,7 @@
     <x-flash />
 
     @php
-        $companiesJs = $companies->map(fn ($c) => [
+        $companiesJs = $companies->map(fn($c) => [
             'id'   => $c->id,
             'code' => $c->company_code,
             'name' => $c->company_name,
@@ -28,13 +31,13 @@
 
     <div class="panel"
          x-data="masterItemPage({{ $items->count() }}, {{ Js::from($companiesJs) }}, {{ $errors->any() ? 'true' : 'false' }})"
-         @open-add-item.window="addOpen = true"
+         @open-add-item.window="addOpen = true; syncAddCompany()"
          x-init="syncAddCompany(); recalc()">
 
         <div class="panel-head">
             <div class="panel-title">
                 <span>Daftar Master Item Aktif</span>
-                <span class="count-chip"><span x-text="visibleCount"></span><span>Item</span></span>
+                <span class="count-chip"><span x-text="visibleCount"></span><span>ITEM</span></span>
             </div>
 
             <div class="flex flex-wrap items-center gap-2">
@@ -70,26 +73,26 @@
                         <th class="w-[4%] text-center">No</th>
                         <th class="w-[24%]">Part No &amp; Part Name</th>
                         <th class="w-[10%] text-center">Tipe &amp; UOM</th>
-                        <th class="w-[13%]">Perusahaan</th>
-                        <th class="num w-[8%]">Qty PO</th>
+                        <th class="w-[12%]">Perusahaan</th>
+                        <th class="num w-[9%]">Qty PO</th>
                         <th class="num w-[6%]">WD</th>
                         <th class="num w-[8%]">Kanban</th>
-                        <th class="num w-[7%]">Std 1</th>
-                        <th class="num w-[7%]">Std 2</th>
-                        <th class="num w-[7%]">Std 3</th>
-                        <th class="w-[6%] text-center">Aksi</th>
+                        <th class="num w-[8%]">Std Day 1</th>
+                        <th class="num w-[10%]">Std 2 / Std 3</th>
+                        <th class="w-[9%] text-center">Aksi</th>
                     </tr>
                 </thead>
                 <tbody>
                     @forelse($items as $idx => $item)
                         @php
-                            $compCode = $item->company->company_code ?? '-';
+                            $std1     = $item->calculated_std_day_1;
+                            $std2     = $item->std_day_2;
+                            $std3     = $item->std_day_3;
+                            $hasHist  = $item->hasTransactionHistory();
+                            $compCode = $item->company->company_code ?? 'INTERNAL';
                             $compType = $item->company->type_company ?? 'INTERNAL';
-                            $std1 = $item->calculated_std_day_1;
-                            $std2 = $item->std_day_2;
-                            $std3 = $item->std_day_3;
-                            $hasHist = $item->hasTransactionHistory();
-                            $tyCls = 'ty-' . ($item->type === 'FG/KOMPONEN' ? 'FGK' : $item->type);
+                            $tyCls    = 'ty-' . ($item->type === 'FG/KOMPONEN' ? 'FGK' : $item->type);
+
                             $editPayload = [
                                 'id'           => $item->id,
                                 'part_no'      => $item->part_no ?? '',
@@ -98,9 +101,23 @@
                                 'uom'          => $item->uom,
                                 'company_id'   => $item->company_id,
                                 'qty_po'       => floatval($item->qty_po),
-                                'working_days' => (int) $item->working_days,
+                                'working_days' => intval($item->working_days),
                                 'qty_kanban'   => floatval($item->qty_kanban),
                                 'has_history'  => $hasHist,
+                            ];
+
+                            $info = $item->material_info_payload;
+                            $delPayload = [
+                                'id'          => $item->id,
+                                'part_no'     => $item->part_no ?? '',
+                                'part_name'   => $item->part_name,
+                                'type'        => $item->type,
+                                'uom'         => $item->uom,
+                                'company'     => $compCode,
+                                'stock'       => floatval($info['current_stock'] ?? 0),
+                                'history'     => count($info['history'] ?? []),
+                                'bom'         => count($info['inputs'] ?? []) + count($info['outputs'] ?? []),
+                                'has_history' => $hasHist,
                             ];
                         @endphp
                         <tr data-item-row
@@ -113,12 +130,12 @@
                                 <div class="num text-xs font-bold text-accent">{{ $item->part_no ?: '-' }}</div>
                                 <div class="font-semibold text-slate-900">{{ $item->part_name }}</div>
                             </td>
-                            <td class="text-center whitespace-nowrap">
+                            <td class="text-center">
                                 <span class="ty {{ $tyCls }}">{{ $item->type }}</span>
-                                <div class="num text-[11px] font-semibold text-slate-500 mt-0.5">{{ $item->uom }}</div>
+                                <div class="mt-0.5 text-[11px] font-semibold text-slate-500">{{ $item->uom }}</div>
                             </td>
                             <td>
-                                <div class="font-bold text-slate-800">{{ $compCode }}</div>
+                                <div class="font-bold text-xs text-accent">{{ $compCode }}</div>
                                 <div class="mt-0.5">
                                     @if($compType === 'SUPPLIER')
                                         <span class="pill pill-info">SUPPLIER</span>
@@ -132,47 +149,38 @@
                             <td class="num text-slate-700">{{ floatval($item->qty_po) }}</td>
                             <td class="num text-slate-700">{{ $item->working_days }}</td>
                             <td class="num text-slate-700">{{ floatval($item->qty_kanban) }}</td>
-                            <td class="num font-semibold text-slate-800">{{ floatval($std1) }}</td>
-                            <td class="num font-semibold text-amber-700">{{ floatval($std2) }}</td>
-                            <td class="num font-semibold text-emerald-700">{{ floatval($std3) }}</td>
-                            <td class="text-center whitespace-nowrap">
+                            <td class="num font-bold text-slate-900">{{ floatval($std1) }}</td>
+                            <td class="num text-xs text-slate-600">{{ floatval($std2) }} / {{ floatval($std3) }}</td>
+                            <td class="text-center">
                                 <div class="inline-flex items-center justify-center gap-1">
                                     <button type="button" class="act-btn" title="Informasi Material & BOM"
-                                            @click="$dispatch('open-material-info', {{ Js::from($item->material_info_payload) }})">
+                                            @click="$dispatch('open-material-info', {{ Js::from($info) }})">
                                         <x-icon name="info" />
                                     </button>
                                     <button type="button" class="act-btn" title="Edit Item"
                                             @click="openEdit({{ Js::from($editPayload) }})">
                                         <x-icon name="edit" />
                                     </button>
-                                    <form action="{{ route('items.destroy', $item->id) }}" method="POST" class="inline"
-                                          @submit.prevent="$dispatch('open-confirm', {
-                                              form: $el,
-                                              title: '{{ $hasHist ? 'Nonaktifkan Master Item' : 'Hapus Permanen Master Item' }}',
-                                              message: '{{ $hasHist ? 'Item ' . addslashes($item->part_name) . ' sudah memiliki riwayat transaksi/BOM sehingga akan dipindahkan ke daftar Item Nonaktif. Lanjutkan?' : 'Item ' . addslashes($item->part_name) . ' belum memiliki riwayat transaksi dan akan dihapus permanen. Lanjutkan?' }}'
-                                          })">
-                                        @csrf
-                                        @method('DELETE')
-                                        <button type="submit" class="act-btn {{ $hasHist ? 'warn' : 'danger' }}"
-                                                title="{{ $hasHist ? 'Nonaktifkan Item' : 'Hapus Permanen' }}">
-                                            <x-icon :name="$hasHist ? 'ban' : 'trash'" />
-                                        </button>
-                                    </form>
+                                    <button type="button" class="act-btn {{ $hasHist ? 'warn' : 'danger' }}"
+                                            title="{{ $hasHist ? 'Nonaktifkan Item' : 'Hapus Permanen' }}"
+                                            @click="openDelete({{ Js::from($delPayload) }})">
+                                        <x-icon :name="$hasHist ? 'ban' : 'trash'" />
+                                    </button>
                                 </div>
                             </td>
                         </tr>
                     @empty
-                        <tr><td colspan="11"><div class="empty">Belum ada data Master Item.</div></td></tr>
+                        <tr><td colspan="10"><div class="empty">Belum ada data Master Item.</div></td></tr>
                     @endforelse
                 </tbody>
             </table>
         </div>
 
-        {{-- POP-UP MODAL TAMBAH MASTER ITEM BARU (Dua Panel, Panel Kiri Abu, Bebas Scroll Kanan-Kiri) --}}
+        {{-- POP-UP MODAL INPUT MASTER ITEM BARU (dua panel, panel kiri abu) --}}
         <div x-show="addOpen" x-cloak class="modal-backdrop" @click.self="addOpen = false" @keydown.escape.window="addOpen = false">
-            <div class="panel dlg w-full max-w-3xl" role="dialog" aria-label="Tambah Master Item Baru">
+            <div class="panel dlg w-full max-w-3xl" role="dialog" aria-label="Input Master Item Baru">
                 <div class="panel-head">
-                    <h3 class="panel-title">Tambah Master Item Baru</h3>
+                    <h3 class="panel-title">Input Master Item Baru</h3>
                     <button type="button" class="act-btn" @click="addOpen = false" aria-label="Tutup">
                         <x-icon name="x" />
                     </button>
@@ -181,33 +189,35 @@
                 <form action="{{ route('items.store') }}" method="POST" class="flex flex-col min-h-0 flex-1">
                     @csrf
                     <div class="dlg-split">
-                        {{-- Panel Kiri: Pratinjau Hidup --}}
+                        {{-- Panel kiri: pratinjau hidup --}}
                         <aside class="dlg-side hide-sm">
-                            <div class="dlg-k">Pratinjau</div>
-                            <div>
+                            <div class="dlg-k">Pratinjau Item</div>
+                            <div class="sumc">
                                 <div class="dlg-code num" x-text="addPartNo || '–'"></div>
-                                <div class="dlg-name uppercase" x-text="addPartName || 'Nama part'"></div>
-                            </div>
-                            <div class="flex items-center gap-2">
-                                <span class="ty" :class="tyClass(addType)" x-text="addType"></span>
-                                <span class="num text-xs font-semibold" style="color: var(--ink2)" x-text="addUom"></span>
+                                <div class="dlg-name uppercase" x-text="addPartName || 'NAMA PART'"></div>
+                                <div class="flex items-center gap-2 mt-1">
+                                    <span class="ty" :class="tyClass(addType)" x-text="addType"></span>
+                                    <span class="pill pill-neu num" x-text="addUom"></span>
+                                </div>
                             </div>
                             <div>
-                                <div class="dlg-k" style="margin-bottom: 8px">Standar buffer</div>
+                                <div class="dlg-k" style="margin-bottom: 8px">Standar Buffer Harian</div>
                                 <template x-if="allowsPo(addType)">
                                     <div class="dlg-list">
                                         <div><span>Std Day 1</span><b class="num" x-text="stdPreview(addPo, addWd, addKb)[0]"></b></div>
-                                        <div><span>Std Day 2</span><b class="num" x-text="stdPreview(addPo, addWd, addKb)[1]"></b></div>
-                                        <div><span>Std Day 3</span><b class="num" x-text="stdPreview(addPo, addWd, addKb)[2]"></b></div>
+                                        <div><span>Std Day 2 (Min)</span><b class="num" x-text="stdPreview(addPo, addWd, addKb)[1]"></b></div>
+                                        <div><span>Std Day 3 (Max)</span><b class="num" x-text="stdPreview(addPo, addWd, addKb)[2]"></b></div>
                                     </div>
                                 </template>
                                 <template x-if="!allowsPo(addType)">
-                                    <p class="hint">Dihitung otomatis dari resep BOM, bukan dari PO.</p>
+                                    <div class="sumc text-xs text-slate-600 leading-relaxed">
+                                        Dihitung otomatis dari akumulasi resep BOM, bukan dari parameter PO.
+                                    </div>
                                 </template>
                             </div>
                         </aside>
 
-                        {{-- Panel Kanan: Field Input --}}
+                        {{-- Panel kanan: field --}}
                         <div class="dlg-main">
                             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <div>
@@ -274,8 +284,8 @@
                                 </div>
                             </div>
 
-                            <div x-show="!allowsPo(addType)" x-cloak class="alert alert-info text-xs">
-                                Untuk tipe <b x-text="addType"></b>, parameter PO/WD/Kanban dikunci <b class="num">0</b> karena kebutuhan stok hariannya (<b class="num">Std Day 1/2/3</b>) dihitung otomatis dari resep BOM.
+                            <div x-show="!allowsPo(addType)" x-cloak class="alert alert-info text-xs leading-relaxed">
+                                Untuk tipe <b class="font-bold" x-text="addType"></b>, parameter PO, Working Days, dan Kanban dikunci <b class="num font-bold">0</b> karena kebutuhan stok hariannya (<b class="num font-bold">Std Day 1 / 2 / 3</b>) dihitung otomatis dari resep BOM.
                             </div>
                         </div>
                     </div>
@@ -288,7 +298,7 @@
             </div>
         </div>
 
-        {{-- POP-UP MODAL EDIT MASTER ITEM (Dua Panel, Panel Kiri Abu, Bebas Scroll Kanan-Kiri) --}}
+        {{-- POP-UP MODAL EDIT MASTER ITEM (dua panel, panel kiri abu) --}}
         <div x-show="editOpen" x-cloak class="modal-backdrop" @click.self="editOpen = false" @keydown.escape.window="editOpen = false">
             <div class="panel dlg w-full max-w-3xl" role="dialog" aria-label="Edit Master Item">
                 <div class="panel-head">
@@ -303,33 +313,35 @@
                     @method('PUT')
                     <div class="dlg-split">
                         <aside class="dlg-side hide-sm">
-                            <div class="dlg-k">Pratinjau</div>
-                            <div>
+                            <div class="dlg-k">Pratinjau Item</div>
+                            <div class="sumc">
                                 <div class="dlg-code num" x-text="editData.part_no || '–'"></div>
-                                <div class="dlg-name uppercase" x-text="editData.part_name || 'Nama part'"></div>
-                            </div>
-                            <div class="flex items-center gap-2">
-                                <span class="ty" :class="tyClass(editData.type)" x-text="editData.type"></span>
-                                <span class="num text-xs font-semibold" style="color: var(--ink2)" x-text="editData.uom"></span>
+                                <div class="dlg-name uppercase" x-text="editData.part_name || 'NAMA PART'"></div>
+                                <div class="flex items-center gap-2 mt-1">
+                                    <span class="ty" :class="tyClass(editData.type)" x-text="editData.type"></span>
+                                    <span class="pill pill-neu num" x-text="editData.uom"></span>
+                                </div>
                             </div>
                             <div>
-                                <div class="dlg-k" style="margin-bottom: 8px">Standar buffer</div>
+                                <div class="dlg-k" style="margin-bottom: 8px">Standar Buffer Harian</div>
                                 <template x-if="allowsPo(editData.type)">
                                     <div class="dlg-list">
                                         <div><span>Std Day 1</span><b class="num" x-text="stdPreview(editData.qty_po, editData.working_days, editData.qty_kanban)[0]"></b></div>
-                                        <div><span>Std Day 2</span><b class="num" x-text="stdPreview(editData.qty_po, editData.working_days, editData.qty_kanban)[1]"></b></div>
-                                        <div><span>Std Day 3</span><b class="num" x-text="stdPreview(editData.qty_po, editData.working_days, editData.qty_kanban)[2]"></b></div>
+                                        <div><span>Std Day 2 (Min)</span><b class="num" x-text="stdPreview(editData.qty_po, editData.working_days, editData.qty_kanban)[1]"></b></div>
+                                        <div><span>Std Day 3 (Max)</span><b class="num" x-text="stdPreview(editData.qty_po, editData.working_days, editData.qty_kanban)[2]"></b></div>
                                     </div>
                                 </template>
                                 <template x-if="!allowsPo(editData.type)">
-                                    <p class="hint">Dihitung otomatis dari resep BOM, bukan dari PO.</p>
+                                    <div class="sumc text-xs text-slate-600 leading-relaxed">
+                                        Dihitung otomatis dari akumulasi resep BOM, bukan dari parameter PO.
+                                    </div>
                                 </template>
                             </div>
                         </aside>
 
                         <div class="dlg-main">
                             <template x-if="editData.has_history">
-                                <div class="alert alert-crit text-xs">
+                                <div class="alert alert-crit text-xs leading-relaxed">
                                     Identitas utama terkunci karena item ini sudah memiliki riwayat transaksi / BOM. Anda tetap dapat memperbarui parameter PO, Working Days, dan Kanban (untuk tipe FG, FG/KOMPONEN, &amp; TRANSIT).
                                 </div>
                             </template>
@@ -396,6 +408,10 @@
                                     <input id="edit_kb" type="number" step="0.01" min="0" name="qty_kanban" x-model="editData.qty_kanban" class="num w-full h-9">
                                 </div>
                             </div>
+
+                            <div x-show="!allowsPo(editData.type)" x-cloak class="alert alert-info text-xs leading-relaxed">
+                                Untuk tipe <b class="font-bold" x-text="editData.type"></b>, parameter PO, Working Days, dan Kanban dikunci <b class="num font-bold">0</b> karena kebutuhan stok hariannya (<b class="num font-bold">Std Day 1 / 2 / 3</b>) dihitung otomatis dari resep BOM.
+                            </div>
                         </div>
                     </div>
 
@@ -405,6 +421,72 @@
                                 :disabled="editData.has_history && !allowsPo(editData.type)">
                             Simpan Perubahan
                         </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        {{-- DIALOG HAPUS / NONAKTIFKAN MASTER ITEM (dua panel, panel kiri abu) --}}
+        <div x-show="delOpen" x-cloak class="modal-backdrop" @click.self="delOpen = false" @keydown.escape.window="delOpen = false">
+            <div class="panel dlg w-full max-w-2xl" role="dialog"
+                 :aria-label="delData.has_history ? 'Nonaktifkan Master Item' : 'Hapus Permanen Master Item'">
+                <div class="panel-head">
+                    <h3 class="panel-title" x-text="delData.has_history ? 'Nonaktifkan Master Item' : 'Hapus Permanen Master Item'"></h3>
+                    <button type="button" class="act-btn" @click="delOpen = false" aria-label="Tutup">
+                        <x-icon name="x" />
+                    </button>
+                </div>
+
+                <form :action="'{{ url('items') }}/' + delData.id" method="POST" class="flex flex-col min-h-0 flex-1">
+                    @csrf
+                    @method('DELETE')
+                    <div class="dlg-split">
+                        <aside class="dlg-side">
+                            <div class="dlg-k">Item yang dipilih</div>
+                            <div class="sumc">
+                                <div class="num" style="font-weight: 600; color: var(--accent)" x-text="delData.part_no || '–'"></div>
+                                <div style="font-weight: 500" x-text="delData.part_name"></div>
+                                <div class="flex items-center gap-2" style="margin-top: 2px">
+                                    <span class="ty" :class="tyClass(delData.type)" x-text="delData.type"></span>
+                                    <span class="hint" style="margin: 0" x-text="delData.uom + ' · ' + delData.company"></span>
+                                </div>
+                            </div>
+                            <div class="dlg-list">
+                                <div><span>Stok</span><b class="num" x-text="delData.stock + ' ' + delData.uom"></b></div>
+                                <div><span>Riwayat</span><b class="num" x-text="delData.history + ' transaksi'"></b></div>
+                                <div><span>Dipakai di BOM</span><b class="num" x-text="delData.bom"></b></div>
+                            </div>
+                        </aside>
+
+                        <div class="dlg-main">
+                            <p style="margin: 0; color: var(--ink2); line-height: 1.5">
+                                <template x-if="delData.has_history">
+                                    <span x-text="'Item ' + delData.part_name + ' sudah memiliki riwayat transaksi/BOM sehingga akan dipindahkan ke daftar Item Nonaktif.'"></span>
+                                </template>
+                                <template x-if="!delData.has_history">
+                                    <span x-text="'Item ' + delData.part_name + ' belum memiliki riwayat transaksi dan akan dihapus permanen.'"></span>
+                                </template>
+                            </p>
+
+                            <div class="dlg-k">Akibatnya</div>
+
+                            <ul class="cons" x-show="delData.has_history">
+                                <li class="k"><i></i><span>Riwayat transaksi dan BOM tetap tersimpan</span></li>
+                                <li class="k"><i></i><span>Bisa diaktifkan kembali dari daftar Item Nonaktif</span></li>
+                                <li class="x"><i></i><span>Tidak muncul lagi di scan dan pilihan item</span></li>
+                            </ul>
+                            <ul class="cons" x-show="!delData.has_history" x-cloak>
+                                <li class="x"><i></i><span>Data item dihapus dan tidak bisa dikembalikan</span></li>
+                                <li class="k"><i></i><span>Tidak ada riwayat yang ikut hilang</span></li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div class="panel-foot">
+                        <button type="button" class="btn" @click="delOpen = false">Batal</button>
+                        <button type="submit" class="btn"
+                                :class="delData.has_history ? 'btn-primary' : 'btn-crit'"
+                                x-text="delData.has_history ? 'Nonaktifkan' : 'Hapus Permanen'"></button>
                     </div>
                 </form>
             </div>
@@ -419,18 +501,18 @@
                 q: '',
                 fType: '',
                 fCompType: '',
-                addOpen: openInitially,
-                editOpen: false,
                 visibleCount: initialCount,
-                companies: companiesList,
+                companiesList: companiesList,
+                addOpen: openInitially,
+                addType: 'FG',
+                addCompanyId: '',
                 addPartNo: '',
                 addPartName: '',
-                addType: 'FG',
                 addUom: {{ Js::from(collect($uoms)->first() ?? 'PCS') }},
-                addCompanyId: '',
                 addPo: 0,
                 addWd: 20,
                 addKb: 0,
+                editOpen: false,
                 editData: {
                     id: null,
                     part_no: '',
@@ -439,9 +521,22 @@
                     uom: 'PCS',
                     company_id: '',
                     qty_po: 0,
-                    working_days: 20,
+                    working_days: 0,
                     qty_kanban: 0,
-                    has_history: false,
+                    has_history: false
+                },
+                delOpen: false,
+                delData: {
+                    id: null,
+                    part_no: '',
+                    part_name: '',
+                    type: '',
+                    uom: '',
+                    company: '',
+                    stock: 0,
+                    history: 0,
+                    bom: 0,
+                    has_history: false
                 },
 
                 tyClass(t) {
@@ -451,44 +546,48 @@
                     const p = parseFloat(po) || 0;
                     const w = parseInt(wd, 10) || 0;
                     const k = parseFloat(kb) || 0;
-                    const poWd = (w > 0 && p > 0) ? Math.round((p / w) * 100) / 100 : 0;
-                    let s1 = 0;
-                    if (poWd > 0) {
-                        s1 = k > 0 ? Math.ceil(poWd / k) * k : Math.ceil(poWd);
-                    }
+                    if (w <= 0 || p <= 0) return ['0', '0', '0'];
+                    const poWd = Math.round((p / w) * 100) / 100;
+                    const s1 = k > 0 ? Math.ceil(poWd / k) * k : Math.ceil(poWd);
                     return [s1, s1 * 2, s1 * 3].map(v => (Math.round(v * 100) / 100).toLocaleString('id-ID'));
                 },
-                allowsPo(type) {
-                    return ['FG', 'FG/KOMPONEN', 'TRANSIT'].includes(type);
+                allowsPo(t) {
+                    return ['FG', 'FG/KOMPONEN', 'TRANSIT'].includes(t);
                 },
-                allowedCompanies(type) {
+                allowedCompanies(itemType) {
                     const map = {
                         'RM': ['SUPPLIER'],
                         'KOMPONEN': ['SUPPLIER', 'INTERNAL'],
                         'FG/KOMPONEN': ['INTERNAL'],
                         'TRANSIT': ['SUPPLIER'],
-                        'FG': ['CUSTOMER'],
+                        'FG': ['CUSTOMER']
                     };
-                    const allowed = map[type] || ['SUPPLIER', 'INTERNAL', 'CUSTOMER'];
-                    return this.companies.filter(c => allowed.includes(c.type));
+                    const allowed = map[itemType] || ['SUPPLIER', 'INTERNAL', 'CUSTOMER'];
+                    return this.companiesList.filter(c => allowed.includes(c.type));
                 },
-                companyGuide(type) {
-                    const g = {
-                        'RM': 'Pilih perusahaan SUPPLIER pemasok bahan baku (RM) ini.',
+                companyGuide(itemType) {
+                    const guides = {
+                        'RM': 'Pilih Supplier pemasok bahan baku (RM) ini.',
                         'KOMPONEN': 'Pilih SUPPLIER jika dibeli dari vendor luar, atau INTERNAL jika diproduksi sendiri.',
-                        'FG/KOMPONEN': 'Pilih perusahaan INTERNAL (hasil produksi internal yang dapat dikirim maupun dipakai proses lanjut).',
-                        'TRANSIT': 'Pilih perusahaan SUPPLIER asal barang Transit.',
-                        'FG': 'Pilih perusahaan CUSTOMER tujuan pengiriman produk akhir (FG) ini.',
+                        'FG/KOMPONEN': 'Pilih perusahaan INTERNAL (hasil produksi internal yang dapat dikirim ke Customer maupun dipakai proses lanjut).',
+                        'TRANSIT': 'Pilih Supplier asal barang Transit (masuk dari Inbound lalu dikirim langsung lewat Delivery).',
+                        'FG': 'Pilih Customer tujuan pengiriman produk akhir (FG) ini.'
                     };
-                    return g[type] || '';
+                    return guides[itemType] || '';
                 },
                 syncAddCompany() {
                     const list = this.allowedCompanies(this.addType);
-                    this.addCompanyId = list.length ? String(list[0].id) : '';
+                    if (list.length > 0 && !list.some(c => String(c.id) === String(this.addCompanyId))) {
+                        this.addCompanyId = list[0].id;
+                    }
                 },
                 openEdit(payload) {
                     this.editData = Object.assign({}, payload);
                     this.editOpen = true;
+                },
+                openDelete(d) {
+                    this.delData = Object.assign({}, d);
+                    this.delOpen = true;
                 },
                 matchRow(el) {
                     const s = (el.dataset.search || '').toLowerCase();

@@ -1,10 +1,11 @@
 <x-app-layout>
     <x-slot name="header">
         <x-page-header title="Manufacture Process"
-                       subtitle="Daftar proses manufaktur produksi (STAMPING, SHEARING BLANKING, SPOT WELDING, ASSY WELDING)">
+                       subtitle="Daftar master tahapan proses produksi (Stamping, Shearing, Spot Welding, Assy Welding, dll.)">
             <x-slot name="actions">
                 <button type="button" class="btn btn-primary" @click="$dispatch('open-add-process')">
-                    <x-icon name="plus" /> Tambah Proses
+                    <x-icon name="plus" />
+                    <span>Input Proses</span>
                 </button>
             </x-slot>
         </x-page-header>
@@ -20,7 +21,7 @@
         <div class="panel-head">
             <div class="panel-title">
                 <span>Daftar Proses Manufaktur</span>
-                <span class="count-chip"><span x-text="visibleCount"></span><span>Proses</span></span>
+                <span class="count-chip"><span x-text="visibleCount"></span><span>PROSES</span></span>
             </div>
 
             <div class="flex flex-wrap items-center gap-2">
@@ -40,7 +41,7 @@
                 <thead>
                     <tr>
                         <th class="w-[8%] text-center">No</th>
-                        <th class="w-[76%]">Nama Proses Manufaktur</th>
+                        <th class="w-[76%] text-left">Nama Proses Manufaktur</th>
                         <th class="w-[16%] text-center">Aksi</th>
                     </tr>
                 </thead>
@@ -50,7 +51,7 @@
                             data-search="{{ strtolower($proc->process_name) }}"
                             x-show="matchRow($el)">
                             <td class="text-center num font-semibold text-slate-500">{{ $idx + 1 }}</td>
-                            <td class="font-bold text-slate-900">{{ $proc->process_name }}</td>
+                            <td class="text-left font-bold text-slate-900">{{ $proc->process_name }}</td>
                             <td class="text-center">
                                 <div class="inline-flex items-center justify-center gap-1">
                                     <button type="button" class="act-btn" title="Edit Proses"
@@ -58,7 +59,7 @@
                                         <x-icon name="edit" />
                                     </button>
                                     <form action="{{ route('processes.destroy', $proc->id) }}" method="POST" class="inline"
-                                          @submit.prevent="$dispatch('open-confirm', { form: $el, title: 'Hapus Proses', message: 'Hapus proses {{ addslashes($proc->process_name) }}?' })">
+                                          @submit.prevent="$dispatch('open-confirm', { form: $el, title: 'Hapus Proses Manufaktur', message: 'Hapus proses {{ addslashes($proc->process_name) }}?' })">
                                         @csrf
                                         @method('DELETE')
                                         <button type="submit" class="act-btn danger" title="Hapus Proses">
@@ -75,24 +76,41 @@
             </table>
         </div>
 
-        {{-- POP-UP MODAL TAMBAH PROSES --}}
-        <div x-show="addOpen" x-cloak class="modal-backdrop" @click.self="addOpen = false">
-            <div class="panel w-full max-w-md overflow-hidden">
+        {{-- POP-UP MODAL INPUT PROSES (dua panel, panel kiri abu) --}}
+        <div x-show="addOpen" x-cloak class="modal-backdrop" @click.self="addOpen = false" @keydown.escape.window="addOpen = false">
+            <div class="panel dlg w-full max-w-2xl" role="dialog" aria-label="Input Proses Manufaktur">
                 <div class="panel-head">
-                    <h3 class="panel-title">Tambah Proses Manufaktur</h3>
-                    <button type="button" class="act-btn" @click="addOpen = false">
+                    <h3 class="panel-title">Input Proses Manufaktur</h3>
+                    <button type="button" class="act-btn" @click="addOpen = false" aria-label="Tutup">
                         <x-icon name="x" />
                     </button>
                 </div>
-                <form action="{{ route('processes.store') }}" method="POST">
+
+                <form action="{{ route('processes.store') }}" method="POST" class="flex flex-col min-h-0 flex-1">
                     @csrf
-                    <div class="panel-body space-y-4">
-                        <div>
-                            <label class="lbl">Nama Proses (Otomatis Huruf Kapital)</label>
-                            <input type="text" name="process_name" required placeholder="Contoh: STAMPING"
-                                   oninput="this.value = this.value.toUpperCase()" class="uppercase w-full h-9 font-semibold">
+                    <div class="dlg-split">
+                        <aside class="dlg-side">
+                            <div class="dlg-k">Proses terdaftar ({{ $processes->count() }})</div>
+                            <div class="plist">
+                                @foreach($processes as $p)
+                                    <span>{{ $p->process_name }}</span>
+                                @endforeach
+                                <span class="new" x-show="addName" x-cloak x-text="addName"></span>
+                            </div>
+                            <p class="hint" style="margin: 0">Nama proses harus berbeda dari daftar di atas.</p>
+                        </aside>
+
+                        <div class="dlg-main">
+                            <div>
+                                <label class="lbl" for="add_proc_name">Nama Proses (Otomatis Huruf Kapital)</label>
+                                <input id="add_proc_name" type="text" name="process_name" x-model="addName" required
+                                       placeholder="Contoh: STAMPING"
+                                       oninput="this.value = this.value.toUpperCase()"
+                                       class="uppercase w-full h-9 font-semibold">
+                            </div>
                         </div>
                     </div>
+
                     <div class="panel-foot">
                         <button type="button" class="btn" @click="addOpen = false">Batal</button>
                         <button type="submit" class="btn btn-primary">Simpan Proses</button>
@@ -101,25 +119,41 @@
             </div>
         </div>
 
-        {{-- POP-UP MODAL EDIT PROSES --}}
-        <div x-show="editOpen" x-cloak class="modal-backdrop" @click.self="editOpen = false">
-            <div class="panel w-full max-w-md overflow-hidden">
+        {{-- POP-UP MODAL EDIT PROSES (dua panel, panel kiri abu) --}}
+        <div x-show="editOpen" x-cloak class="modal-backdrop" @click.self="editOpen = false" @keydown.escape.window="editOpen = false">
+            <div class="panel dlg w-full max-w-2xl" role="dialog" aria-label="Edit Proses Manufaktur">
                 <div class="panel-head">
                     <h3 class="panel-title">Edit Proses Manufaktur</h3>
-                    <button type="button" class="act-btn" @click="editOpen = false">
+                    <button type="button" class="act-btn" @click="editOpen = false" aria-label="Tutup">
                         <x-icon name="x" />
                     </button>
                 </div>
-                <form :action="'{{ url('processes') }}/' + editId" method="POST">
+
+                <form :action="'{{ url('processes') }}/' + editId" method="POST" class="flex flex-col min-h-0 flex-1">
                     @csrf
                     @method('PUT')
-                    <div class="panel-body space-y-4">
-                        <div>
-                            <label class="lbl">Nama Proses</label>
-                            <input type="text" name="process_name" x-model="editName" required
-                                   oninput="this.value = this.value.toUpperCase()" class="uppercase w-full h-9 font-semibold">
+                    <div class="dlg-split">
+                        <aside class="dlg-side">
+                            <div class="dlg-k">Proses terdaftar ({{ $processes->count() }})</div>
+                            <div class="plist">
+                                @foreach($processes as $p)
+                                    <span x-show="editId !== {{ $p->id }}">{{ $p->process_name }}</span>
+                                @endforeach
+                                <span class="new" x-show="editName" x-cloak x-text="editName"></span>
+                            </div>
+                            <p class="hint" style="margin: 0">Nama proses harus berbeda dari daftar di atas.</p>
+                        </aside>
+
+                        <div class="dlg-main">
+                            <div>
+                                <label class="lbl" for="edit_proc_name">Nama Proses</label>
+                                <input id="edit_proc_name" type="text" name="process_name" x-model="editName" required
+                                       oninput="this.value = this.value.toUpperCase()"
+                                       class="uppercase w-full h-9 font-semibold">
+                            </div>
                         </div>
                     </div>
+
                     <div class="panel-foot">
                         <button type="button" class="btn" @click="editOpen = false">Batal</button>
                         <button type="submit" class="btn btn-primary">Simpan Perubahan</button>
@@ -134,6 +168,7 @@
             return {
                 q: '',
                 addOpen: openInitially,
+                addName: '',
                 editOpen: false,
                 editId: null,
                 editName: '',
@@ -160,4 +195,4 @@
             };
         }
     </script>
-</x-app-layout> 
+</x-app-layout>
