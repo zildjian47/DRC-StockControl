@@ -84,6 +84,15 @@ class InventoryStock extends Model
         return 'OVERSTOCK';
     }
 
+    /**
+     * Perbarui dan simpan status_stock secara dinamis berdasarkan current_stock & BOM/PO terbaru.
+     */
+    public function updateDynamicStatus(): void
+    {
+        $this->status_stock = $this->calculateDynamicStatus();
+        $this->save();
+    }
+
     public function adjustStock(float $deltaQty): void
     {
         $newStock = max(0, (float) $this->current_stock + $deltaQty);
