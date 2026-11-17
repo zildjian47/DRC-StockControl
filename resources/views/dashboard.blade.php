@@ -150,18 +150,21 @@
 
             $wipTarget = (float) ($wipByTargetItem[$itm->id] ?? 0);
             $matInMach = (float) ($matInMachineByItem[$itm->id] ?? 0);
-            $wipActive = $itm->type === 'RM' ? $matInMach : round($wipTarget + $matInMach, 2);
+            $wipActive = $itm->type === 'RM' ? $matInMach : round($wipTarget, 2);
 
             $outBoms = $itm->bomsAsOutput;
+            $hasBomInputs = $outBoms->isNotEmpty();
             $potMax = 0.0;
             $hasSharedInput = false;
             $materialsDetail = [];
+            $bottleneckFormula = '';
 
-            if ($outBoms->isNotEmpty()) {
+            if ($hasBomInputs) {
                 $byGroupMax = [];
 
                 foreach ($outBoms->groupBy(fn ($b) => $b->bom_group ?: ('SG-' . $b->id)) as $gKey => $gRows) {
                     $minMax = null;
+                    $minInputMeta = null;
 
                     foreach ($gRows as $bRow) {
                         $inItm = $bRow->inputItem;
@@ -174,9 +177,15 @@
                             $hasSharedInput = true;
                         }
 
-                        $canMakeMax = floor(($inStock / $usage) * 100) / 100;
+                        $canMakeMax = floor($inStock / $usage);
                         if ($minMax === null || $canMakeMax < $minMax) {
                             $minMax = $canMakeMax;
+                            $minInputMeta = [
+                                'stock' => floatval($inStock),
+                                'uom'   => $inItm->uom,
+                                'usage' => $bRow->formatted_qty_usage,
+                                'make'  => (int) $canMakeMax,
+                            ];
                         }
 
                         $materialsDetail[] = [
@@ -184,47 +193,60 @@
                             'stock'      => floatval($inStock),
                             'uom'        => $inItm->uom,
                             'usage'      => $bRow->formatted_qty_usage,
-                            'make_max'   => round($canMakeMax),
+                            'make_max'   => (int) $canMakeMax,
                             'is_shared'  => $usedCount > 1,
                             'used_count' => $usedCount,
                         ];
                     }
 
                     if ($minMax !== null) {
-                        $byGroupMax[] = $minMax;
+                        $byGroupMax[] = [
+                            'val'  => $minMax,
+                            'meta' => $minInputMeta,
+                        ];
                     }
                 }
 
-                $potMax = !empty($byGroupMax) ? round(max($byGroupMax), 0) : 0.0;
+                if (!empty($byGroupMax)) {
+                    usort($byGroupMax, fn($a, $b) => $b['val'] <=> $a['val']);
+                    $bestGrp = $byGroupMax[0];
+                    $potMax = round($bestGrp['val'], 0);
+                    if (!empty($bestGrp['meta'])) {
+                        $m = $bestGrp['meta'];
+                        $bottleneckFormula = $m['stock'] . ' ' . $m['uom'] . ' ÷ ' . $m['usage'] . ' = ' . $m['make'] . ' ' . $itm->uom;
+                    }
+                }
             }
 
             $inputIds = $outBoms->pluck('input_item_id')->unique()->values()->all();
 
             return [
-                'id'               => $itm->id,
-                'part_no'          => $itm->part_no ?: '-',
-                'part_name'        => $itm->part_name,
-                'type'             => $itm->type,
-                'uom'              => $itm->uom,
-                'company_id'       => $itm->company_id,
-                'company_code'     => $itm->company->company_code ?? 'INTERNAL',
-                'company_name'     => $itm->company->company_name ?? 'PT. Dian Raya Cipta',
-                'company_type'     => $itm->company->type_company ?? 'INTERNAL',
-                'current_stock'    => $currStock,
-                'stock_07'         => $stock07,
-                'status_07'        => $status07,
-                'ratio_07'         => $ratio07,
-                'wip_active'       => $wipActive,
-                'pot_max'          => $potMax,
-                'has_shared_input' => $hasSharedInput,
-                'input_ids'        => $inputIds,
-                'materials_detail' => $materialsDetail,
-                'std_day_1'        => $std1,
-                'std_day_2'        => $std2,
-                'std_day_3'        => $std3,
-                'ratio_stock'      => $ratioFg,
-                'status_stock'     => $statusNow,
-                'info_payload'     => $itm->material_info_payload,
+                'id'                 => $itm->id,
+                'part_no'            => $itm->part_no ?: '-',
+                'part_name'          => $itm->part_name,
+                'type'               => $itm->type,
+                'uom'                => $itm->uom,
+                'company_id'         => $itm->company_id,
+                'company_code'       => $itm->company->company_code ?? 'INTERNAL',
+                'company_name'       => $itm->company->company_name ?? 'PT. Dian Raya Cipta',
+                'company_type'       => $itm->company->type_company ?? 'INTERNAL',
+                'current_stock'      => $currStock,
+                'stock_07'           => $stock07,
+                'status_07'          => $status07,
+                'ratio_07'           => $ratio07,
+                'wip_active'         => $wipActive,
+                'has_bom_inputs'     => $hasBomInputs,
+                'pot_max'            => $potMax,
+                'bottleneck_formula' => $bottleneckFormula,
+                'has_shared_input'   => $hasSharedInput,
+                'input_ids'          => $inputIds,
+                'materials_detail'   => $materialsDetail,
+                'std_day_1'          => $std1,
+                'std_day_2'          => $std2,
+                'std_day_3'          => $std3,
+                'ratio_stock'        => $ratioFg,
+                'status_stock'       => $statusNow,
+                'info_payload'       => $itm->material_info_payload,
             ];
         })->values();
 
@@ -472,6 +494,7 @@
                                     $pct = $lot->target_qty_estimasi > 0
                                         ? min(100, round(($lot->actual_qty_prod / $lot->target_qty_estimasi) * 100))
                                         : 0;
+                                    $uOut = $lot->targetItem->uom ?? 'PCS';
                                 @endphp
                                 <tr>
                                     <td class="num font-semibold text-accent">{{ $lot->lot_number }}</td>
@@ -484,7 +507,7 @@
                                         </div>
                                     </td>
                                     <td class="num text-xs whitespace-nowrap">
-                                        <b class="text-emerald-700">{{ floatval($lot->act_fg) }}</b> / <b class="text-amber-700">WIP {{ floatval($lot->qty_wip) }}</b>
+                                        <b class="text-emerald-700">{{ floatval($lot->act_fg) }} {{ $uOut }}</b> / <b class="text-amber-700">WIP {{ floatval($lot->qty_wip) }} {{ $uOut }}</b>
                                     </td>
                                     <td class="text-center">
                                         @if($lot->status_lot === 'ON PROGRESS')
@@ -624,7 +647,7 @@
                 </div>
             </section>
 
-            {{-- 5. DETAIL STOCK (KHUSUS FG & FG/KOMPONEN, TANPA ALOKASI & TANPA GARIS STD 1) --}}
+            {{-- 5. DETAIL STOCK (FG, FG/KOMPONEN, & KOMPONEN BERUNTUN YANG MEMILIKI BOM) --}}
             <section class="panel"
                      x-data="dashboardStockVerticalChart({{ Js::from($dashboardItems) }}, {{ Js::from($sharedMaterialsList) }}, '{{ $defaultStockCompanyId }}')">
                 <div class="panel-head" style="position: static;">
@@ -634,7 +657,7 @@
                     </div>
 
                     <div class="flex flex-wrap items-center gap-2">
-                        <select x-model="fCompany" class="h-8 text-xs py-0 pl-2 pr-7" title="Filter Perusahaan">
+                        <select x-model="fCompany" @change="syncHovered()" class="h-8 text-xs py-0 pl-2 pr-7" title="Filter Perusahaan">
                             <option value="">Semua Perusahaan</option>
                             @foreach($allCompaniesList as $c)
                                 @if(in_array($c['type'], ['CUSTOMER', 'INTERNAL'], true))
@@ -643,13 +666,15 @@
                             @endforeach
                         </select>
 
-                        <select x-model="fCategory" class="h-8 text-xs py-0 pl-2 pr-7" title="Filter Tipe Item">
+                        <select x-model="fCategory" @change="onCategoryChange()" class="h-8 text-xs py-0 pl-2 pr-7" title="Filter Tipe Item">
                             <option value="FG_FGK">FG + FG/KOMPONEN</option>
                             <option value="FG">FG</option>
                             <option value="FG/KOMPONEN">FG/KOMPONEN</option>
+                            <option value="KOMPONEN">KOMPONEN</option>
+                            <option value="ALL_PROD">Semua (FG · FG/KOMPONEN · KOMPONEN)</option>
                         </select>
 
-                        <select x-model="fSharedMat" class="h-8 text-xs py-0 pl-2 pr-7" title="Filter Material Pembentuk">
+                        <select x-model="fSharedMat" @change="syncHovered()" class="h-8 text-xs py-0 pl-2 pr-7" title="Filter Material Pembentuk">
                             <option value="">Semua Material</option>
                             @foreach($sharedMaterialsList as $sm)
                                 <option value="{{ $sm['id'] }}">{{ $sm['label'] }}</option>
@@ -682,57 +707,84 @@
                         </span>
                     </div>
 
-                    {{-- Panel Ringkasan Saat Batang Di-hover --}}
+                    {{-- Panel Ringkasan Saat Batang Di-hover (Beserta Ratio Hari & Rumus Konversi) --}}
                     <div class="rounded border px-3.5 py-2.5 transition-colors"
                          :class="hoveredItem ? 'border-[#0B5CAD] bg-[#E4EEF8]/50' : 'border-slate-200 bg-slate-50/60'">
                         <template x-if="!hoveredItem">
                             <div class="flex items-center justify-between text-xs text-slate-500">
-                                <span>Arahkan kursor pada batang grafik untuk melihat rincian stock, atau klik batang untuk membuka detail item.</span>
+                                <span>Arahkan kursor pada batang grafik untuk melihat rincian stock dan rumus konversi hari, atau klik batang untuk membuka detail item.</span>
                                 <span class="pill pill-neu">PILIH BATANG</span>
                             </div>
                         </template>
 
                         <template x-if="hoveredItem">
-                            <div class="grid grid-cols-1 lg:grid-cols-12 gap-3 items-center text-xs">
-                                {{-- Identitas Part --}}
-                                <div class="lg:col-span-5 min-w-0">
-                                    <div class="flex items-center gap-1.5 flex-wrap">
-                                        <span class="ty" :class="tyClass(hoveredItem.type)" x-text="hoveredItem.type"></span>
-                                        <span class="num font-bold text-accent" x-text="hoveredItem.part_no !== '-' ? hoveredItem.part_no : ''"></span>
-                                        <span class="pill pill-neu" x-text="hoveredItem.company_code"></span>
-                                        <span class="pill" :class="pillClass(hoveredItem.status_stock)" x-text="hoveredItem.status_stock"></span>
-                                        <span class="pill pill-info" x-show="hoveredItem.has_shared_input">SHARED RM</span>
+                            <div class="space-y-2.5 text-xs">
+                                <div class="grid grid-cols-1 lg:grid-cols-12 gap-3 items-center">
+                                    {{-- Identitas Part --}}
+                                    <div class="lg:col-span-4 min-w-0">
+                                        <div class="flex items-center gap-1.5 flex-wrap">
+                                            <span class="ty" :class="tyClass(hoveredItem.type)" x-text="hoveredItem.type"></span>
+                                            <span class="num font-bold text-accent" x-text="hoveredItem.part_no !== '-' ? hoveredItem.part_no : ''"></span>
+                                            <span class="pill pill-neu" x-text="hoveredItem.company_code"></span>
+                                            <span class="pill" :class="pillClass(hoveredItem.status_stock)" x-text="hoveredItem.status_stock"></span>
+                                            <span class="pill pill-info" x-show="hoveredItem.has_shared_input">SHARED RM</span>
+                                        </div>
+                                        <div class="font-bold text-slate-900 mt-1 truncate" x-text="hoveredItem.part_name"></div>
+                                        <div class="text-[11px] text-slate-600 mt-0.5 num">
+                                            Std 1: <b x-text="hoveredItem.std_day_1 + ' ' + hoveredItem.uom"></b> ·
+                                            Std 2: <b x-text="hoveredItem.std_day_2"></b> ·
+                                            Std 3: <b x-text="hoveredItem.std_day_3"></b>
+                                        </div>
                                     </div>
-                                    <div class="font-bold text-slate-900 mt-1 truncate" x-text="hoveredItem.part_name"></div>
-                                    <div class="text-[11px] text-slate-600 mt-0.5 num">
-                                        Std 1: <b x-text="hoveredItem.std_day_1 + ' ' + hoveredItem.uom"></b> ·
-                                        Std 2: <b x-text="hoveredItem.std_day_2"></b> ·
-                                        Std 3: <b x-text="hoveredItem.std_day_3"></b>
+
+                                    {{-- 4 Kotak Angka (Stock FG, WIP, Material, Total) + Ratio Hari + Rumus --}}
+                                    <div class="lg:col-span-8 grid grid-cols-2 sm:grid-cols-4 gap-2 text-center num">
+                                        {{-- Kotak 1: Stock FG --}}
+                                        <div class="p-2 rounded bg-white border border-slate-200 flex flex-col justify-between">
+                                            <div class="text-[10px] font-semibold text-slate-500 uppercase">Stock FG</div>
+                                            <div class="text-sm font-bold text-[#0B5CAD] mt-0.5" x-text="hoveredItem.current_stock + ' ' + hoveredItem.uom"></div>
+                                            <div class="text-[11px] font-bold text-slate-800 mt-0.5" x-text="hoveredItem.ratio_stock + ' Hari'"></div>
+                                            <div class="text-[10px] text-slate-500 border-t border-slate-100 pt-1 mt-1"
+                                                 x-text="dayFormula(hoveredItem.current_stock, hoveredItem.std_day_1)"></div>
+                                        </div>
+
+                                        {{-- Kotak 2: WIP --}}
+                                        <div class="p-2 rounded bg-white border border-slate-200 flex flex-col justify-between">
+                                            <div class="text-[10px] font-semibold text-slate-500 uppercase">WIP</div>
+                                            <div class="text-sm font-bold text-amber-600 mt-0.5" x-text="hoveredItem.wip_active + ' ' + hoveredItem.uom"></div>
+                                            <div class="text-[11px] font-bold text-slate-800 mt-0.5" x-text="wipRatio(hoveredItem) + ' Hari'"></div>
+                                            <div class="text-[10px] text-slate-500 border-t border-slate-100 pt-1 mt-1"
+                                                 x-text="dayFormula(hoveredItem.wip_active, hoveredItem.std_day_1)"></div>
+                                        </div>
+
+                                        {{-- Kotak 3: Material --}}
+                                        <div class="p-2 rounded bg-white border border-slate-200 flex flex-col justify-between">
+                                            <div class="text-[10px] font-semibold text-slate-500 uppercase">Material</div>
+                                            <div class="text-sm font-bold text-slate-700 mt-0.5" x-text="matPot(hoveredItem) + ' ' + hoveredItem.uom"></div>
+                                            <div class="text-[11px] font-bold text-slate-800 mt-0.5" x-text="matRatio(hoveredItem) + ' Hari'"></div>
+                                            <div class="text-[10px] text-slate-500 border-t border-slate-100 pt-1 mt-1"
+                                                 x-text="dayFormula(matPot(hoveredItem), hoveredItem.std_day_1)"></div>
+                                        </div>
+
+                                        {{-- Kotak 4: Total --}}
+                                        <div class="p-2 rounded bg-slate-900 text-white flex flex-col justify-between">
+                                            <div class="text-[10px] font-semibold text-slate-300 uppercase">Total</div>
+                                            <div class="text-sm font-bold mt-0.5" x-text="totalPipeline(hoveredItem) + ' ' + hoveredItem.uom"></div>
+                                            <div class="text-[11px] font-bold text-amber-300 mt-0.5" x-text="pipelineRatio(hoveredItem) + ' Hari'"></div>
+                                            <div class="text-[10px] text-slate-300 border-t border-slate-700 pt-1 mt-1"
+                                                 x-text="dayFormula(totalPipeline(hoveredItem), hoveredItem.std_day_1)"></div>
+                                        </div>
                                     </div>
                                 </div>
 
-                                {{-- 4 Kotak Angka (Stock FG, WIP, Material, Total) --}}
-                                <div class="lg:col-span-7 grid grid-cols-2 sm:grid-cols-4 gap-2 text-center num">
-                                    <div class="p-2 rounded bg-white border border-slate-200">
-                                        <div class="text-[10px] font-semibold text-slate-500 uppercase">Stock FG</div>
-                                        <div class="text-sm font-bold text-[#0B5CAD] mt-0.5" x-text="hoveredItem.current_stock + ' ' + hoveredItem.uom"></div>
-                                        <div class="text-[10px] text-slate-500" x-text="hoveredItem.ratio_stock + ' Hari'"></div>
-                                    </div>
-                                    <div class="p-2 rounded bg-white border border-slate-200">
-                                        <div class="text-[10px] font-semibold text-slate-500 uppercase">WIP</div>
-                                        <div class="text-sm font-bold text-amber-600 mt-0.5" x-text="hoveredItem.wip_active + ' ' + hoveredItem.uom"></div>
-                                        <div class="text-[10px] text-slate-500">Lot Aktif</div>
-                                    </div>
-                                    <div class="p-2 rounded bg-white border border-slate-200">
-                                        <div class="text-[10px] font-semibold text-slate-500 uppercase">Material</div>
-                                        <div class="text-sm font-bold text-slate-700 mt-0.5" x-text="matPot(hoveredItem) + ' ' + hoveredItem.uom"></div>
-                                        <div class="text-[10px] text-slate-500">Kapasitas Bahan</div>
-                                    </div>
-                                    <div class="p-2 rounded bg-slate-900 text-white">
-                                        <div class="text-[10px] font-semibold text-slate-300 uppercase">Total</div>
-                                        <div class="text-sm font-bold mt-0.5" x-text="totalPipeline(hoveredItem) + ' ' + hoveredItem.uom"></div>
-                                        <div class="text-[10px] text-amber-300" x-text="pipelineRatio(hoveredItem) + ' Hari'"></div>
-                                    </div>
+                                {{-- Rincian Rumus Konversi Material Pembentuk (Stock Bahan ÷ Qty Usage = Kapasitas PCS) --}}
+                                <div class="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-200/80 text-[11px]"
+                                     x-show="hoveredItem.materials_detail && hoveredItem.materials_detail.length > 0">
+                                    <span class="font-semibold text-slate-600 mr-1">Konversi Material (Stock Bahan ÷ Usage):</span>
+                                    <template x-for="(md, mIdx) in hoveredItem.materials_detail" :key="'md-' + mIdx">
+                                        <span class="count-chip count-chip-sub"
+                                              x-text="md.name + ': ' + md.stock + ' ' + md.uom + ' ÷ ' + md.usage + ' = ' + md.make_max + ' ' + hoveredItem.uom"></span>
+                                    </template>
                                 </div>
                             </div>
                         </template>
@@ -761,7 +813,7 @@
                                             <div class="num text-[11px] font-bold text-[#0B5CAD]" x-text="it.current_stock"></div>
                                             <div class="num text-[9.5px] text-slate-500"
                                                  x-show="totalPipeline(it) > it.current_stock"
-                                                 x-text="'Tot: ' + totalPipeline(it)"></div>
+                                                 x-text="'Total: ' + totalPipeline(it)"></div>
                                         </div>
 
                                         <div class="w-10 sm:w-11 flex flex-col justify-end rounded-t overflow-hidden border transition-transform group-hover:scale-[1.04]"
@@ -798,7 +850,7 @@
                                             <span class="ty text-[9.5px] h-4 px-1.5" :class="tyClass(it.type)" x-text="it.type"></span>
                                             <span class="pill text-[9.5px] h-4 px-1.5 mt-0.5" :class="pillClass(it.status_stock)" x-text="it.status_stock"></span>
                                             <span class="num text-[10px] font-semibold text-slate-700" x-text="'FG: ' + it.ratio_stock + ' Hr'"></span>
-                                            <span class="num text-[9.5px] text-slate-500" x-text="'Tot: ' + pipelineRatio(it) + ' Hr'"></span>
+                                            <span class="num text-[9.5px] text-slate-500" x-text="'Total: ' + pipelineRatio(it) + ' Hr'"></span>
                                             <span class="pill pill-info text-[9px] h-3.5 px-1" x-show="it.has_shared_input">SHARED RM</span>
                                         </div>
                                     </div>
@@ -1157,9 +1209,23 @@
                     if (!hasDefault) {
                         this.fCompany = '';
                     }
+                    this.syncHovered();
+                },
+                onCategoryChange() {
+                    if (this.fCompany !== '' && this.chartItems.length === 0) {
+                        this.fCompany = '';
+                    }
+                    this.syncHovered();
+                },
+                syncHovered() {
                     this.$nextTick(() => {
                         if (this.chartItems.length > 0) {
-                            this.hoveredItem = this.chartItems[0];
+                            const stillExists = this.hoveredItem && this.chartItems.some(x => x.id === this.hoveredItem.id);
+                            if (!stillExists) {
+                                this.hoveredItem = this.chartItems[0];
+                            }
+                        } else {
+                            this.hoveredItem = null;
                         }
                     });
                 },
@@ -1167,6 +1233,7 @@
                     this.fCompany = this.defaultCompanyId || '';
                     this.fCategory = 'FG_FGK';
                     this.fSharedMat = '';
+                    this.syncHovered();
                 },
                 tyClass(t) {
                     return 'ty-' + (t === 'FG/KOMPONEN' ? 'FGK' : t);
@@ -1183,6 +1250,14 @@
                     if (!it) return 0;
                     return Number(it.pot_max || 0);
                 },
+                wipRatio(it) {
+                    if (!it || Number(it.std_day_1 || 0) <= 0) return 0;
+                    return Math.round((Number(it.wip_active || 0) / Number(it.std_day_1)) * 100) / 100;
+                },
+                matRatio(it) {
+                    if (!it || Number(it.std_day_1 || 0) <= 0) return 0;
+                    return Math.round((this.matPot(it) / Number(it.std_day_1)) * 100) / 100;
+                },
                 totalPipeline(it) {
                     if (!it) return 0;
                     return Math.round((Number(it.current_stock || 0) + Number(it.wip_active || 0) + this.matPot(it)) * 100) / 100;
@@ -1191,10 +1266,22 @@
                     if (!it || Number(it.std_day_1 || 0) <= 0) return 0;
                     return Math.round((this.totalPipeline(it) / Number(it.std_day_1)) * 100) / 100;
                 },
+                dayFormula(qty, std1) {
+                    const q = Number(qty || 0);
+                    const s = Number(std1 || 0);
+                    if (s <= 0) return q + ' ÷ 0 = 0 Hari';
+                    const r = Math.round((q / s) * 100) / 100;
+                    return q + ' ÷ ' + s + ' = ' + r + ' Hari';
+                },
+                isEligibleProdItem(it) {
+                    if (['FG', 'FG/KOMPONEN'].includes(it.type)) return true;
+                    if (it.type === 'KOMPONEN' && it.has_bom_inputs) return true;
+                    return false;
+                },
                 get chartItems() {
                     return this.items
                         .filter(it => {
-                            if (!['FG', 'FG/KOMPONEN'].includes(it.type)) {
+                            if (!this.isEligibleProdItem(it)) {
                                 return false;
                             }
                             if (this.fSharedMat !== '') {
@@ -1208,7 +1295,9 @@
                                 }
                                 if (this.fCategory === 'FG_FGK' && !['FG', 'FG/KOMPONEN'].includes(it.type)) {
                                     return false;
-                                } else if (this.fCategory !== 'FG_FGK' && it.type !== this.fCategory) {
+                                } else if (this.fCategory === 'KOMPONEN' && !(it.type === 'KOMPONEN' && it.has_bom_inputs)) {
+                                    return false;
+                                } else if (!['FG_FGK', 'KOMPONEN', 'ALL_PROD'].includes(this.fCategory) && it.type !== this.fCategory) {
                                     return false;
                                 }
                             }

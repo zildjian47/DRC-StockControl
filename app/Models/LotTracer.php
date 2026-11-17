@@ -66,7 +66,8 @@ class LotTracer extends Model
     }
 
     /**
-     * Cek apakah material utama Lot ini adalah Coil (berdasarkan UOM KG atau nama mengandung COIL).
+     * Identifikasi apakah material utama Lot ini adalah COIL:
+     * Wajib memenuhi 3 syarat sekaligus: type === 'RM' + uom === 'KG' + part_name mengandung 'COIL'.
      */
     public function getIsCoilAttribute(): bool
     {
@@ -74,8 +75,10 @@ class LotTracer extends Model
         if (!$mat) {
             return false;
         }
-        return strtoupper((string) $mat->uom) === 'KG'
-            || str_contains(strtoupper((string) $mat->part_name), 'COIL');
+
+        return strtoupper(trim((string) $mat->type)) === 'RM'
+            && strtoupper(trim((string) $mat->uom)) === 'KG'
+            && str_contains(strtoupper((string) $mat->part_name), 'COIL');
     }
 
     /**
@@ -101,11 +104,11 @@ class LotTracer extends Model
 
     /**
      * Material Saat Ini (Trigger):
-     * Jika Lot Coil sudah FINISH, sisa coil berpindah ke kolom Top/End Coil sehingga Material Saat Ini di mesin = 0.
+     * Jika Lot sudah FINISH, sisa material di mesin = 0 (untuk Coil berpindah ke Top/End Coil).
      */
     public function getMaterialSaatIniAttribute(): float
     {
-        if ($this->status_lot === 'FINISH' && $this->is_coil) {
+        if ($this->status_lot === 'FINISH') {
             return 0.0;
         }
         return $this->computeRawRemainingMaterial();
@@ -113,7 +116,7 @@ class LotTracer extends Model
 
     /**
      * Nilai Top / End Coil (On-The-Fly):
-     * Hanya bernilai angka (KG) apabila material adalah Coil DAN status_lot === 'FINISH'.
+     * Hanya bernilai angka (KG) apabila material memenuhi syarat COIL (RM + KG + COIL) DAN status_lot === 'FINISH'.
      * Jika bukan Coil atau masih ON PROGRESS, mengembalikan null (ditampilkan '-' di tabel).
      */
     public function getTopEndCoilAttribute(): ?float
@@ -183,7 +186,7 @@ class LotTracer extends Model
                 $retVal  = round($estRet * $usageComp, 2);
                 $netVal  = round($estNet * $usageComp, 2);
                 $usedVal = round($actProd * $usageComp, 2);
-                $currVal = round(max(0, $netVal - $usedVal), 2);
+                $currVal = $row->status_lot === 'FINISH' ? 0.0 : round(max(0, $netVal - $usedVal), 2);
 
                 $companions[$cid]['qty_out']       = round($companions[$cid]['qty_out'] + $outVal, 2);
                 $companions[$cid]['qty_return']    = round($companions[$cid]['qty_return'] + $retVal, 2);
