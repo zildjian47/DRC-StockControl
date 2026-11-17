@@ -714,7 +714,7 @@
   }
 
   .dlg-split-wide {
-    grid-template-columns: 268px minmax(0, 1fr);
+    grid-template-columns: 256px minmax(0, 1fr);
   }
 
   .dlg-side {
@@ -1047,7 +1047,7 @@
     }
   }
 
-  /* ===== Komponen Informasi Material (Alur BOM & Linimasa) ===== */
+  /* ===== Komponen Informasi Item (BOM & Linimasa) ===== */
   .sbar {
     position: relative;
     height: 8px;
@@ -1093,12 +1093,16 @@
 
   .flow {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 20px minmax(0, 1fr) 20px minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) 22px minmax(0, 0.85fr) 22px minmax(0, 1fr);
     align-items: stretch;
+    width: 100%;
+    min-width: 0;
   }
 
   .flow > * {
     min-width: 0;
+    width: 100%;
+    box-sizing: border-box;
   }
 
   .flow-ar {
@@ -1108,9 +1112,12 @@
   }
 
   .flow-col {
-    display: grid;
+    display: flex;
+    flex-direction: column;
     gap: 10px;
-    align-content: start;
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
   }
 
   .flow-cap {
@@ -1136,13 +1143,17 @@
     }
   }
 
-  /* Kotak Pengelompokan BOM ID di Informasi Material */
+  /* Kotak Pengelompokan BOM ID di Informasi Item (Full Width & Anti-Potong) */
   .bom-grp-box {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
     border: 1px solid var(--line2);
     border-radius: var(--r);
     background: var(--sunk);
-    padding: 8px;
-    display: grid;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
     gap: 8px;
   }
 
@@ -1150,22 +1161,27 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
     gap: 6px;
-    padding-bottom: 6px;
-    border-bottom: 1px solid var(--line);
+    padding-bottom: 7px;
+    border-bottom: 1px solid var(--line2);
     font-size: 11px;
     font-weight: 600;
-    color: var(--ink2);
+    color: var(--ink);
+    min-width: 0;
   }
 
   .rel {
-    display: grid;
+    display: flex;
+    flex-direction: column;
     gap: 6px;
     padding: 10px 12px;
     background: var(--surface);
     border: 1px solid var(--line);
     border-radius: var(--r);
+    width: 100%;
     min-width: 0;
+    box-sizing: border-box;
   }
 
   .rel-now {
@@ -1203,19 +1219,27 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 8px;
-    padding: 10px 12px;
+    padding: 9px 12px;
     background: var(--sunk);
     border: 1px solid var(--line);
     border-radius: var(--r);
   }
 
+  @media (min-width: 1024px) {
+    .fbar {
+      flex-wrap: nowrap;
+    }
+  }
+
   .fbar label {
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 5px;
     font-size: 11.5px;
     font-weight: 600;
     color: var(--mut);
+    white-space: nowrap;
+    flex-shrink: 0;
   }
 
   .tl-box {
@@ -1414,6 +1438,12 @@
     max-height: calc(100vh - 208px);
     width: 100%;
     position: relative;
+  }
+
+  /* Varian Tabel Tanpa Freeze Header (digunakan pada Prioritas Stock di Dashboard) */
+  .tbl-no-freeze th {
+    position: static !important;
+    box-shadow: none !important;
   }
 
   .tbl {
@@ -1747,11 +1777,12 @@
     color: var(--mut);
   }
 
-  /* ===== Tab halaman (dashboard) ===== */
+  /* ===== Tab halaman (dashboard) tanpa scrollbar ===== */
   .ptabs {
     display: flex;
+    flex-wrap: wrap;
     gap: 0;
-    overflow-x: auto;
+    overflow: hidden;
     border-bottom: 1px solid var(--line);
   }
   .ptabs button {

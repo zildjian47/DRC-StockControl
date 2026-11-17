@@ -71,7 +71,7 @@
             }
         }
 
-        // Hitung mutasi setelah pukul 07:00 pagi hari ini untuk mendapatkan posisi stok jam 07:00
+        // Hitung mutasi setelah pukul 07:00 pagi hari ini untuk mendapatkan posisi stock jam 07:00
         $netAfter07 = [];
         if ($isPast07) {
             foreach (\App\Models\Inbound::where('date_time', '>=', $cutoff07)->get() as $r) {
@@ -106,31 +106,23 @@
             }
         }
 
-        // Hitung total kebutuhan harian tiap material input (untuk alokasi proporsional Shared Material)
+        // Daftar material pembentuk untuk filter pada Detail Stock
         $allBomsFlat = \App\Models\Bom::with(['inputItem.inventoryStock', 'outputItem'])->get();
-        $totalDailyReqByInput = [];
         $sharedMaterialsList = [];
 
         foreach ($allBomsFlat->groupBy('input_item_id') as $inId => $bRows) {
             $uniqueOuts = $bRows->pluck('output_item_id')->unique();
-            $sumReq = 0.0;
-            foreach ($bRows as $bRow) {
-                $outStd1 = $bRow->outputItem ? (float) $bRow->outputItem->calculated_std_day_1 : 0.0;
-                $sumReq += ($outStd1 * (float) $bRow->qty_usage);
-            }
-            $totalDailyReqByInput[$inId] = $sumReq;
-
-            if ($uniqueOuts->count() > 1 && $bRows->first()->inputItem) {
+            if ($bRows->first() && $bRows->first()->inputItem) {
                 $inItm = $bRows->first()->inputItem;
                 $sharedMaterialsList[] = [
                     'id'         => $inItm->id,
-                    'label'      => ($inItm->part_no ? $inItm->part_no . ' — ' : '') . $inItm->part_name . ' (' . $uniqueOuts->count() . ' Part)',
+                    'label'      => ($inItm->part_no ? $inItm->part_no . ' — ' : '') . $inItm->part_name,
                     'output_ids' => $uniqueOuts->values()->all(),
                 ];
             }
         }
 
-        $dashboardItems = $allActiveItems->map(function ($itm) use ($wipByTargetItem, $matInMachineByItem, $netAfter07, $totalDailyReqByInput) {
+        $dashboardItems = $allActiveItems->map(function ($itm) use ($wipByTargetItem, $matInMachineByItem, $netAfter07) {
             $st = $itm->inventoryStock;
             $currStock = $st ? (float) $st->current_stock : 0.0;
             $std1 = (float) $itm->calculated_std_day_1;
@@ -162,17 +154,14 @@
 
             $outBoms = $itm->bomsAsOutput;
             $potMax = 0.0;
-            $potProp = 0.0;
             $hasSharedInput = false;
             $materialsDetail = [];
 
             if ($outBoms->isNotEmpty()) {
                 $byGroupMax = [];
-                $byGroupProp = [];
 
                 foreach ($outBoms->groupBy(fn ($b) => $b->bom_group ?: ('SG-' . $b->id)) as $gKey => $gRows) {
                     $minMax = null;
-                    $minProp = null;
 
                     foreach ($gRows as $bRow) {
                         $inItm = $bRow->inputItem;
@@ -186,35 +175,27 @@
                         }
 
                         $canMakeMax = floor(($inStock / $usage) * 100) / 100;
-
-                        $myReq = $std1 * $usage;
-                        $totReq = (float) ($totalDailyReqByInput[$inItm->id] ?? $myReq);
-                        $shareFactor = ($usedCount > 1 && $totReq > 0) ? min(1.0, $myReq / $totReq) : 1.0;
-                        $allocatedStock = $inStock * $shareFactor;
-                        $canMakeProp = floor(($allocatedStock / $usage) * 100) / 100;
-
-                        if ($minMax === null || $canMakeMax < $minMax) $minMax = $canMakeMax;
-                        if ($minProp === null || $canMakeProp < $minProp) $minProp = $canMakeProp;
+                        if ($minMax === null || $canMakeMax < $minMax) {
+                            $minMax = $canMakeMax;
+                        }
 
                         $materialsDetail[] = [
                             'name'       => ($inItm->part_no ? $inItm->part_no . ' — ' : '') . $inItm->part_name,
                             'stock'      => floatval($inStock),
                             'uom'        => $inItm->uom,
                             'usage'      => $bRow->formatted_qty_usage,
-                            'make_prop'  => round($canMakeProp),
                             'make_max'   => round($canMakeMax),
                             'is_shared'  => $usedCount > 1,
-                            'share_pct'  => round($shareFactor * 100),
                             'used_count' => $usedCount,
                         ];
                     }
 
-                    if ($minMax !== null) $byGroupMax[] = $minMax;
-                    if ($minProp !== null) $byGroupProp[] = $minProp;
+                    if ($minMax !== null) {
+                        $byGroupMax[] = $minMax;
+                    }
                 }
 
                 $potMax = !empty($byGroupMax) ? round(max($byGroupMax), 0) : 0.0;
-                $potProp = !empty($byGroupProp) ? round(max($byGroupProp), 0) : 0.0;
             }
 
             $inputIds = $outBoms->pluck('input_item_id')->unique()->values()->all();
@@ -235,7 +216,6 @@
                 'ratio_07'         => $ratio07,
                 'wip_active'       => $wipActive,
                 'pot_max'          => $potMax,
-                'pot_prop'         => $potProp,
                 'has_shared_input' => $hasSharedInput,
                 'input_ids'        => $inputIds,
                 'materials_detail' => $materialsDetail,
@@ -319,7 +299,7 @@
             <div class="kpi-s">Hasil scan produksi hari ini</div>
         </div>
         <div class="kpi">
-            <div class="kpi-l">Stok Tersedia</div>
+            <div class="kpi-l">Stock Tersedia</div>
             <div class="kpi-v">{{ number_format($totalStock, 0, ',', '.') }}</div>
             <div class="kpi-s">Total saldo seluruh part aktif</div>
         </div>
@@ -363,7 +343,7 @@
             </button>
             <button type="button" role="tab" id="tab-stok" aria-controls="pane-stok"
                     :aria-selected="tab === 'stok'" @click="setTab('stok')">
-                Stok
+                Stock
                 @if($veryLowItems > 0)<span class="ptab-n num">{{ $veryLowItems }}</span>@endif
             </button>
             <button type="button" role="tab" id="tab-delay" aria-controls="pane-delay"
@@ -380,7 +360,7 @@
             {{-- 2. OUTPUT 7 HARI TERAKHIR & PERLU TINDAKAN --}}
             <div class="grid grid-cols-1 xl:grid-cols-3 gap-[18px] items-stretch">
                 <section class="panel xl:col-span-2 flex flex-col">
-                    <div class="panel-head">
+                    <div class="panel-head" style="position: static;">
                         <h3 class="panel-title">Output produksi, 7 hari terakhir</h3>
                     </div>
                     <div class="panel-body flex-1 flex flex-col justify-between">
@@ -419,22 +399,22 @@
                 </section>
 
                 <section class="panel flex flex-col">
-                    <div class="panel-head">
+                    <div class="panel-head" style="position: static;">
                         <h3 class="panel-title">Perlu tindakan</h3>
                     </div>
                     <div class="panel-body flex-1 flex flex-col justify-between gap-4">
                         <div class="divide-y divide-slate-200 border-b border-slate-200 text-[13px]">
                             <div class="flex items-center justify-between py-3.5 first:pt-1">
                                 <div>
-                                    <div class="font-semibold text-slate-900">Stok Kritis (Empty / Very Low)</div>
-                                    <div class="text-xs text-slate-500 mt-0.5">Item dengan ketahanan stok kurang dari 1 hari</div>
+                                    <div class="font-semibold text-slate-900">Stock Kritis</div>
+                                    <div class="text-xs text-slate-500 mt-0.5">Ketahanan stock kurang dari 1 hari</div>
                                 </div>
                                 <span class="pill {{ $veryLowItems > 0 ? 'pill-crit' : 'pill-good' }} num">{{ $veryLowItems }}</span>
                             </div>
                             <div class="flex items-center justify-between py-3.5">
                                 <div>
-                                    <div class="font-semibold text-slate-900">Total Item Stok Rendah</div>
-                                    <div class="text-xs text-slate-500 mt-0.5">Termasuk status Low Stock (di bawah Std Day 2)</div>
+                                    <div class="font-semibold text-slate-900">Total Item Stock Rendah</div>
+                                    <div class="text-xs text-slate-500 mt-0.5">Status Low Stock di bawah Std Day 2</div>
                                 </div>
                                 <span class="pill {{ $lowStockItems > 0 ? 'pill-warn' : 'pill-good' }} num">{{ $lowStockItems }}</span>
                             </div>
@@ -464,9 +444,9 @@
 
             {{-- 3. LOT SEDANG BERJALAN (LIVE WIP) --}}
             <section class="panel">
-                <div class="panel-head">
+                <div class="panel-head" style="position: static;">
                     <div class="panel-title">
-                        <span>Lot Sedang Berjalan (Live WIP)</span>
+                        <span>Lot Sedang Berjalan</span>
                         <span class="count-chip"><span>{{ $activeLots->count() }}</span><span>LOT</span></span>
                     </div>
                     <a href="{{ route('lot_tracers.index') }}" class="btn btn-sm btn-primary">
@@ -474,12 +454,12 @@
                         <span>Buka Lot Tracer</span>
                     </a>
                 </div>
-                <div class="tbl-wrap">
+                <div class="tbl-wrap tbl-no-freeze">
                     <table class="tbl">
                         <thead>
                             <tr>
                                 <th class="w-[12%]">Lot</th>
-                                <th class="w-[30%]">Produk (Target)</th>
+                                <th class="w-[30%]">Produk</th>
                                 <th class="w-[18%]">Proses</th>
                                 <th class="w-[18%]">Progres Produksi</th>
                                 <th class="num w-[12%]">Act FG / WIP</th>
@@ -523,22 +503,17 @@
             </section>
         </div>
 
-        {{-- TAB 2: STOK --}}
+        {{-- TAB 2: STOCK --}}
         <div id="pane-stok" role="tabpanel" aria-labelledby="tab-stok"
              x-show="tab === 'stok'" x-cloak class="space-y-[18px]">
 
-            {{-- 4. DAFTAR PRIORITAS STOK KRITIS PUKUL 07:00 PAGI (TABEL URUT PRIORITAS) --}}
+            {{-- 4. PRIORITAS STOCK (10 BARIS DATA & HEADER TIDAK DI-FREEZE) --}}
             <section class="panel"
                      x-data="morningPriorityTable({{ Js::from($dashboardItems) }}, {{ Js::from($allCompaniesList) }})">
-                <div class="panel-head">
-                    <div>
-                        <div class="panel-title">
-                            <span>Prioritas Stok Kritis Pukul 07:00</span>
-                            <span class="count-chip"><span x-text="priorityRows.length"></span><span>ITEM PRIORITAS</span></span>
-                        </div>
-                        <p class="hint" style="margin-top: 2px">
-                            Diurutkan mulai dari <b>EMPTY STOCK (0)</b>, <b>VERY LOW</b> (Qty terkecil di atas: 1 di atas 2), hingga <b>LOW STOCK</b> sebagai acuan prioritas produksi pagi &amp; pemesanan material.
-                        </p>
+                <div class="panel-head" style="position: static;">
+                    <div class="panel-title">
+                        <span>Prioritas Stock</span>
+                        <span class="count-chip"><span x-text="priorityRows.length"></span><span>ITEM</span></span>
                     </div>
 
                     <div class="flex flex-wrap items-center gap-2">
@@ -547,20 +522,20 @@
                                class="h-8 text-xs px-2.5 w-44">
 
                         <select x-model="fGroup" class="h-8 text-xs py-0 pl-2 pr-7">
-                            <option value="TARGET_PROD">Target Produksi (FG + FG/KOMPONEN)</option>
-                            <option value="MATERIAL">Kebutuhan Material (RM + KOMPONEN + FG/KOMPONEN)</option>
-                            <option value="FG">Hanya FG</option>
-                            <option value="FG/KOMPONEN">Hanya FG/KOMPONEN</option>
-                            <option value="KOMPONEN">Hanya KOMPONEN</option>
-                            <option value="RM">Hanya RM</option>
-                            <option value="TRANSIT">Hanya TRANSIT</option>
-                            <option value="ALL">Semua Tipe Item</option>
+                            <option value="TARGET_PROD">FG + FG/KOMPONEN</option>
+                            <option value="MATERIAL">Material (RM + KOMPONEN + FG/KOMPONEN)</option>
+                            <option value="FG">FG</option>
+                            <option value="FG/KOMPONEN">FG/KOMPONEN</option>
+                            <option value="KOMPONEN">KOMPONEN</option>
+                            <option value="RM">RM</option>
+                            <option value="TRANSIT">TRANSIT</option>
+                            <option value="ALL">Semua Tipe</option>
                         </select>
 
                         <select x-model="fCompany" class="h-8 text-xs py-0 pl-2 pr-7">
                             <option value="">Semua Perusahaan</option>
                             @foreach($allCompaniesList as $c)
-                                <option value="{{ $c['id'] }}">{{ $c['code'] }} — {{ $c['name'] }} ({{ $c['type'] }})</option>
+                                <option value="{{ $c['id'] }}">{{ $c['code'] }} — {{ $c['name'] }}</option>
                             @endforeach
                         </select>
 
@@ -573,19 +548,19 @@
                     </div>
                 </div>
 
-                <div class="tbl-wrap" style="max-height: 360px;">
+                <div class="tbl-wrap tbl-no-freeze" style="max-height: 540px;">
                     <table class="tbl">
                         <thead>
                             <tr>
-                                <th class="w-[5%] text-center">Prioritas</th>
-                                <th class="w-[26%]">Part No &amp; Part Name</th>
+                                <th class="w-[6%] text-center">Prioritas</th>
+                                <th class="w-[27%]">Part No &amp; Part Name</th>
                                 <th class="w-[10%] text-center">Tipe</th>
                                 <th class="w-[13%]">Perusahaan</th>
-                                <th class="num w-[11%]">Std 1 / Min Std 2</th>
-                                <th class="num w-[10%]">Stok Pkl 07:00</th>
-                                <th class="num w-[10%]">Stok Saat Ini</th>
-                                <th class="num w-[7%]">WIP Lot</th>
-                                <th class="w-[8%] text-center">Status 07:00</th>
+                                <th class="num w-[11%]">Std 1 / Std 2</th>
+                                <th class="num w-[10%]">Stock 07:00</th>
+                                <th class="num w-[10%]">Stock Saat Ini</th>
+                                <th class="num w-[6%]">WIP</th>
+                                <th class="w-[7%] text-center">Status 07:00</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -598,7 +573,7 @@
                                                 <div class="num text-xs font-bold text-accent" x-text="row.part_no"></div>
                                                 <div class="font-semibold text-slate-900 truncate" x-text="row.part_name"></div>
                                             </div>
-                                            <button type="button" class="act-btn flex-none" title="Informasi Material & Alur BOM"
+                                            <button type="button" class="act-btn flex-none" title="Informasi Item"
                                                     @click="$dispatch('open-material-info', row.info_payload)">
                                                 <x-icon name="info" />
                                             </button>
@@ -623,7 +598,7 @@
                                               :class="row.stock_07 <= 0 ? 'text-rose-700' : (row.status_07 === 'VERY LOW' ? 'text-rose-600' : 'text-amber-700')"
                                               x-text="row.stock_07"></span>
                                         <span class="text-[11px] text-slate-500" x-text="row.uom"></span>
-                                        <div class="text-[10.5px] text-slate-400" x-text="'Ratio: ' + row.ratio_07 + ' Hr'"></div>
+                                        <div class="text-[10.5px] text-slate-400" x-text="row.ratio_07 + ' Hr'"></div>
                                     </td>
                                     <td class="num whitespace-nowrap">
                                         <span class="font-bold text-slate-900" x-text="row.current_stock"></span>
@@ -649,62 +624,40 @@
                 </div>
             </section>
 
-            {{-- 5. GRAFIK KETERSEDIAAN STOK 3 LAPIS (DENGAN KARTU HOVER SEDERHANA) --}}
+            {{-- 5. DETAIL STOCK (KHUSUS FG & FG/KOMPONEN, TANPA ALOKASI & TANPA GARIS STD 1) --}}
             <section class="panel"
                      x-data="dashboardStockVerticalChart({{ Js::from($dashboardItems) }}, {{ Js::from($sharedMaterialsList) }}, '{{ $defaultStockCompanyId }}')">
-                <div class="panel-head">
-                    <div>
-                        <div class="panel-title">
-                            <span>Ketersediaan Stok Lintas Tahap</span>
-                            <span class="count-chip"><span x-text="chartItems.length"></span><span>ITEM</span></span>
-                        </div>
-                        <p class="hint" style="margin-top: 2px">
-                            Tiga lapis: Potensi Material, WIP Lot, Stok FG. Batang vertikal dari bawah ke atas (urut stok terkecil di kiri ke terbesar di kanan):
-                            <b>Lapis Bawah (Abu)</b> = Bisa dibuat dari Material,
-                            <b>Lapis Tengah (Kuning)</b> = WIP di Lot Tracer,
-                            <b>Lapis Atas (Biru)</b> = Stok Siap Kirim.
-                        </p>
+                <div class="panel-head" style="position: static;">
+                    <div class="panel-title">
+                        <span>Detail Stock</span>
+                        <span class="count-chip"><span x-text="chartItems.length"></span><span>ITEM</span></span>
                     </div>
 
                     <div class="flex flex-wrap items-center gap-2">
                         <select x-model="fCompany" class="h-8 text-xs py-0 pl-2 pr-7" title="Filter Perusahaan">
                             <option value="">Semua Perusahaan</option>
                             @foreach($allCompaniesList as $c)
-                                <option value="{{ $c['id'] }}">{{ $c['code'] }} — {{ $c['name'] }} ({{ $c['type'] }})</option>
+                                @if(in_array($c['type'], ['CUSTOMER', 'INTERNAL'], true))
+                                    <option value="{{ $c['id'] }}">{{ $c['code'] }} — {{ $c['name'] }}</option>
+                                @endif
                             @endforeach
                         </select>
 
-                        <select x-model="fCategory" class="h-8 text-xs py-0 pl-2 pr-7" title="Filter Kategori Tipe Item">
+                        <select x-model="fCategory" class="h-8 text-xs py-0 pl-2 pr-7" title="Filter Tipe Item">
                             <option value="FG_FGK">FG + FG/KOMPONEN</option>
                             <option value="FG">FG</option>
                             <option value="FG/KOMPONEN">FG/KOMPONEN</option>
-                            <option value="KOMP_RM">KOMPONEN + RM</option>
-                            <option value="RM">RM</option>
-                            <option value="KOMPONEN">KOMPONEN</option>
-                            <option value="TRANSIT">TRANSIT</option>
-                            <option value="ALL">Semua Tipe</option>
                         </select>
 
-                        <select x-model="fSharedMat" class="h-8 text-xs py-0 pl-2 pr-7" title="Filter Kelompok Material Bersama (Shared RM)">
-                            <option value="">Semua Material Pembentuk</option>
+                        <select x-model="fSharedMat" class="h-8 text-xs py-0 pl-2 pr-7" title="Filter Material Pembentuk">
+                            <option value="">Semua Material</option>
                             @foreach($sharedMaterialsList as $sm)
-                                <option value="{{ $sm['id'] }}">Shared RM: {{ $sm['label'] }}</option>
+                                <option value="{{ $sm['id'] }}">{{ $sm['label'] }}</option>
                             @endforeach
                         </select>
 
-                        <div class="seg" role="radiogroup" aria-label="Mode Alokasi Material Bersama">
-                            <label>
-                                <input type="radio" value="prop" x-model="allocMode">
-                                <span>Alokasi Proporsional</span>
-                            </label>
-                            <label>
-                                <input type="radio" value="max" x-model="allocMode">
-                                <span>Maks Mandiri</span>
-                            </label>
-                        </div>
-
                         <button type="button"
-                                x-show="fCompany !== '{{ $defaultStockCompanyId }}' || fCategory !== 'FG_FGK' || fSharedMat !== '' || allocMode !== 'prop'" x-cloak
+                                x-show="fCompany !== '{{ $defaultStockCompanyId }}' || fCategory !== 'FG_FGK' || fSharedMat !== ''" x-cloak
                                 @click="resetStockChart()"
                                 class="btn btn-sm">
                             Reset
@@ -713,114 +666,73 @@
                 </div>
 
                 <div class="panel-body space-y-3">
-                    {{-- Legenda Grafik & Penjelasan Singkat Mode Alokasi --}}
-                    <div class="flex flex-wrap items-center justify-between gap-3 px-3 py-2 rounded border border-slate-200 bg-slate-50 text-xs">
-                        <div class="flex flex-wrap items-center gap-4">
-                            <span class="inline-flex items-center gap-1.5 font-semibold text-slate-700">
-                                <i class="inline-block w-3 h-3 rounded-sm" style="background: #0B5CAD"></i>
-                                Stok FG / Gudang (Siap Kirim)
-                            </span>
-                            <span class="inline-flex items-center gap-1.5 font-semibold text-slate-700">
-                                <i class="inline-block w-3 h-3 rounded-sm" style="background: #F59E0B"></i>
-                                WIP di Lot Tracer (Sedang Diproses)
-                            </span>
-                            <span class="inline-flex items-center gap-1.5 font-semibold text-slate-700">
-                                <i class="inline-block w-3 h-3 rounded-sm" style="background: #94A3B8"></i>
-                                Potensi dari Material (Bahan Baku)
-                            </span>
-                            <span class="inline-flex items-center gap-1.5 text-slate-600">
-                                <i class="inline-block w-3 h-0.5 bg-rose-600"></i>
-                                Target Harian (Std Day 1)
-                            </span>
-                        </div>
-                        <div class="text-[11px] font-medium text-slate-600">
-                            <span x-show="allocMode === 'prop'">Mode aktif: <b>Alokasi Proporsional</b> (Bahan baku bersama dibagi adil sesuai porsi PO agar tidak terhitung ganda).</span>
-                            <span x-show="allocMode === 'max'" x-cloak>Mode aktif: <b>Maks Mandiri</b> (Simulasi jika 100% bahan baku bersama dipakai khusus untuk 1 part ini saja).</span>
-                        </div>
+                    {{-- Legenda Grafik Bersih --}}
+                    <div class="flex flex-wrap items-center gap-5 px-3 py-2 rounded border border-slate-200 bg-slate-50 text-xs">
+                        <span class="inline-flex items-center gap-1.5 font-semibold text-slate-700">
+                            <i class="inline-block w-3 h-3 rounded-sm" style="background: #0B5CAD"></i>
+                            Stock FG
+                        </span>
+                        <span class="inline-flex items-center gap-1.5 font-semibold text-slate-700">
+                            <i class="inline-block w-3 h-3 rounded-sm" style="background: #F59E0B"></i>
+                            WIP
+                        </span>
+                        <span class="inline-flex items-center gap-1.5 font-semibold text-slate-700">
+                            <i class="inline-block w-3 h-3 rounded-sm" style="background: #94A3B8"></i>
+                            Material
+                        </span>
                     </div>
 
-                    {{-- PANEL RINGKASAN SAAT BATANG DI-HOVER (SEDERHANA & MUDAH DIPAHAMI) --}}
+                    {{-- Panel Ringkasan Saat Batang Di-hover --}}
                     <div class="rounded border px-3.5 py-2.5 transition-colors"
                          :class="hoveredItem ? 'border-[#0B5CAD] bg-[#E4EEF8]/50' : 'border-slate-200 bg-slate-50/60'">
                         <template x-if="!hoveredItem">
                             <div class="flex items-center justify-between text-xs text-slate-500">
-                                <span>Arahkan kursor (hover) pada salah satu batang grafik di bawah untuk melihat rincian sederhana 3 lapis stok, atau klik batang untuk membuka Alur BOM lengkap.</span>
-                                <span class="pill pill-neu">ARAHKAN KURSOR KE BATANG</span>
+                                <span>Arahkan kursor pada batang grafik untuk melihat rincian stock, atau klik batang untuk membuka detail item.</span>
+                                <span class="pill pill-neu">PILIH BATANG</span>
                             </div>
                         </template>
 
                         <template x-if="hoveredItem">
                             <div class="grid grid-cols-1 lg:grid-cols-12 gap-3 items-center text-xs">
-                                {{-- Kolom 1: Identitas Part --}}
-                                <div class="lg:col-span-4 min-w-0">
+                                {{-- Identitas Part --}}
+                                <div class="lg:col-span-5 min-w-0">
                                     <div class="flex items-center gap-1.5 flex-wrap">
                                         <span class="ty" :class="tyClass(hoveredItem.type)" x-text="hoveredItem.type"></span>
                                         <span class="num font-bold text-accent" x-text="hoveredItem.part_no !== '-' ? hoveredItem.part_no : ''"></span>
                                         <span class="pill pill-neu" x-text="hoveredItem.company_code"></span>
                                         <span class="pill" :class="pillClass(hoveredItem.status_stock)" x-text="hoveredItem.status_stock"></span>
+                                        <span class="pill pill-info" x-show="hoveredItem.has_shared_input">SHARED RM</span>
                                     </div>
                                     <div class="font-bold text-slate-900 mt-1 truncate" x-text="hoveredItem.part_name"></div>
                                     <div class="text-[11px] text-slate-600 mt-0.5 num">
-                                        Target Harian (Std 1): <b x-text="hoveredItem.std_day_1 + ' ' + hoveredItem.uom"></b> ·
-                                        Min (Std 2): <b x-text="hoveredItem.std_day_2"></b> ·
-                                        Max (Std 3): <b x-text="hoveredItem.std_day_3"></b>
+                                        Std 1: <b x-text="hoveredItem.std_day_1 + ' ' + hoveredItem.uom"></b> ·
+                                        Std 2: <b x-text="hoveredItem.std_day_2"></b> ·
+                                        Std 3: <b x-text="hoveredItem.std_day_3"></b>
                                     </div>
                                 </div>
 
-                                {{-- Kolom 2: 3 Kotak Angka Sederhana (Biru + Kuning + Abu = Total) --}}
-                                <div class="lg:col-span-5 grid grid-cols-4 gap-2 text-center num">
+                                {{-- 4 Kotak Angka (Stock FG, WIP, Material, Total) --}}
+                                <div class="lg:col-span-7 grid grid-cols-2 sm:grid-cols-4 gap-2 text-center num">
                                     <div class="p-2 rounded bg-white border border-slate-200">
-                                        <div class="text-[10px] font-semibold text-slate-500 uppercase">1. Siap Kirim (Biru)</div>
+                                        <div class="text-[10px] font-semibold text-slate-500 uppercase">Stock FG</div>
                                         <div class="text-sm font-bold text-[#0B5CAD] mt-0.5" x-text="hoveredItem.current_stock + ' ' + hoveredItem.uom"></div>
                                         <div class="text-[10px] text-slate-500" x-text="hoveredItem.ratio_stock + ' Hari'"></div>
                                     </div>
                                     <div class="p-2 rounded bg-white border border-slate-200">
-                                        <div class="text-[10px] font-semibold text-slate-500 uppercase">2. WIP Mesin (Kuning)</div>
+                                        <div class="text-[10px] font-semibold text-slate-500 uppercase">WIP</div>
                                         <div class="text-sm font-bold text-amber-600 mt-0.5" x-text="hoveredItem.wip_active + ' ' + hoveredItem.uom"></div>
-                                        <div class="text-[10px] text-slate-500">Sedang Jalan</div>
+                                        <div class="text-[10px] text-slate-500">Lot Aktif</div>
                                     </div>
                                     <div class="p-2 rounded bg-white border border-slate-200">
-                                        <div class="text-[10px] font-semibold text-slate-500 uppercase">3. Dari Bahan (Abu)</div>
+                                        <div class="text-[10px] font-semibold text-slate-500 uppercase">Material</div>
                                         <div class="text-sm font-bold text-slate-700 mt-0.5" x-text="matPot(hoveredItem) + ' ' + hoveredItem.uom"></div>
-                                        <div class="text-[10px] text-slate-500" x-text="allocMode === 'prop' ? 'Jatah Proporsional' : 'Maks Mandiri'"></div>
+                                        <div class="text-[10px] text-slate-500">Kapasitas Bahan</div>
                                     </div>
                                     <div class="p-2 rounded bg-slate-900 text-white">
-                                        <div class="text-[10px] font-semibold text-slate-300 uppercase">Total Pipeline</div>
+                                        <div class="text-[10px] font-semibold text-slate-300 uppercase">Total</div>
                                         <div class="text-sm font-bold mt-0.5" x-text="totalPipeline(hoveredItem) + ' ' + hoveredItem.uom"></div>
-                                        <div class="text-[10px] text-amber-300" x-text="'Total ' + pipelineRatio(hoveredItem) + ' Hari'"></div>
+                                        <div class="text-[10px] text-amber-300" x-text="pipelineRatio(hoveredItem) + ' Hari'"></div>
                                     </div>
-                                </div>
-
-                                {{-- Kolom 3: Penjelasan Perbandingan Proporsional vs Maks Mandiri untuk Part Ini --}}
-                                <div class="lg:col-span-3 bg-white p-2.5 rounded border border-slate-200 leading-snug">
-                                    <template x-if="hoveredItem.has_shared_input">
-                                        <div>
-                                            <div class="font-bold text-accent flex items-center justify-between">
-                                                <span>Memakai Bahan Baku Bersama</span>
-                                                <span class="pill pill-info text-[9.5px] h-4 px-1.5">SHARED RM</span>
-                                            </div>
-                                            <div class="text-[11px] text-slate-700 mt-1">
-                                                • <b>Alokasi Proporsional:</b> bisa buat <b class="num text-slate-900" x-text="hoveredItem.pot_prop + ' ' + hoveredItem.uom"></b> (jatah dibagi adil dengan part lain).<br>
-                                                • <b>Maks Mandiri:</b> bisa buat <b class="num text-slate-900" x-text="hoveredItem.pot_max + ' ' + hoveredItem.uom"></b> (jika 100% bahan dipakai part ini).
-                                            </div>
-                                        </div>
-                                    </template>
-                                    <template x-if="!hoveredItem.has_shared_input && hoveredItem.materials_detail && hoveredItem.materials_detail.length > 0">
-                                        <div>
-                                            <div class="font-bold text-slate-800">Bahan Baku Khusus (Tidak Dibagi)</div>
-                                            <div class="text-[11px] text-slate-600 mt-0.5">
-                                                Bahan pembentuk hanya dipakai oleh part ini, sehingga nilai Proporsional &amp; Maks Mandiri sama (<b class="num" x-text="hoveredItem.pot_prop + ' ' + hoveredItem.uom"></b>).
-                                            </div>
-                                        </div>
-                                    </template>
-                                    <template x-if="!hoveredItem.materials_detail || hoveredItem.materials_detail.length === 0">
-                                        <div>
-                                            <div class="font-bold text-slate-800">Item Non-Rakitan BOM</div>
-                                            <div class="text-[11px] text-slate-600 mt-0.5">
-                                                Item ini berasal langsung dari Supplier / tidak memiliki bahan pembentuk di BOM.
-                                            </div>
-                                        </div>
-                                    </template>
                                 </div>
                             </div>
                         </template>
@@ -852,24 +764,19 @@
                                                  x-text="'Tot: ' + totalPipeline(it)"></div>
                                         </div>
 
-                                        <template x-if="it.std_day_1 > 0">
-                                            <div class="absolute left-1 right-1 border-t-2 border-rose-600 z-20 pointer-events-none"
-                                                 :style="'bottom:' + barPx(it.std_day_1) + 'px'"></div>
-                                        </template>
-
                                         <div class="w-10 sm:w-11 flex flex-col justify-end rounded-t overflow-hidden border transition-transform group-hover:scale-[1.04]"
                                              :class="hoveredItem?.id === it.id ? 'border-[#0B5CAD] ring-2 ring-[#0B5CAD]/25' : 'border-slate-300/80 bg-slate-100/50'">
-                                            {{-- Lapis Atas: Stok FG / Gudang Siap Kirim (Biru) --}}
+                                            {{-- Lapis Atas: Stock FG (Biru) --}}
                                             <div class="w-full transition-all duration-200"
                                                  x-show="it.current_stock > 0"
                                                  :style="'height:' + Math.max(3, barPx(it.current_stock)) + 'px; background: #0B5CAD;'"></div>
 
-                                            {{-- Lapis Tengah: WIP Aktif di Lot Tracer (Kuning / Amber) --}}
+                                            {{-- Lapis Tengah: WIP (Kuning) --}}
                                             <div class="w-full transition-all duration-200"
                                                  x-show="it.wip_active > 0"
                                                  :style="'height:' + Math.max(3, barPx(it.wip_active)) + 'px; background: #F59E0B;'"></div>
 
-                                            {{-- Lapis Bawah: Potensi dari Material Pembentuk (Abu-abu) --}}
+                                            {{-- Lapis Bawah: Material (Abu-abu) --}}
                                             <div class="w-full transition-all duration-200"
                                                  x-show="matPot(it) > 0"
                                                  :style="'height:' + Math.max(3, barPx(matPot(it))) + 'px; background: #94A3B8;'"></div>
@@ -891,7 +798,7 @@
                                             <span class="ty text-[9.5px] h-4 px-1.5" :class="tyClass(it.type)" x-text="it.type"></span>
                                             <span class="pill text-[9.5px] h-4 px-1.5 mt-0.5" :class="pillClass(it.status_stock)" x-text="it.status_stock"></span>
                                             <span class="num text-[10px] font-semibold text-slate-700" x-text="'FG: ' + it.ratio_stock + ' Hr'"></span>
-                                            <span class="num text-[9.5px] text-slate-500" x-text="'Pipe: ' + pipelineRatio(it) + ' Hr'"></span>
+                                            <span class="num text-[9.5px] text-slate-500" x-text="'Tot: ' + pipelineRatio(it) + ' Hr'"></span>
                                             <span class="pill pill-info text-[9px] h-3.5 px-1" x-show="it.has_shared_input">SHARED RM</span>
                                         </div>
                                     </div>
@@ -901,93 +808,76 @@
                     </div>
 
                     <div x-show="chartItems.length === 0" class="empty">
-                        Tidak ada item yang sesuai dengan filter grafik ketersediaan stok.
+                        Tidak ada item yang sesuai dengan filter.
                     </div>
                 </div>
             </section>
         </div>
 
-        {{-- TAB 3: DELAY DELIVERY --}}
+        {{-- TAB 3: DELAY DELIVERY (SUSUNAN ATAS-BAWAH AGAR LELUASA HINGGA 12 BULAN) --}}
         <div id="pane-delay" role="tabpanel" aria-labelledby="tab-delay"
              x-show="tab === 'delay'" x-cloak class="space-y-[18px]">
 
-            {{-- 6. DUA GRAFIK DELAY DELIVERY (SATU HUE BIRU & BERDAMPINGAN) --}}
             <div x-data="dashboardDelayVerticalCharts({{ Js::from($allDelays) }}, {{ Js::from($allCompaniesList) }}, {{ Js::from($delayReasonsList) }}, '{{ $delayYears[0] ?? date('Y') }}')"
-                 class="space-y-[14px]">
+                 class="space-y-[18px]">
 
-                {{-- FILTER BERSAMA UNTUK KEDUA GRAFIK DELAY DELIVERY --}}
+                {{-- FILTER ANALITIK DELAY DELIVERY --}}
                 <section class="panel">
-                    <div class="panel-head">
-                        <div>
-                            <div class="panel-title">
-                                <span>Filter Analitik Delay Delivery Bulanan</span>
-                                <span class="count-chip"><span x-text="filteredDelays.length"></span><span>KASUS TERFILTER</span></span>
-                            </div>
+                    <div class="panel-head" style="position: static;">
+                        <div class="panel-title">
+                            <span>Filter Delay Delivery</span>
+                            <span class="count-chip"><span x-text="filteredDelays.length"></span><span>KASUS</span></span>
                         </div>
 
                         <div class="flex flex-wrap items-center gap-2">
-                            <select x-model="selectedYear" class="h-8 text-xs py-0 pl-2 pr-7">
+                            <select x-model="fYear" class="h-8 text-xs py-0 pl-2 pr-7">
                                 <option value="">Semua Tahun</option>
                                 @foreach($delayYears as $yr)
                                     <option value="{{ $yr }}">Tahun {{ $yr }}</option>
                                 @endforeach
                             </select>
 
-                            <select x-model="selectedCompanyId" class="h-8 text-xs py-0 pl-2 pr-7">
-                                <option value="">Semua Customer / Perusahaan</option>
+                            <select x-model="fCompany" class="h-8 text-xs py-0 pl-2 pr-7">
+                                <option value="">Semua Perusahaan / Customer</option>
                                 @foreach($allCompaniesList as $c)
-                                    <option value="{{ $c['id'] }}">{{ $c['code'] }} — {{ $c['name'] }} ({{ $c['type'] }})</option>
+                                    <option value="{{ $c['id'] }}">{{ $c['code'] }} — {{ $c['name'] }}</option>
                                 @endforeach
                             </select>
 
-                            <button type="button" class="btn btn-sm"
-                                    x-show="selectedMonths.length > 0 || selectedCompanyId !== '' || selectedYear !== '{{ $delayYears[0] ?? date('Y') }}'" x-cloak
-                                    @click="resetDelayFilter()">
-                                Reset Filter Delay
-                            </button>
+                            <button type="button" class="btn btn-sm" @click="selectAllMonths()">Semua Bulan</button>
+                            <button type="button" class="btn btn-sm" @click="resetDelayFilter()">Reset</button>
                         </div>
                     </div>
 
-                    <div class="panel-body py-2.5 bg-slate-50/70 flex flex-wrap items-center gap-2">
-                        <span class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mr-1">Pilih Bulan:</span>
-                        <button type="button"
-                                @click="selectedMonths = []"
-                                class="btn btn-sm h-7 text-xs"
-                                :class="selectedMonths.length === 0 ? 'btn-primary' : ''">
-                            <span>Semua Bulan</span>
-                        </button>
-                        @foreach($monthNamesShort as $mNum => $mLabel)
+                    <div class="panel-body pt-3 pb-3 border-t border-slate-100 flex flex-wrap items-center gap-2">
+                        <span class="text-xs font-semibold text-slate-600 mr-1">Bulan:</span>
+                        <template x-for="m in allMonths" :key="m.num">
                             <button type="button"
-                                    @click="toggleMonth({{ $mNum }})"
-                                    class="btn btn-sm h-7 text-xs"
-                                    :class="selectedMonths.includes({{ $mNum }}) ? 'btn-primary' : ''">
-                                <span>{{ $mLabel }}</span>
+                                    @click="toggleMonth(m.num)"
+                                    class="h-7 px-2.5 rounded text-xs font-semibold border transition-colors"
+                                    :class="selectedMonths.includes(m.num)
+                                        ? 'bg-[#0B5CAD] text-white border-[#0B5CAD]'
+                                        : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'"
+                                    x-text="m.short">
                             </button>
-                        @endforeach
+                        </template>
                     </div>
                 </section>
 
-                {{-- DUA GRAFIK BERDAMPINGAN DI LAYAR LEBAR --}}
-                <div class="grid grid-cols-1 xl:grid-cols-2 gap-[14px] items-start">
-
-                    {{-- GRAFIK DELAY 1: PER PERUSAHAAN / CUSTOMER --}}
+                {{-- SUSUNAN ATAS-BAWAH (1 KOLOM PENUH) --}}
+                <div class="space-y-[18px]">
+                    {{-- GRAFIK 1: PROBLEM DELAY PER PERUSAHAAN / CUSTOMER --}}
                     <section class="panel">
-                        <div class="panel-head">
-                            <div>
-                                <div class="panel-title">
-                                    <span>1. Problem delay per perusahaan / customer</span>
-                                    <span class="count-chip"><span x-text="companyChartGroups.length"></span><span>PERUSAHAAN</span></span>
-                                </div>
-                                <p class="hint" style="margin-top: 2px">
-                                    Setiap kelompok mewakili 1 perusahaan dengan warna batang satu hue biru (terang ke gelap menurut urutan bulan), diikuti rincian frekuensi Part No &amp; Part Name di bawah grafik.
-                                </p>
+                        <div class="panel-head" style="position: static;">
+                            <div class="panel-title">
+                                <span>1. Problem delay per perusahaan / customer</span>
+                                <span class="count-chip"><span x-text="companyGroups.length"></span><span>PERUSAHAAN</span></span>
                             </div>
                         </div>
 
                         <div class="panel-body space-y-4">
-                            {{-- Legenda Warna Bulan --}}
                             <div class="flex flex-wrap items-center gap-3 px-3 py-2 rounded border border-slate-200 bg-slate-50 text-xs">
-                                <span class="font-semibold text-slate-600">Legenda Warna Bulan:</span>
+                                <span class="font-semibold text-slate-600">Bulan:</span>
                                 <template x-for="mLeg in activeMonthsLegend" :key="mLeg.month_num">
                                     <span class="inline-flex items-center gap-1.5 font-medium text-slate-700">
                                         <i class="inline-block w-3 h-3 rounded-sm" :style="'background:' + monthColor(mLeg.month_num)"></i>
@@ -996,31 +886,30 @@
                                 </template>
                             </div>
 
-                            {{-- Grafik Batang Vertikal per Perusahaan --}}
-                            <div class="border border-slate-200 rounded bg-white p-4 overflow-x-auto" x-show="companyChartGroups.length > 0">
-                                <div class="min-w-[460px]">
+                            <div class="border border-slate-200 rounded bg-white p-4 overflow-x-auto" x-show="companyGroups.length > 0">
+                                <div class="min-w-[600px]">
                                     <div class="relative h-[220px] border-b border-l border-slate-300 ml-10 mr-2 flex items-end justify-around gap-6 px-4 pt-6">
-                                        <template x-for="g in [0.5, 1]" :key="'cg-' + g">
+                                        <template x-for="g in [0.25, 0.5, 0.75, 1]" :key="'cg-' + g">
                                             <div class="absolute left-0 right-0 border-t border-dashed border-slate-200 pointer-events-none"
                                                  :style="'bottom:' + (g * 175) + 'px'">
-                                                <span class="num text-[10.5px] text-slate-400 absolute -left-10 -top-2 w-8 text-right"
-                                                      x-text="Math.round(maxCompanyMonthCount * g)"></span>
+                                                <span class="num text-[10px] text-slate-400 absolute -left-10 -top-2 w-8 text-right"
+                                                      x-text="Math.round(compYMax * g)"></span>
                                             </div>
                                         </template>
-                                        <span class="num text-[10.5px] text-slate-400 absolute -left-10 -bottom-2 w-8 text-right">0</span>
+                                        <span class="num text-[10px] text-slate-400 absolute -left-10 -bottom-2 w-8 text-right">0</span>
 
-                                        {{-- Kelompok Perusahaan --}}
-                                        <template x-for="grp in companyChartGroups" :key="grp.company_id">
+                                        <template x-for="cGrp in companyGroups" :key="cGrp.company_id">
                                             <div class="flex flex-col items-center justify-end h-[175px] flex-1">
-                                                <div class="flex items-end justify-center gap-2.5 h-full px-2">
-                                                    <template x-for="mBar in grp.months" :key="mBar.month_key">
-                                                        <div class="flex flex-col items-center justify-end h-full w-10 group">
+                                                <div class="flex items-end justify-center gap-2 h-full px-2">
+                                                    <template x-for="mBar in cGrp.months" :key="cGrp.company_id + '-' + mBar.month_num">
+                                                        <div class="flex flex-col items-center justify-end h-full group">
                                                             <span class="num text-[11px] font-bold mb-1 text-slate-700"
-                                                                  x-text="mBar.count + 'x'"></span>
+                                                                  x-text="mBar.count"></span>
                                                             <div class="w-7 rounded-t transition-all duration-200 group-hover:brightness-110"
-                                                                 :style="'height:' + Math.max(6, Math.round((mBar.count / maxCompanyMonthCount) * 150)) + 'px; background:' + monthColor(mBar.month_num) + '; box-shadow: inset 0 0 0 1px rgba(11,74,142,.25);'"
-                                                                 :title="grp.company_code + ' (' + mBar.month_label + '): ' + mBar.count + ' kasus'"></div>
-                                                            <span class="num text-[10px] font-semibold text-slate-700 mt-1 whitespace-nowrap" x-text="mBar.month_short"></span>
+                                                                 :style="'height:' + Math.max(4, Math.round((mBar.count / compYMax) * 155)) + 'px; background:' + monthColor(mBar.month_num) + '; box-shadow: inset 0 0 0 1px rgba(11,74,142,.25);'"
+                                                                 :title="cGrp.company_code + ' (' + mBar.month_label + '): ' + mBar.count + ' kasus'">
+                                                            </div>
+                                                            <span class="num text-[10px] font-semibold text-slate-500 mt-1" x-text="mBar.month_short"></span>
                                                         </div>
                                                     </template>
                                                 </div>
@@ -1028,91 +917,70 @@
                                         </template>
                                     </div>
 
-                                    {{-- Label Nama Perusahaan di Bawah Kelompok Batang --}}
                                     <div class="ml-10 mr-2 flex items-start justify-around gap-6 px-4 pt-2.5">
-                                        <template x-for="grp in companyChartGroups" :key="'clbl-' + grp.company_id">
+                                        <template x-for="cGrp in companyGroups" :key="'clbl-' + cGrp.company_id">
                                             <div class="flex-1 text-center">
-                                                <div class="inline-flex items-center gap-1.5">
-                                                    <span class="num font-bold text-xs text-accent" x-text="grp.company_code"></span>
-                                                    <span class="pill"
-                                                          :class="grp.company_type === 'CUSTOMER' ? 'pill-good' : (grp.company_type === 'INTERNAL' ? 'pill-warn' : 'pill-info')"
-                                                          x-text="grp.company_type"></span>
-                                                    <span class="count-chip" x-text="grp.total + ' KASUS'"></span>
-                                                </div>
-                                                <div class="text-xs font-semibold text-slate-800 mt-0.5" x-text="grp.company_name"></div>
+                                                <div class="font-bold text-xs text-accent" x-text="cGrp.company_code"></div>
+                                                <div class="text-[11px] text-slate-600 truncate" x-text="cGrp.company_name"></div>
+                                                <span class="count-chip mt-1"><span x-text="cGrp.total"></span><span>KASUS</span></span>
                                             </div>
                                         </template>
                                     </div>
                                 </div>
                             </div>
 
-                            {{-- List Part No & Part Name + Frekuensinya --}}
-                            <div>
-                                <div class="sec-h flex items-center gap-2">
-                                    <span>Rincian Part Bermasalah &amp; Frekuensi per Perusahaan</span>
-                                    <span class="count-chip"><span x-text="companyPartSummary.length"></span><span>PART TERDAMPAK</span></span>
-                                </div>
-                                <div class="tbl-wrap" style="max-height: 240px;">
-                                    <table class="tbl">
-                                        <thead>
+                            <div class="tbl-wrap tbl-no-freeze" style="max-height: 280px;" x-show="partFrequencyList.length > 0">
+                                <table class="tbl">
+                                    <thead>
+                                        <tr>
+                                            <th class="w-[8%] text-center">No</th>
+                                            <th class="w-[46%]">Part No &amp; Part Name</th>
+                                            <th class="w-[18%]">Perusahaan</th>
+                                            <th class="w-[14%] text-center">Tipe</th>
+                                            <th class="num w-[14%]">Frekuensi</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <template x-for="(pf, pIdx) in partFrequencyList" :key="pf.key">
                                             <tr>
-                                                <th class="w-[6%] text-center">No</th>
-                                                <th class="w-[20%]">Perusahaan</th>
-                                                <th class="w-[34%]">Part No &amp; Part Name</th>
-                                                <th class="w-[12%] text-center">Tipe</th>
-                                                <th class="w-[16%]">Bulan Kejadian</th>
-                                                <th class="num w-[12%]">Frekuensi</th>
+                                                <td class="text-center num text-slate-500" x-text="pIdx + 1"></td>
+                                                <td>
+                                                    <div class="num text-xs font-bold text-accent" x-text="pf.part_no"></div>
+                                                    <div class="font-semibold text-slate-900" x-text="pf.part_name"></div>
+                                                </td>
+                                                <td>
+                                                    <span class="font-bold text-xs text-slate-800" x-text="pf.company_code"></span>
+                                                </td>
+                                                <td class="text-center">
+                                                    <span class="ty" :class="tyClass(pf.item_type)" x-text="pf.item_type"></span>
+                                                </td>
+                                                <td class="num">
+                                                    <span class="pill pill-crit num" x-text="pf.count + ' KASUS'"></span>
+                                                </td>
                                             </tr>
-                                        </thead>
-                                        <tbody>
-                                            <template x-for="(p, i) in companyPartSummary" :key="p.key">
-                                                <tr>
-                                                    <td class="text-center num text-slate-500 font-semibold" x-text="i + 1"></td>
-                                                    <td>
-                                                        <span class="font-bold text-xs text-accent" x-text="p.company_code"></span>
-                                                        <span class="text-xs text-slate-600 block truncate" x-text="p.company_name"></span>
-                                                    </td>
-                                                    <td>
-                                                        <div class="num text-xs font-bold text-accent" x-text="p.part_no"></div>
-                                                        <div class="font-semibold text-slate-900" x-text="p.part_name"></div>
-                                                    </td>
-                                                    <td class="text-center">
-                                                        <span class="ty" :class="tyClass(p.item_type)" x-text="p.item_type"></span>
-                                                    </td>
-                                                    <td class="text-xs text-slate-600" x-text="p.months_list"></td>
-                                                    <td class="num">
-                                                        <span class="pill pill-crit num" x-text="p.count + ' KALI'"></span>
-                                                    </td>
-                                                </tr>
-                                            </template>
-                                            <tr x-show="companyPartSummary.length === 0">
-                                                <td colspan="6"><div class="empty">Tidak ada data delay delivery pada filter ini.</div></td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
-                                </div>
+                                        </template>
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <div x-show="companyGroups.length === 0" class="empty">
+                                Tidak ada data delay delivery pada filter ini.
                             </div>
                         </div>
                     </section>
 
-                    {{-- GRAFIK DELAY 2: BERDASARKAN PROBLEM REASON --}}
+                    {{-- GRAFIK 2: PROBLEM DELAY BERDASARKAN PROBLEM REASON --}}
                     <section class="panel">
-                        <div class="panel-head">
-                            <div>
-                                <div class="panel-title">
-                                    <span>2. Problem delay berdasarkan problem reason</span>
-                                    <span class="count-chip"><span x-text="filteredDelays.length"></span><span>TOTAL FREKUENSI</span></span>
-                                </div>
-                                <p class="hint" style="margin-top: 2px">
-                                    Setiap kelompok Problem Reason menampilkan perbandingan batang per bulan dengan warna bulan yang seragam beserta rincian part di bawahnya.
-                                </p>
+                        <div class="panel-head" style="position: static;">
+                            <div class="panel-title">
+                                <span>2. Problem delay berdasarkan problem reason</span>
+                                <span class="count-chip"><span x-text="reasonGroups.length"></span><span>KATEGORI</span></span>
                             </div>
                         </div>
 
                         <div class="panel-body space-y-4">
-                            {{-- Legenda Warna Bulan (seragam dengan Grafik 1) --}}
                             <div class="flex flex-wrap items-center gap-3 px-3 py-2 rounded border border-slate-200 bg-slate-50 text-xs">
-                                <span class="font-semibold text-slate-600">Legenda Warna Bulan:</span>
+                                <span class="font-semibold text-slate-600">Bulan:</span>
                                 <template x-for="mLeg in activeMonthsLegend" :key="'r-' + mLeg.month_num">
                                     <span class="inline-flex items-center gap-1.5 font-medium text-slate-700">
                                         <i class="inline-block w-3 h-3 rounded-sm" :style="'background:' + monthColor(mLeg.month_num)"></i>
@@ -1121,48 +989,43 @@
                                 </template>
                             </div>
 
-                            {{-- Grafik Batang Vertikal per Problem Reason --}}
-                            <div class="border border-slate-200 rounded bg-white p-4 overflow-x-auto">
-                                <div class="min-w-[460px]">
+                            <div class="border border-slate-200 rounded bg-white p-4 overflow-x-auto" x-show="reasonGroups.length > 0">
+                                <div class="min-w-[600px]">
                                     <div class="relative h-[220px] border-b border-l border-slate-300 ml-10 mr-2 flex items-end justify-around gap-4 px-3 pt-6">
-                                        <template x-for="g in [0.5, 1]" :key="'rg-' + g">
+                                        <template x-for="g in [0.25, 0.5, 0.75, 1]" :key="'rg-' + g">
                                             <div class="absolute left-0 right-0 border-t border-dashed border-slate-200 pointer-events-none"
                                                  :style="'bottom:' + (g * 175) + 'px'">
-                                                <span class="num text-[10.5px] text-slate-400 absolute -left-10 -top-2 w-8 text-right"
-                                                      x-text="Math.round(maxReasonMonthCount * g)"></span>
+                                                <span class="num text-[10px] text-slate-400 absolute -left-10 -top-2 w-8 text-right"
+                                                      x-text="Math.round(reasonYMax * g)"></span>
                                             </div>
                                         </template>
-                                        <span class="num text-[10.5px] text-slate-400 absolute -left-10 -bottom-2 w-8 text-right">0</span>
+                                        <span class="num text-[10px] text-slate-400 absolute -left-10 -bottom-2 w-8 text-right">0</span>
 
-                                        {{-- Kelompok 6 Problem Reason --}}
-                                        <template x-for="rGrp in reasonChartGroups" :key="rGrp.reason">
+                                        <template x-for="rGrp in reasonGroups" :key="rGrp.reason">
                                             <div class="flex flex-col items-center justify-end h-[175px] flex-1">
                                                 <div class="flex items-end justify-center gap-1.5 h-full px-1">
-                                                    <template x-for="mBar in rGrp.months" :key="mBar.month_key">
-                                                        <div class="flex flex-col items-center justify-end h-full w-8 group">
+                                                    <template x-for="mBar in rGrp.months" :key="rGrp.reason + '-' + mBar.month_num">
+                                                        <div class="flex flex-col items-center justify-end h-full group">
                                                             <span class="num text-[11px] font-bold mb-1 text-slate-700"
-                                                                  x-text="mBar.count + 'x'"></span>
+                                                                  x-text="mBar.count"></span>
                                                             <div class="w-6 rounded-t transition-all duration-200 group-hover:brightness-110"
-                                                                 :style="'height:' + Math.max(6, Math.round((mBar.count / maxReasonMonthCount) * 150)) + 'px; background:' + monthColor(mBar.month_num) + '; box-shadow: inset 0 0 0 1px rgba(11,74,142,.25);'"
-                                                                 :title="rGrp.reason + ' (' + mBar.month_label + '): ' + mBar.count + ' kali'"></div>
-                                                            <span class="num text-[9.5px] font-semibold text-slate-600 mt-1 whitespace-nowrap" x-text="mBar.month_short"></span>
+                                                                 :style="'height:' + Math.max(4, Math.round((mBar.count / reasonYMax) * 155)) + 'px; background:' + monthColor(mBar.month_num) + '; box-shadow: inset 0 0 0 1px rgba(11,74,142,.25);'"
+                                                                 :title="rGrp.reason + ' (' + mBar.month_label + '): ' + mBar.count + ' kasus'">
+                                                            </div>
+                                                            <span class="num text-[9.5px] font-semibold text-slate-500 mt-1" x-text="mBar.month_short"></span>
                                                         </div>
-                                                    </template>
-                                                    <template x-if="rGrp.months.length === 0">
-                                                        <div class="text-[10.5px] text-slate-400 pb-4">0 kasus</div>
                                                     </template>
                                                 </div>
                                             </div>
                                         </template>
                                     </div>
 
-                                    {{-- Label Problem Reason di Bawah Kelompok Batang --}}
                                     <div class="ml-10 mr-2 flex items-start justify-around gap-4 px-3 pt-2.5">
-                                        <template x-for="rGrp in reasonChartGroups" :key="'rlbl-' + rGrp.reason">
+                                        <template x-for="rGrp in reasonGroups" :key="'rlbl-' + rGrp.reason">
                                             <div class="flex-1 text-center">
                                                 <span class="pill pill-neu" x-text="rGrp.reason"></span>
                                                 <div class="mt-1">
-                                                    <span class="count-chip" x-text="rGrp.total + ' KALI'"></span>
+                                                    <span class="count-chip"><span x-text="rGrp.total"></span><span>KASUS</span></span>
                                                 </div>
                                             </div>
                                         </template>
@@ -1170,50 +1033,42 @@
                                 </div>
                             </div>
 
-                            {{-- List Problem Reason & Frekuensinya --}}
-                            <div>
-                                <div class="sec-h flex items-center gap-2">
-                                    <span>Rincian Frekuensi Problem Reason &amp; Daftar Part Terdampak</span>
-                                    <span class="count-chip"><span x-text="reasonSummaryRows.length"></span><span>BARIS RINGKASAN</span></span>
-                                </div>
-                                <div class="tbl-wrap" style="max-height: 240px;">
-                                    <table class="tbl">
-                                        <thead>
+                            <div class="tbl-wrap tbl-no-freeze" style="max-height: 280px;" x-show="reasonSummaryList.length > 0">
+                                <table class="tbl">
+                                    <thead>
+                                        <tr>
+                                            <th class="w-[8%] text-center">No</th>
+                                            <th class="w-[24%]">Problem Reason</th>
+                                            <th class="w-[52%]">Rincian Item Terdampak</th>
+                                            <th class="num w-[16%]">Frekuensi</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <template x-for="(r, rIdx) in reasonSummaryList" :key="r.reason">
                                             <tr>
-                                                <th class="w-[6%] text-center">No</th>
-                                                <th class="w-[16%] text-center">Problem Reason</th>
-                                                <th class="w-[16%]">Bulan</th>
-                                                <th class="w-[34%]">Part No &amp; Part Name</th>
-                                                <th class="w-[16%]">Perusahaan</th>
-                                                <th class="num w-[12%]">Frekuensi</th>
+                                                <td class="text-center num text-slate-500" x-text="rIdx + 1"></td>
+                                                <td>
+                                                    <span class="pill pill-neu" x-text="r.reason"></span>
+                                                </td>
+                                                <td>
+                                                    <div class="flex flex-wrap gap-1.5">
+                                                        <template x-for="it in r.items" :key="r.reason + '-' + it.part_name">
+                                                            <span class="count-chip count-chip-sub"
+                                                                  x-text="(it.part_no !== '-' ? it.part_no + ' ' : '') + it.part_name + ': ' + it.count + 'x'"></span>
+                                                        </template>
+                                                    </div>
+                                                </td>
+                                                <td class="num">
+                                                    <span class="pill pill-crit num" x-text="r.total + ' KASUS'"></span>
+                                                </td>
                                             </tr>
-                                        </thead>
-                                        <tbody>
-                                            <template x-for="(r, idx) in reasonSummaryRows" :key="r.key">
-                                                <tr>
-                                                    <td class="text-center num text-slate-500 font-semibold" x-text="idx + 1"></td>
-                                                    <td class="text-center">
-                                                        <span class="pill pill-neu" x-text="r.reason"></span>
-                                                    </td>
-                                                    <td class="font-semibold text-xs text-slate-800" x-text="r.month_label"></td>
-                                                    <td>
-                                                        <div class="num text-xs font-bold text-accent" x-text="r.part_no"></div>
-                                                        <div class="font-semibold text-slate-900" x-text="r.part_name"></div>
-                                                    </td>
-                                                    <td>
-                                                        <span class="font-bold text-xs text-accent" x-text="r.company_code"></span>
-                                                    </td>
-                                                    <td class="num">
-                                                        <span class="pill pill-warn num" x-text="r.count + ' KALI'"></span>
-                                                    </td>
-                                                </tr>
-                                            </template>
-                                            <tr x-show="reasonSummaryRows.length === 0">
-                                                <td colspan="6"><div class="empty">Tidak ada data problem delay pada filter ini.</div></td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
-                                </div>
+                                        </template>
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <div x-show="reasonGroups.length === 0" class="empty">
+                                Tidak ada data problem reason pada filter ini.
                             </div>
                         </div>
                     </section>
@@ -1227,8 +1082,8 @@
     <script>
         function morningPriorityTable(items, companies) {
             return {
-                items: items,
-                companies: companies,
+                items: items || [],
+                companies: companies || [],
                 q: '',
                 fGroup: 'TARGET_PROD',
                 fCompany: '',
@@ -1244,32 +1099,32 @@
                     if (status === 'OVERSTOCK') return 'pill-info';
                     return 'pill-neu';
                 },
-                statusRank(st) {
-                    if (st === 'EMPTY STOCK') return 1;
-                    if (st === 'VERY LOW') return 2;
-                    if (st === 'LOW STOCK') return 3;
+                statusRank(status) {
+                    if (status === 'EMPTY STOCK') return 1;
+                    if (status === 'VERY LOW') return 2;
+                    if (status === 'LOW STOCK') return 3;
                     return 99;
                 },
                 get priorityRows() {
-                    const qLow = this.q.trim().toLowerCase();
-
+                    const search = this.q.trim().toLowerCase();
                     return this.items
                         .filter(it => {
-                            if (!['EMPTY STOCK', 'VERY LOW', 'LOW STOCK'].includes(it.status_07)) return false;
-
-                            if (this.fGroup === 'TARGET_PROD') {
-                                if (!['FG', 'FG/KOMPONEN'].includes(it.type)) return false;
-                            } else if (this.fGroup === 'MATERIAL') {
-                                if (!['RM', 'KOMPONEN', 'FG/KOMPONEN'].includes(it.type)) return false;
-                            } else if (this.fGroup !== 'ALL') {
-                                if (it.type !== this.fGroup) return false;
+                            if (!['EMPTY STOCK', 'VERY LOW', 'LOW STOCK'].includes(it.status_07)) {
+                                return false;
                             }
-
-                            if (this.fCompany && String(it.company_id) !== String(this.fCompany)) return false;
-
-                            if (qLow) {
-                                const hit = (it.part_no + ' ' + it.part_name + ' ' + it.company_code).toLowerCase().includes(qLow);
-                                if (!hit) return false;
+                            if (this.fGroup === 'TARGET_PROD' && !['FG', 'FG/KOMPONEN'].includes(it.type)) {
+                                return false;
+                            } else if (this.fGroup === 'MATERIAL' && !['RM', 'KOMPONEN', 'FG/KOMPONEN'].includes(it.type)) {
+                                return false;
+                            } else if (!['ALL', 'TARGET_PROD', 'MATERIAL'].includes(this.fGroup) && it.type !== this.fGroup) {
+                                return false;
+                            }
+                            if (this.fCompany !== '' && String(it.company_id) !== String(this.fCompany)) {
+                                return false;
+                            }
+                            if (search !== '') {
+                                const hay = (it.part_no + ' ' + it.part_name + ' ' + it.company_code).toLowerCase();
+                                if (!hay.includes(search)) return false;
                             }
                             return true;
                         })
@@ -1277,15 +1132,9 @@
                             const rA = this.statusRank(a.status_07);
                             const rB = this.statusRank(b.status_07);
                             if (rA !== rB) return rA - rB;
-
-                            if (rA === 1) {
-                                return (Number(b.std_day_1) || 0) - (Number(a.std_day_1) || 0);
-                            }
-
-                            if (Number(a.stock_07) !== Number(b.stock_07)) {
-                                return Number(a.stock_07) - Number(b.stock_07);
-                            }
-                            return Number(a.ratio_07) - Number(b.ratio_07);
+                            if (a.stock_07 !== b.stock_07) return a.stock_07 - b.stock_07;
+                            if (a.ratio_07 !== b.ratio_07) return a.ratio_07 - b.ratio_07;
+                            return b.std_day_1 - a.std_day_1;
                         });
                 }
             };
@@ -1293,21 +1142,31 @@
 
         function dashboardStockVerticalChart(items, sharedMaterials, defaultCompanyId) {
             return {
-                items: items,
-                sharedMaterials: sharedMaterials,
-                defaultCompanyId: defaultCompanyId,
-                fCompany: defaultCompanyId,
+                items: items || [],
+                sharedMaterials: sharedMaterials || [],
+                defaultCompanyId: defaultCompanyId || '',
+                fCompany: defaultCompanyId || '',
                 fCategory: 'FG_FGK',
                 fSharedMat: '',
-                allocMode: 'prop',
                 hoveredItem: null,
 
+                init() {
+                    const hasDefault = this.items.some(
+                        it => ['FG', 'FG/KOMPONEN'].includes(it.type) && String(it.company_id) === String(this.fCompany)
+                    );
+                    if (!hasDefault) {
+                        this.fCompany = '';
+                    }
+                    this.$nextTick(() => {
+                        if (this.chartItems.length > 0) {
+                            this.hoveredItem = this.chartItems[0];
+                        }
+                    });
+                },
                 resetStockChart() {
-                    this.fCompany = this.defaultCompanyId;
+                    this.fCompany = this.defaultCompanyId || '';
                     this.fCategory = 'FG_FGK';
                     this.fSharedMat = '';
-                    this.allocMode = 'prop';
-                    this.hoveredItem = null;
                 },
                 tyClass(t) {
                     return 'ty-' + (t === 'FG/KOMPONEN' ? 'FGK' : t);
@@ -1322,42 +1181,44 @@
                 },
                 matPot(it) {
                     if (!it) return 0;
-                    return this.allocMode === 'prop' ? (Number(it.pot_prop) || 0) : (Number(it.pot_max) || 0);
+                    return Number(it.pot_max || 0);
                 },
                 totalPipeline(it) {
                     if (!it) return 0;
-                    return Math.round(((Number(it.current_stock) || 0) + (Number(it.wip_active) || 0) + this.matPot(it)) * 100) / 100;
+                    return Math.round((Number(it.current_stock || 0) + Number(it.wip_active || 0) + this.matPot(it)) * 100) / 100;
                 },
                 pipelineRatio(it) {
-                    if (!it) return 0;
-                    const std1 = Number(it.std_day_1) || 0;
-                    if (std1 <= 0) return 0;
-                    return (this.totalPipeline(it) / std1).toFixed(2);
+                    if (!it || Number(it.std_day_1 || 0) <= 0) return 0;
+                    return Math.round((this.totalPipeline(it) / Number(it.std_day_1)) * 100) / 100;
                 },
                 get chartItems() {
                     return this.items
                         .filter(it => {
-                            if (this.fSharedMat) {
-                                if (!it.input_ids || !it.input_ids.map(String).includes(String(this.fSharedMat))) return false;
-                            } else if (this.fCompany) {
-                                if (String(it.company_id) !== String(this.fCompany)) return false;
+                            if (!['FG', 'FG/KOMPONEN'].includes(it.type)) {
+                                return false;
                             }
-
-                            if (this.fCategory === 'FG_FGK') {
-                                if (!['FG', 'FG/KOMPONEN'].includes(it.type)) return false;
-                            } else if (this.fCategory === 'KOMP_RM') {
-                                if (!['KOMPONEN', 'RM'].includes(it.type)) return false;
-                            } else if (this.fCategory !== 'ALL') {
-                                if (it.type !== this.fCategory) return false;
+                            if (this.fSharedMat !== '') {
+                                const matId = Number(this.fSharedMat);
+                                if (!Array.isArray(it.input_ids) || !it.input_ids.includes(matId)) {
+                                    return false;
+                                }
+                            } else {
+                                if (this.fCompany !== '' && String(it.company_id) !== String(this.fCompany)) {
+                                    return false;
+                                }
+                                if (this.fCategory === 'FG_FGK' && !['FG', 'FG/KOMPONEN'].includes(it.type)) {
+                                    return false;
+                                } else if (this.fCategory !== 'FG_FGK' && it.type !== this.fCategory) {
+                                    return false;
+                                }
                             }
-
                             return true;
                         })
                         .sort((a, b) => {
-                            if (Number(a.current_stock) !== Number(b.current_stock)) {
-                                return Number(a.current_stock) - Number(b.current_stock);
+                            if (a.current_stock !== b.current_stock) {
+                                return a.current_stock - b.current_stock;
                             }
-                            return this.totalPipeline(a) - this.totalPipeline(b);
+                            return a.std_day_1 - b.std_day_1;
                         });
                 },
                 get yMax() {
@@ -1365,72 +1226,91 @@
                     let m = 10;
                     this.chartItems.forEach(it => {
                         const tot = this.totalPipeline(it);
-                        const s1 = Number(it.std_day_1) || 0;
                         if (tot > m) m = tot;
-                        if (s1 > m) m = s1;
                     });
                     return Math.ceil(m * 1.15);
                 },
                 barPx(val) {
-                    const v = Number(val) || 0;
-                    if (v <= 0) return 0;
+                    const v = Number(val || 0);
+                    if (v <= 0 || this.yMax <= 0) return 0;
                     return Math.min(205, Math.round((v / this.yMax) * 205));
                 }
             };
         }
 
         function dashboardDelayVerticalCharts(delays, companies, reasons, defaultYear) {
+            const ALL_MONTHS = [
+                { num: 1, short: 'Jan', full: 'Januari' },
+                { num: 2, short: 'Feb', full: 'Februari' },
+                { num: 3, short: 'Mar', full: 'Maret' },
+                { num: 4, short: 'Apr', full: 'April' },
+                { num: 5, short: 'Mei', full: 'Mei' },
+                { num: 6, short: 'Jun', full: 'Juni' },
+                { num: 7, short: 'Jul', full: 'Juli' },
+                { num: 8, short: 'Agu', full: 'Agustus' },
+                { num: 9, short: 'Sep', full: 'September' },
+                { num: 10, short: 'Okt', full: 'Oktober' },
+                { num: 11, short: 'Nov', full: 'November' },
+                { num: 12, short: 'Des', full: 'Desember' }
+            ];
+
             const REASON_COLORS = {
-                'MATERIAL':   '#0B5CAD',
-                'PROSES':     '#D97706',
-                'QC':         '#C4473C',
-                'DIES':       '#6D28D9',
-                'BOX/PALET':  '#0D9488',
-                'PLANT 2':    '#334155',
+                'MATERIAL': '#0B5CAD',
+                'PROSES': '#D97706',
+                'QC': '#DC2626',
+                'DIES': '#7C3AED',
+                'BOX/PALET': '#0D9488',
+                'PLANT 2': '#475569'
             };
 
             return {
-                delays: delays,
-                companies: companies,
-                reasons: reasons,
-                selectedYear: defaultYear || '',
-                selectedCompanyId: '',
-                selectedMonths: [],
+                delays: delays || [],
+                companies: companies || [],
+                reasons: reasons || [],
+                defaultYear: defaultYear || '',
+                allMonths: ALL_MONTHS,
+                fYear: defaultYear || '',
+                fCompany: '',
+                selectedMonths: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
 
-                tyClass(t) {
-                    return 'ty-' + (t === 'FG/KOMPONEN' ? 'FGK' : t);
+                toggleMonth(mNum) {
+                    if (this.selectedMonths.includes(mNum)) {
+                        if (this.selectedMonths.length > 1) {
+                            this.selectedMonths = this.selectedMonths.filter(x => x !== mNum);
+                        }
+                    } else {
+                        this.selectedMonths.push(mNum);
+                        this.selectedMonths.sort((a, b) => a - b);
+                    }
+                },
+                selectAllMonths() {
+                    this.selectedMonths = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+                },
+                resetDelayFilter() {
+                    this.fYear = this.defaultYear;
+                    this.fCompany = '';
+                    this.selectAllMonths();
                 },
                 monthColor(mNum) {
-                    // Satu hue biru, terang ke gelap menurut urutan bulan yang aktif pada filter.
                     const order = this.activeMonthsLegend.map(m => Number(m.month_num));
                     const i = order.indexOf(Number(mNum));
                     const n = order.length;
                     const t = (n <= 1 || i < 0) ? 1 : i / (n - 1);
-                    const a = [188, 211, 234];   // #BCD3EA
-                    const b = [11, 74, 142];     // #0B4A8E
+                    const a = [188, 211, 234];
+                    const b = [11, 74, 142];
                     return 'rgb(' + a.map((v, k) => Math.round(v + (b[k] - v) * t)).join(',') + ')';
                 },
                 reasonColor(rName) {
-                    return REASON_COLORS[rName] || '#A82A20';
+                    return REASON_COLORS[rName] || '#0B5CAD';
                 },
-                toggleMonth(mNum) {
-                    const idx = this.selectedMonths.indexOf(mNum);
-                    if (idx === -1) {
-                        this.selectedMonths.push(mNum);
-                    } else {
-                        this.selectedMonths.splice(idx, 1);
-                    }
-                },
-                resetDelayFilter() {
-                    this.selectedYear = defaultYear || '';
-                    this.selectedCompanyId = '';
-                    this.selectedMonths = [];
+                tyClass(t) {
+                    return 'ty-' + (t === 'FG/KOMPONEN' ? 'FGK' : t);
                 },
                 get filteredDelays() {
                     return this.delays.filter(d => {
-                        if (this.selectedYear && String(d.year) !== String(this.selectedYear)) return false;
-                        if (this.selectedCompanyId && String(d.company_id) !== String(this.selectedCompanyId)) return false;
-                        if (this.selectedMonths.length > 0 && !this.selectedMonths.includes(Number(d.month_num))) return false;
+                        if (this.fYear !== '' && String(d.year) !== String(this.fYear)) return false;
+                        if (this.fCompany !== '' && String(d.company_id) !== String(this.fCompany)) return false;
+                        if (!this.selectedMonths.includes(Number(d.month_num))) return false;
                         return true;
                     });
                 },
@@ -1438,140 +1318,147 @@
                     const map = {};
                     this.filteredDelays.forEach(d => {
                         if (!map[d.month_num]) {
+                            const mObj = ALL_MONTHS.find(x => x.num === Number(d.month_num));
                             map[d.month_num] = {
                                 month_num: Number(d.month_num),
-                                label: d.month_short
+                                label: mObj ? mObj.full : d.month_label
                             };
                         }
                     });
                     return Object.values(map).sort((a, b) => a.month_num - b.month_num);
                 },
-                get companyChartGroups() {
-                    const byComp = {};
+                get companyGroups() {
+                    const map = {};
                     this.filteredDelays.forEach(d => {
                         const cid = d.company_id;
-                        if (!byComp[cid]) {
-                            byComp[cid] = {
+                        if (!map[cid]) {
+                            map[cid] = {
                                 company_id: cid,
                                 company_code: d.company_code,
                                 company_name: d.company_name,
-                                company_type: d.company_type,
                                 total: 0,
-                                monthsMap: {}
+                                monthMap: {}
                             };
                         }
-                        byComp[cid].total++;
-                        const mk = d.month_key;
-                        if (!byComp[cid].monthsMap[mk]) {
-                            byComp[cid].monthsMap[mk] = {
-                                month_key: mk,
-                                month_num: d.month_num,
-                                month_short: d.month_short,
+                        map[cid].total++;
+                        const mKey = d.month_num;
+                        if (!map[cid].monthMap[mKey]) {
+                            const mObj = ALL_MONTHS.find(x => x.num === Number(mKey));
+                            map[cid].monthMap[mKey] = {
+                                month_num: Number(mKey),
+                                month_short: mObj ? mObj.short : d.month_short,
                                 month_label: d.month_label,
                                 count: 0
                             };
                         }
-                        byComp[cid].monthsMap[mk].count++;
+                        map[cid].monthMap[mKey].count++;
                     });
 
-                    return Object.values(byComp).map(g => ({
-                        ...g,
-                        months: Object.values(g.monthsMap).sort((a, b) => a.month_key.localeCompare(b.month_key))
-                    }));
+                    return Object.values(map)
+                        .map(g => ({
+                            ...g,
+                            months: Object.values(g.monthMap).sort((a, b) => a.month_num - b.month_num)
+                        }))
+                        .sort((a, b) => b.total - a.total);
                 },
-                get maxCompanyMonthCount() {
-                    let m = 1;
-                    this.companyChartGroups.forEach(g => {
-                        g.months.forEach(mb => {
+                get compYMax() {
+                    let m = 4;
+                    this.companyGroups.forEach(cg => {
+                        cg.months.forEach(mb => {
                             if (mb.count > m) m = mb.count;
                         });
                     });
                     return Math.ceil(m * 1.15);
                 },
-                get companyPartSummary() {
+                get partFrequencyList() {
                     const map = {};
                     this.filteredDelays.forEach(d => {
-                        const k = d.company_id + '_' + d.item_id;
+                        const k = d.company_code + '|' + d.item_id;
                         if (!map[k]) {
                             map[k] = {
                                 key: k,
-                                company_code: d.company_code,
-                                company_name: d.company_name,
                                 part_no: d.part_no,
                                 part_name: d.part_name,
                                 item_type: d.item_type,
-                                monthsSet: new Set(),
+                                company_code: d.company_code,
                                 count: 0
                             };
                         }
                         map[k].count++;
-                        map[k].monthsSet.add(d.month_short);
+                    });
+                    return Object.values(map).sort((a, b) => b.count - a.count);
+                },
+                get reasonGroups() {
+                    const map = {};
+                    this.filteredDelays.forEach(d => {
+                        const r = d.problem_reason;
+                        if (!map[r]) {
+                            map[r] = {
+                                reason: r,
+                                total: 0,
+                                monthMap: {}
+                            };
+                        }
+                        map[r].total++;
+                        const mKey = d.month_num;
+                        if (!map[r].monthMap[mKey]) {
+                            const mObj = ALL_MONTHS.find(x => x.num === Number(mKey));
+                            map[r].monthMap[mKey] = {
+                                month_num: Number(mKey),
+                                month_short: mObj ? mObj.short : d.month_short,
+                                month_label: d.month_label,
+                                count: 0
+                            };
+                        }
+                        map[r].monthMap[mKey].count++;
                     });
 
                     return Object.values(map)
-                        .map(r => ({
-                            ...r,
-                            months_list: Array.from(r.monthsSet).join(', ')
+                        .map(g => ({
+                            ...g,
+                            months: Object.values(g.monthMap).sort((a, b) => a.month_num - b.month_num)
                         }))
-                        .sort((a, b) => b.count - a.count);
+                        .sort((a, b) => b.total - a.total);
                 },
-                get reasonChartGroups() {
-                    return this.reasons.map(reasonName => {
-                        const rows = this.filteredDelays.filter(d => d.problem_reason === reasonName);
-                        const monthsMap = {};
-                        rows.forEach(r => {
-                            const mk = r.month_key;
-                            if (!monthsMap[mk]) {
-                                monthsMap[mk] = {
-                                    month_key: mk,
-                                    month_num: r.month_num,
-                                    month_short: r.month_short,
-                                    month_label: r.month_label,
-                                    count: 0
-                                };
-                            }
-                            monthsMap[mk].count++;
-                        });
-
-                        return {
-                            reason: reasonName,
-                            total: rows.length,
-                            months: Object.values(monthsMap).sort((a, b) => a.month_key.localeCompare(b.month_key))
-                        };
-                    });
-                },
-                get maxReasonMonthCount() {
-                    let m = 1;
-                    this.reasonChartGroups.forEach(rg => {
+                get reasonYMax() {
+                    let m = 4;
+                    this.reasonGroups.forEach(rg => {
                         rg.months.forEach(mb => {
                             if (mb.count > m) m = mb.count;
                         });
                     });
                     return Math.ceil(m * 1.15);
                 },
-                get reasonSummaryRows() {
+                get reasonSummaryList() {
                     const map = {};
                     this.filteredDelays.forEach(d => {
-                        const k = d.problem_reason + '_' + d.month_key + '_' + d.item_id + '_' + d.company_id;
-                        if (!map[k]) {
-                            map[k] = {
-                                key: k,
-                                month_key: d.month_key,
-                                month_label: d.month_label,
-                                reason: d.problem_reason,
+                        const r = d.problem_reason;
+                        if (!map[r]) {
+                            map[r] = {
+                                reason: r,
+                                total: 0,
+                                itemsMap: {}
+                            };
+                        }
+                        map[r].total++;
+                        const ik = d.item_id;
+                        if (!map[r].itemsMap[ik]) {
+                            map[r].itemsMap[ik] = {
                                 part_no: d.part_no,
                                 part_name: d.part_name,
-                                company_code: d.company_code,
                                 count: 0
                             };
                         }
-                        map[k].count++;
+                        map[r].itemsMap[ik].count++;
                     });
 
-                    return Object.values(map).sort((a, b) => {
-                        if (b.month_key !== a.month_key) return b.month_key.localeCompare(a.month_key);
-                        return b.count - a.count;
-                    });
+                    return Object.values(map)
+                        .map(g => ({
+                            reason: g.reason,
+                            total: g.total,
+                            items: Object.values(g.itemsMap).sort((a, b) => b.count - a.count)
+                        }))
+                        .sort((a, b) => b.total - a.total);
                 }
             };
         }
