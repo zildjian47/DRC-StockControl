@@ -13,6 +13,13 @@
 
     <x-flash />
 
+    @php
+        $stockMap = \App\Models\InventoryStock::pluck('current_stock', 'item_id');
+        $lotMap = \App\Models\LotTracer::whereIn('lot_number', $productions->pluck('lot_number')->unique())
+            ->get()
+            ->keyBy(fn ($l) => $l->lot_number . '|' . $l->target_item_id);
+    @endphp
+
     <div class="panel"
          x-data="productionPage({{ $productions->count() }})"
          x-init="recalc()"
@@ -85,14 +92,18 @@
                 <tbody>
                     @forelse($productions as $idx => $prod)
                         @php
-                            $dt         = \Carbon\Carbon::parse($prod->date_time);
-                            $statusText = $prod->qty_check === 'TIDAK SESUAI' ? 'DIKOREKSI' : 'TERCATAT';
-                            $uName      = $prod->user->name ?? 'Operator';
-                            $partNo     = $prod->item->part_no ?: '-';
-                            $partName   = $prod->item->part_name ?? '-';
-                            $itemType   = $prod->item->type ?? '-';
-                            $uom        = $prod->item->uom ?? '';
-                            $tyCls      = 'ty-' . ($itemType === 'FG/KOMPONEN' ? 'FGK' : $itemType);
+                            $dt            = \Carbon\Carbon::parse($prod->date_time);
+                            $statusText    = $prod->qty_check === 'TIDAK SESUAI' ? 'DIKOREKSI' : 'TERCATAT';
+                            $uName         = $prod->user->name ?? 'Operator';
+                            $partNo        = $prod->item->part_no ?: '-';
+                            $partName      = $prod->item->part_name ?? '-';
+                            $itemType      = $prod->item->type ?? '-';
+                            $uom           = $prod->item->uom ?? '';
+                            $tyCls         = 'ty-' . ($itemType === 'FG/KOMPONEN' ? 'FGK' : $itemType);
+                            $currStock     = floatval($stockMap[$prod->item_id] ?? 0);
+                            $lotRow        = $lotMap[$prod->lot_number . '|' . $prod->item_id] ?? null;
+                            $lotActualProd = $lotRow ? floatval($lotRow->actual_qty_prod) : floatval($prod->qty);
+                            $lotQtyNg      = $lotRow ? floatval($lotRow->qty_ng) : 0;
                         @endphp
                         <tr data-row
                             data-search="{{ strtolower($prod->lot_number . ' ' . $partNo . ' ' . $partName . ' ' . $uName) }}"
@@ -131,7 +142,7 @@
                             </td>
                             <td class="text-center">
                                 <button type="button" class="act-btn" title="Koreksi Qty Production"
-                                        @click="openEdit({{ $prod->id }}, '{{ $prod->lot_number }}', '{{ addslashes($partNo) }}', '{{ addslashes($partName) }}', '{{ $itemType }}', {{ floatval($prod->qty) }}, '{{ $uom }}')">
+                                        @click="openEdit({{ $prod->id }}, '{{ $prod->lot_number }}', '{{ addslashes($partNo) }}', '{{ addslashes($partName) }}', '{{ $itemType }}', {{ floatval($prod->qty) }}, '{{ $uom }}', {{ $currStock }}, {{ $lotActualProd }}, {{ $lotQtyNg }})">
                                     <x-icon name="edit" />
                                 </button>
                             </td>
@@ -153,7 +164,9 @@
                     </button>
                 </div>
 
-                <form action="{{ route('productions.verify_batch') }}" method="POST" class="flex flex-col min-h-0 flex-1">
+                <form action="{{ route('productions.verify_batch') }}" method="POST" novalidate
+                      @submit.prevent="submitEdit($el)"
+                      class="flex flex-col min-h-0 flex-1">
                     @csrf
                     <div class="dlg-split">
                         <aside class="dlg-side">
@@ -173,6 +186,11 @@
                         </aside>
 
                         <div class="dlg-main">
+                            <div x-show="editError" x-cloak class="alert alert-crit text-xs" role="alert">
+                                <x-icon name="alert" />
+                                <span x-text="editError"></span>
+                            </div>
+
                             <input type="hidden" :name="'items[' + editId + '][qty_check]'" value="TIDAK SESUAI">
                             <div>
                                 <label class="lbl" for="prod_actual_qty">Qty Production Sebenarnya</label>
@@ -186,12 +204,17 @@
                                         <x-icon name="calc" />
                                     </span>
                                 </div>
-                                <div class="hasil mt-1" x-show="evalCalc(editNewQty) !== null">
-                                    Hasil: <b x-text="evalCalc(editNewQty) + ' ' + editUom"></b>
+                                <div class="calc-preview" x-show="String(editNewQty || '').trim() !== '' && evalCalc(editNewQty) !== null" x-cloak>
+                                    Hasil: <b x-text="evalCalc(editNewQty)"></b> <span x-text="editUom"></span>
+                                </div>
+                                <div class="calc-err" x-show="String(editNewQty || '').trim() !== '' && evalCalc(editNewQty) === null" x-cloak>
+                                    <x-icon name="alert" />
+                                    <span>Format perhitungan tidak valid</span>
                                 </div>
                             </div>
                             <div class="alert alert-info text-xs leading-relaxed">
-                                Menyimpan koreksi akan otomatis menyesuaikan <b>Current Stock</b> di gudang serta <b>Actual Prod, Act FG, &amp; Qty WIP</b> pada Lot Tracer (mendukung koreksi hasil melebihi estimasi tanpa membuat WIP minus).
+                                <x-icon name="info" />
+                                <div>Menyimpan koreksi akan otomatis menyesuaikan <b>Current Stock</b> di gudang serta <b>Actual Prod, Act FG, &amp; Qty WIP</b> pada Lot Tracer (mendukung koreksi hasil melebihi estimasi tanpa membuat WIP minus).</div>
                             </div>
                         </div>
                     </div>
@@ -217,6 +240,7 @@
                 fStatus: '',
                 visibleCount: initialCount,
                 editOpen: false,
+                editError: '',
                 editId: null,
                 editLot: '',
                 editPartNo: '',
@@ -225,8 +249,11 @@
                 editOldQty: 0,
                 editNewQty: '',
                 editUom: '',
+                editStock: 0,
+                editLotActual: 0,
+                editLotNg: 0,
 
-                openEdit(id, lot, partNo, partName, type, qty, uom) {
+                openEdit(id, lot, partNo, partName, type, qty, uom, stock, lotActual, lotNg) {
                     this.editId = id;
                     this.editLot = lot;
                     this.editPartNo = partNo;
@@ -235,18 +262,48 @@
                     this.editOldQty = qty;
                     this.editNewQty = String(qty);
                     this.editUom = uom;
+                    this.editStock = Number(stock) || 0;
+                    this.editLotActual = Number(lotActual) || 0;
+                    this.editLotNg = Number(lotNg) || 0;
+                    this.editError = '';
                     this.editOpen = true;
                 },
                 evalCalc(raw) {
                     if (raw === null || raw === undefined) return null;
-                    const expr = String(raw).replace(/,/g, '.').replace(/\s+/g, '');
-                    if (!expr || !/^[0-9.+\-*\/()]+$/.test(expr)) return null;
+                    const expr = String(raw).replace(/,/g, '.').replace(/[xX]/g, '*').replace(/:/g, '/').replace(/\s+/g, '');
+                    if (!expr || !/^[0-9.+\-*\/()]+$/.test(expr) || /[\+\-\*\/]{2,}/.test(expr)) return null;
                     try {
                         const r = Function('return (' + expr + ')')();
-                        return (typeof r === 'number' && isFinite(r) && r > 0) ? Math.round(r * 100) / 100 : null;
+                        return (typeof r === 'number' && isFinite(r)) ? Math.round(r * 100) / 100 : null;
                     } catch (e) {
                         return null;
                     }
+                },
+                submitEdit(formEl) {
+                    this.editError = '';
+                    if (String(this.editNewQty || '').trim() === '') {
+                        this.editError = 'Qty Production koreksi wajib diisi.';
+                        return;
+                    }
+                    const val = this.evalCalc(this.editNewQty);
+                    if (val === null) {
+                        this.editError = 'Format perhitungan Qty koreksi tidak valid.';
+                        return;
+                    }
+                    if (val <= 0) {
+                        this.editError = 'Qty koreksi harus lebih besar dari 0.';
+                        return;
+                    }
+                    const diff = Math.round((val - this.editOldQty) * 100) / 100;
+                    if (this.editLotActual + diff < this.editLotNg - 0.0001) {
+                        this.editError = 'Ditolak: Koreksi Production Lot ' + this.editLot + ' tidak boleh lebih kecil dari Qty NG yang sudah tercatat (' + this.editLotNg + ' ' + this.editUom + ').';
+                        return;
+                    }
+                    if (this.editStock + diff < -0.0001) {
+                        this.editError = 'Ditolak: Koreksi Production membuat Current Stock ' + this.editPartName + ' minus (Stok saat ini: ' + this.editStock + ' ' + this.editUom + ').';
+                        return;
+                    }
+                    formEl.submit();
                 },
                 resetFilter() {
                     this.q = '';

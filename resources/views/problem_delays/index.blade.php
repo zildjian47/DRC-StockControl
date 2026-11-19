@@ -33,7 +33,7 @@
 
     <div class="panel"
          x-data="delayPage({{ $delays->count() }}, {{ Js::from($companiesJs) }}, {{ Js::from($itemsJs) }}, '{{ now()->toDateString() }}', {{ $errors->any() ? 'true' : 'false' }})"
-         @open-add-delay.window="addOpen = true"
+         @open-add-delay.window="addOpen = true; addError = ''"
          x-init="recalc()"
          @table-refreshed.window="recalc()">
 
@@ -167,7 +167,9 @@
                     </button>
                 </div>
 
-                <form action="{{ route('problem_delays.store') }}" method="POST" class="flex flex-col min-h-0 flex-1">
+                <form action="{{ route('problem_delays.store') }}" method="POST" novalidate
+                      @submit.prevent="submitAdd($el)"
+                      class="flex flex-col min-h-0 flex-1">
                     @csrf
                     <div class="dlg-split">
                         <aside class="dlg-side hide-sm">
@@ -190,6 +192,11 @@
                         </aside>
 
                         <div class="dlg-main">
+                            <div x-show="addError" x-cloak class="alert alert-crit text-xs" role="alert">
+                                <x-icon name="alert" />
+                                <span x-text="addError"></span>
+                            </div>
+
                             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <div>
                                     <label class="lbl" for="delay_inc_date">Tanggal Kejadian</label>
@@ -252,6 +259,7 @@
                 companiesList: companiesList,
                 itemsList: itemsList,
                 addOpen: openInitially,
+                addError: '',
                 incidentDate: todayStr,
                 selectedCompanyId: '',
                 selectedItemId: '',
@@ -270,6 +278,26 @@
                         return this.itemsList.filter(i => String(i.company_id) === String(comp.id) || ['FG/KOMPONEN', 'TRANSIT'].includes(i.type));
                     }
                     return this.itemsList.filter(i => String(i.company_id) === String(comp.id));
+                },
+                submitAdd(formEl) {
+                    this.addError = '';
+                    if (!this.incidentDate) {
+                        this.addError = 'Tanggal Kejadian wajib diisi.';
+                        return;
+                    }
+                    if (!this.selectedCompanyId || !this.selectedCompany) {
+                        this.addError = 'Perusahaan / Customer wajib dipilih.';
+                        return;
+                    }
+                    if (!this.selectedItemId || !this.availableItems.some(i => String(i.id) === String(this.selectedItemId))) {
+                        this.addError = 'Item Terdampak wajib dipilih sesuai perusahaan yang dipilih.';
+                        return;
+                    }
+                    if (!this.selectedReason) {
+                        this.addError = 'Problem Reason wajib dipilih.';
+                        return;
+                    }
+                    formEl.submit();
                 },
                 resetFilter() {
                     this.q = '';

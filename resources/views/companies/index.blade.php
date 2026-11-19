@@ -13,9 +13,17 @@
 
     <x-flash />
 
+    @php
+        $companiesJs = $companies->map(fn ($c) => [
+            'id'   => $c->id,
+            'code' => strtoupper(trim((string) $c->company_code)),
+            'type' => strtoupper(trim((string) $c->type_company)),
+        ])->values();
+    @endphp
+
     <div class="panel"
-         x-data="companyPage({{ $companies->count() }}, {{ $errors->any() ? 'true' : 'false' }})"
-         @open-add-company.window="addOpen = true"
+         x-data="companyPage({{ $companies->count() }}, {{ Js::from($companiesJs) }}, {{ $errors->any() ? 'true' : 'false' }})"
+         @open-add-company.window="addOpen = true; addError = ''"
          x-init="recalc()">
 
         <div class="panel-head">
@@ -106,7 +114,9 @@
                     </button>
                 </div>
 
-                <form action="{{ route('companies.store') }}" method="POST" class="flex flex-col min-h-0 flex-1">
+                <form action="{{ route('companies.store') }}" method="POST" novalidate
+                      @submit.prevent="submitAdd($el)"
+                      class="flex flex-col min-h-0 flex-1">
                     @csrf
                     <div class="dlg-split">
                         <aside class="dlg-side">
@@ -122,6 +132,11 @@
                         </aside>
 
                         <div class="dlg-main">
+                            <div x-show="addError" x-cloak class="alert alert-crit text-xs" role="alert">
+                                <x-icon name="alert" />
+                                <span x-text="addError"></span>
+                            </div>
+
                             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <div>
                                     <label class="lbl" for="add_co_code">Kode Perusahaan (Otomatis Kapital)</label>
@@ -169,7 +184,9 @@
                     </button>
                 </div>
 
-                <form :action="'{{ url('companies') }}/' + editId" method="POST" class="flex flex-col min-h-0 flex-1">
+                <form :action="'{{ url('companies') }}/' + editId" method="POST" novalidate
+                      @submit.prevent="submitEdit($el)"
+                      class="flex flex-col min-h-0 flex-1">
                     @csrf
                     @method('PUT')
                     <div class="dlg-split">
@@ -186,6 +203,11 @@
                         </aside>
 
                         <div class="dlg-main">
+                            <div x-show="editError" x-cloak class="alert alert-crit text-xs" role="alert">
+                                <x-icon name="alert" />
+                                <span x-text="editError"></span>
+                            </div>
+
                             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <div>
                                     <label class="lbl" for="edit_co_code">Kode Perusahaan</label>
@@ -222,19 +244,22 @@
     </div>
 
     <script>
-        function companyPage(initialCount, openInitially) {
+        function companyPage(initialCount, existingCompanies, openInitially) {
             return {
                 q: '',
                 fType: '',
+                existingCompanies: existingCompanies || [],
                 addOpen: openInitially,
                 addCode: '',
                 addName: '',
                 addType: 'SUPPLIER',
+                addError: '',
                 editOpen: false,
                 editId: null,
                 editCode: '',
                 editName: '',
                 editType: 'SUPPLIER',
+                editError: '',
                 visibleCount: initialCount,
                 typePill(t) {
                     return t === 'CUSTOMER' ? 'pill-good' : (t === 'INTERNAL' ? 'pill-warn' : 'pill-info');
@@ -244,7 +269,60 @@
                     this.editCode = code;
                     this.editName = name;
                     this.editType = type;
+                    this.editError = '';
                     this.editOpen = true;
+                },
+                submitAdd(formEl) {
+                    this.addError = '';
+                    const code = (this.addCode || '').trim().toUpperCase();
+                    const name = (this.addName || '').trim();
+                    const type = (this.addType || '').trim().toUpperCase();
+
+                    if (!code) {
+                        this.addError = 'Kode Perusahaan wajib diisi.';
+                        return;
+                    }
+                    if (!['SUPPLIER', 'INTERNAL', 'CUSTOMER'].includes(type)) {
+                        this.addError = 'Tipe Perusahaan wajib dipilih.';
+                        return;
+                    }
+                    if (!name) {
+                        this.addError = 'Nama Lengkap Perusahaan wajib diisi.';
+                        return;
+                    }
+                    const isDup = this.existingCompanies.some(c => c.code === code && c.type === type);
+                    if (isDup) {
+                        this.addError = 'Kode perusahaan ' + code + ' dengan tipe ' + type + ' sudah terdaftar.';
+                        return;
+                    }
+                    formEl.submit();
+                },
+                submitEdit(formEl) {
+                    this.editError = '';
+                    const code = (this.editCode || '').trim().toUpperCase();
+                    const name = (this.editName || '').trim();
+                    const type = (this.editType || '').trim().toUpperCase();
+
+                    if (!code) {
+                        this.editError = 'Kode Perusahaan wajib diisi.';
+                        return;
+                    }
+                    if (!['SUPPLIER', 'INTERNAL', 'CUSTOMER'].includes(type)) {
+                        this.editError = 'Tipe Perusahaan wajib dipilih.';
+                        return;
+                    }
+                    if (!name) {
+                        this.editError = 'Nama Lengkap Perusahaan wajib diisi.';
+                        return;
+                    }
+                    const isDup = this.existingCompanies.some(
+                        c => String(c.id) !== String(this.editId) && c.code === code && c.type === type
+                    );
+                    if (isDup) {
+                        this.editError = 'Kode perusahaan ' + code + ' dengan tipe ' + type + ' sudah terdaftar.';
+                        return;
+                    }
+                    formEl.submit();
                 },
                 matchRow(el) {
                     const s = (el.dataset.search || '').toLowerCase();

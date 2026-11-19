@@ -31,7 +31,7 @@
 
     <div class="panel"
          x-data="stockAdjPage({{ $adjustments->count() }}, {{ Js::from($itemsJs) }}, {{ $errors->any() ? 'true' : 'false' }})"
-         @open-add-adj.window="addOpen = true"
+         @open-add-adj.window="addOpen = true; addError = ''"
          x-init="recalc()"
          @table-refreshed.window="recalc()">
 
@@ -164,7 +164,9 @@
                     </button>
                 </div>
 
-                <form action="{{ route('stock_adjustments.store') }}" method="POST" class="flex flex-col min-h-0 flex-1">
+                <form action="{{ route('stock_adjustments.store') }}" method="POST" novalidate
+                      @submit.prevent="submitAdd($el)"
+                      class="flex flex-col min-h-0 flex-1">
                     @csrf
                     <div class="dlg-split">
                         <aside class="dlg-side hide-sm">
@@ -194,6 +196,11 @@
                         </aside>
 
                         <div class="dlg-main">
+                            <div x-show="addError" x-cloak class="alert alert-crit text-xs" role="alert">
+                                <x-icon name="alert" />
+                                <span x-text="addError"></span>
+                            </div>
+
                             <div>
                                 <label class="lbl" for="adj_item">Pilih Item</label>
                                 <select id="adj_item" name="item_id" x-model="selectedItemId" @change="onSelectItem()" required class="w-full h-9 text-xs">
@@ -228,6 +235,13 @@
                                             <x-icon name="calc" />
                                         </span>
                                     </div>
+                                    <div class="calc-preview" x-show="String(rawActual || '').trim() !== '' && evalCalc(rawActual) !== null" x-cloak>
+                                        Hasil: <b x-text="evalCalc(rawActual)"></b> <span x-text="selectedItem?.uom || ''"></span>
+                                    </div>
+                                    <div class="calc-err" x-show="String(rawActual || '').trim() !== '' && evalCalc(rawActual) === null" x-cloak>
+                                        <x-icon name="alert" />
+                                        <span>Format perhitungan tidak valid</span>
+                                    </div>
                                 </div>
                                 <div>
                                     <label class="lbl" for="adj_diff">Qty Diff / Selisih (+/-)</label>
@@ -237,6 +251,13 @@
                                         <span class="inp-calc-ic" title="Mendukung perhitungan kalkulator (+, -, *, /)">
                                             <x-icon name="calc" />
                                         </span>
+                                    </div>
+                                    <div class="calc-preview" x-show="String(rawDiff || '').trim() !== '' && evalCalc(rawDiff) !== null" x-cloak>
+                                        Hasil: <b x-text="(evalCalc(rawDiff) > 0 ? '+' : '') + evalCalc(rawDiff)"></b> <span x-text="selectedItem?.uom || ''"></span>
+                                    </div>
+                                    <div class="calc-err" x-show="String(rawDiff || '').trim() !== '' && evalCalc(rawDiff) === null" x-cloak>
+                                        <x-icon name="alert" />
+                                        <span>Format perhitungan tidak valid</span>
                                     </div>
                                 </div>
                             </div>
@@ -269,6 +290,7 @@
                 visibleCount: initialCount,
                 itemsList: itemsList,
                 addOpen: openInitially,
+                addError: '',
                 selectedItemId: '',
                 adjType: 'STOCK OPNAME',
                 qtySystem: 0,
@@ -289,7 +311,7 @@
                 },
                 evalCalc(raw) {
                     if (raw === null || raw === undefined) return null;
-                    const expr = String(raw).replace(/,/g, '.').replace(/\s+/g, '');
+                    const expr = String(raw).replace(/,/g, '.').replace(/[xX]/g, '*').replace(/:/g, '/').replace(/\s+/g, '');
                     if (!expr || !/^[0-9.+\-*\/()]+$/.test(expr)) return null;
                     try {
                         const r = Function('return (' + expr + ')')();
@@ -320,6 +342,67 @@
                         const act = Math.round((this.qtySystem + val) * 100) / 100;
                         this.rawActual = String(act);
                     }
+                },
+                submitAdd(formEl) {
+                    this.addError = '';
+                    if (!this.selectedItemId || !this.selectedItem) {
+                        this.addError = 'Item wajib dipilih terlebih dahulu.';
+                        return;
+                    }
+                    if (!this.adjType) {
+                        this.addError = 'Kategori Adjustment wajib dipilih.';
+                        return;
+                    }
+
+                    const hasActual = String(this.rawActual || '').trim() !== '';
+                    const hasDiff = String(this.rawDiff || '').trim() !== '';
+                    if (!hasActual && !hasDiff) {
+                        this.addError = 'Qty Actual atau Qty Diff wajib diisi.';
+                        return;
+                    }
+
+                    const parsedActual = hasActual ? this.evalCalc(this.rawActual) : null;
+                    const parsedDiff = hasDiff ? this.evalCalc(this.rawDiff) : null;
+
+                    if (hasActual && parsedActual === null) {
+                        this.addError = 'Format perhitungan Qty Actual tidak valid.';
+                        return;
+                    }
+                    if (hasDiff && parsedDiff === null) {
+                        this.addError = 'Format perhitungan Qty Diff tidak valid.';
+                        return;
+                    }
+
+                    let qtyActual, qtyDiff;
+                    if (parsedActual !== null) {
+                        qtyActual = parsedActual;
+                        qtyDiff = Math.round((qtyActual - this.qtySystem) * 100) / 100;
+                    } else {
+                        qtyDiff = parsedDiff;
+                        qtyActual = Math.round((this.qtySystem + qtyDiff) * 100) / 100;
+                    }
+
+                    if (qtyActual < 0) {
+                        this.addError = 'Ditolak: Qty Actual tidak boleh bernilai minus.';
+                        return;
+                    }
+
+                    if (this.adjType === 'LOSS' && qtyActual >= this.qtySystem) {
+                        this.addError = 'Ditolak: Untuk kategori LOSS, Qty Actual (' + qtyActual + ') wajib lebih kecil dari Qty System (' + this.qtySystem + ').';
+                        return;
+                    }
+
+                    if (['SURPLUS', 'FOUND', 'REPAIR'].includes(this.adjType) && qtyActual <= this.qtySystem) {
+                        this.addError = 'Ditolak: Untuk kategori ' + this.adjType + ', Qty Actual (' + qtyActual + ') wajib lebih besar dari Qty System (' + this.qtySystem + ').';
+                        return;
+                    }
+
+                    if (this.adjType === 'STOCK OPNAME' && Math.abs(qtyDiff) < 0.0001) {
+                        this.addError = 'Ditolak: Tidak ada perubahan kuantitas (Qty Diff = 0).';
+                        return;
+                    }
+
+                    formEl.submit();
                 },
                 resetFilter() {
                     this.q = '';

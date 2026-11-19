@@ -31,7 +31,7 @@
 
     <div class="panel"
          x-data="masterItemPage({{ $items->count() }}, {{ Js::from($companiesJs) }}, {{ $errors->any() ? 'true' : 'false' }})"
-         @open-add-item.window="addOpen = true; syncAddCompany()"
+         @open-add-item.window="addOpen = true; addError = ''; syncAddCompany()"
          x-init="syncAddCompany(); recalc()">
 
         <div class="panel-head">
@@ -186,7 +186,9 @@
                     </button>
                 </div>
 
-                <form action="{{ route('items.store') }}" method="POST" class="flex flex-col min-h-0 flex-1">
+                <form action="{{ route('items.store') }}" method="POST" novalidate
+                      @submit.prevent="submitAdd($el)"
+                      class="flex flex-col min-h-0 flex-1">
                     @csrf
                     <div class="dlg-split">
                         {{-- Panel kiri: pratinjau hidup --}}
@@ -219,6 +221,11 @@
 
                         {{-- Panel kanan: field --}}
                         <div class="dlg-main">
+                            <div x-show="addError" x-cloak class="alert alert-crit text-xs" role="alert">
+                                <x-icon name="alert" />
+                                <span x-text="addError"></span>
+                            </div>
+
                             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <div>
                                     <label class="lbl" for="add_part_no">Part No <span style="font-weight:400;color:var(--mut)">(opsional untuk RM Sheet/Coil)</span></label>
@@ -285,7 +292,10 @@
                             </div>
 
                             <div x-show="!allowsPo(addType)" x-cloak class="alert alert-info text-xs leading-relaxed">
-                                Untuk tipe <b class="font-bold" x-text="addType"></b>, parameter PO, Working Days, dan Kanban dikunci <b class="num font-bold">0</b> karena kebutuhan stok hariannya (<b class="num font-bold">Std Day 1 / 2 / 3</b>) dihitung otomatis dari resep BOM.
+                                <x-icon name="info" />
+                                <div>
+                                    Untuk tipe <b class="font-bold" x-text="addType"></b>, parameter PO, Working Days, dan Kanban dikunci <b class="num font-bold">0</b> karena kebutuhan stok hariannya (<b class="num font-bold">Std Day 1 / 2 / 3</b>) dihitung otomatis dari resep BOM.
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -308,7 +318,9 @@
                     </button>
                 </div>
 
-                <form :action="'{{ url('items') }}/' + editData.id" method="POST" class="flex flex-col min-h-0 flex-1">
+                <form :action="'{{ url('items') }}/' + editData.id" method="POST" novalidate
+                      @submit.prevent="submitEdit($el)"
+                      class="flex flex-col min-h-0 flex-1">
                     @csrf
                     @method('PUT')
                     <div class="dlg-split">
@@ -340,9 +352,15 @@
                         </aside>
 
                         <div class="dlg-main">
+                            <div x-show="editError" x-cloak class="alert alert-crit text-xs" role="alert">
+                                <x-icon name="alert" />
+                                <span x-text="editError"></span>
+                            </div>
+
                             <template x-if="editData.has_history">
                                 <div class="alert alert-crit text-xs leading-relaxed">
-                                    Identitas utama terkunci karena item ini sudah memiliki riwayat transaksi / BOM. Anda tetap dapat memperbarui parameter PO, Working Days, dan Kanban (untuk tipe FG, FG/KOMPONEN, &amp; TRANSIT).
+                                    <x-icon name="alert" />
+                                    <div>Identitas utama terkunci karena item ini sudah memiliki riwayat transaksi / BOM. Anda tetap dapat memperbarui parameter PO, Working Days, dan Kanban (untuk tipe FG, FG/KOMPONEN, &amp; TRANSIT).</div>
                                 </div>
                             </template>
 
@@ -410,7 +428,10 @@
                             </div>
 
                             <div x-show="!allowsPo(editData.type)" x-cloak class="alert alert-info text-xs leading-relaxed">
-                                Untuk tipe <b class="font-bold" x-text="editData.type"></b>, parameter PO, Working Days, dan Kanban dikunci <b class="num font-bold">0</b> karena kebutuhan stok hariannya (<b class="num font-bold">Std Day 1 / 2 / 3</b>) dihitung otomatis dari resep BOM.
+                                <x-icon name="info" />
+                                <div>
+                                    Untuk tipe <b class="font-bold" x-text="editData.type"></b>, parameter PO, Working Days, dan Kanban dikunci <b class="num font-bold">0</b> karena kebutuhan stok hariannya (<b class="num font-bold">Std Day 1 / 2 / 3</b>) dihitung otomatis dari resep BOM.
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -512,7 +533,9 @@
                 addPo: 0,
                 addWd: 20,
                 addKb: 0,
+                addError: '',
                 editOpen: false,
+                editError: '',
                 editData: {
                     id: null,
                     part_no: '',
@@ -579,10 +602,95 @@
                     const list = this.allowedCompanies(this.addType);
                     if (list.length > 0 && !list.some(c => String(c.id) === String(this.addCompanyId))) {
                         this.addCompanyId = list[0].id;
+                    } else if (list.length === 0) {
+                        this.addCompanyId = '';
                     }
+                },
+                validatePoParams(po, wd, kb) {
+                    if (po === '' || po === null || isNaN(Number(po)) || Number(po) < 0) {
+                        return 'Qty PO Sebulan wajib diisi dan tidak boleh minus.';
+                    }
+                    if (wd === '' || wd === null || isNaN(Number(wd)) || Number(wd) < 0 || !Number.isInteger(Number(wd))) {
+                        return 'Working Days (WD) wajib bilangan bulat minimal 0.';
+                    }
+                    if (kb === '' || kb === null || isNaN(Number(kb)) || Number(kb) < 0) {
+                        return 'Qty per Kanban wajib diisi dan tidak boleh minus.';
+                    }
+                    return '';
+                },
+                submitAdd(formEl) {
+                    this.addError = '';
+                    if (!(this.addPartName || '').trim()) {
+                        this.addError = 'Part Name wajib diisi.';
+                        return;
+                    }
+                    if (!this.addType) {
+                        this.addError = 'Tipe Item wajib dipilih.';
+                        return;
+                    }
+                    if (!this.addUom) {
+                        this.addError = 'Satuan (UOM) wajib dipilih.';
+                        return;
+                    }
+                    const allowed = this.allowedCompanies(this.addType);
+                    if (!this.addCompanyId || !allowed.some(c => String(c.id) === String(this.addCompanyId))) {
+                        this.addError = 'Perusahaan wajib dipilih dan sesuai dengan tipe item ' + this.addType + '.';
+                        return;
+                    }
+                    if (this.allowsPo(this.addType)) {
+                        const poErr = this.validatePoParams(this.addPo, this.addWd, this.addKb);
+                        if (poErr) {
+                            this.addError = poErr;
+                            return;
+                        }
+                    }
+                    formEl.submit();
+                },
+                submitEdit(formEl) {
+                    this.editError = '';
+                    if (this.editData.has_history) {
+                        if (!this.allowsPo(this.editData.type)) {
+                            this.editError = 'Parameter item bertipe ' + this.editData.type + ' yang sudah memiliki riwayat transaksi mengikuti perhitungan BOM secara otomatis.';
+                            return;
+                        }
+                        const poErr = this.validatePoParams(this.editData.qty_po, this.editData.working_days, this.editData.qty_kanban);
+                        if (poErr) {
+                            this.editError = poErr;
+                            return;
+                        }
+                        formEl.submit();
+                        return;
+                    }
+
+                    if (!(this.editData.part_name || '').trim()) {
+                        this.editError = 'Part Name wajib diisi.';
+                        return;
+                    }
+                    if (!this.editData.type) {
+                        this.editError = 'Tipe Item wajib dipilih.';
+                        return;
+                    }
+                    if (!this.editData.uom) {
+                        this.editError = 'Satuan (UOM) wajib dipilih.';
+                        return;
+                    }
+                    const allowed = this.allowedCompanies(this.editData.type);
+                    if (!this.editData.company_id || !allowed.some(c => String(c.id) === String(this.editData.company_id))) {
+                        this.editError = 'Perusahaan wajib dipilih dan sesuai dengan tipe item ' + this.editData.type + '.';
+                        return;
+                    }
+                    if (this.allowsPo(this.editData.type)) {
+                        const poErr = this.validatePoParams(this.editData.qty_po, this.editData.working_days, this.editData.qty_kanban);
+                        if (poErr) {
+                            this.editError = poErr;
+                            return;
+                        }
+                    }
+                    formEl.submit();
                 },
                 openEdit(payload) {
                     this.editData = Object.assign({}, payload);
+                    this.editError = '';
                     this.editOpen = true;
                 },
                 openDelete(d) {

@@ -52,7 +52,7 @@
             ])->values();
     @endphp
 
-    <div x-data="ngScanner({{ Js::from($itemsPayload) }}, {{ Js::from($activeLotsPayload) }}, {{ Js::from($allScansData) }}, '{{ now()->format('Y-m-d') }}')"
+    <div x-data="ngScanner({{ Js::from($itemsPayload) }}, {{ Js::from($activeLotsPayload) }}, {{ Js::from($allScansData) }}, '{{ now()->format('Y-m-d') }}', {{ Js::from($reasons[0] ?? 'MATERIAL') }})"
          x-init="initScanner()">
 
         <div class="scan-stepper mb-3">
@@ -66,9 +66,10 @@
             </div>
         </div>
 
-        <div x-show="errorMsg" x-cloak class="alert alert-crit mb-3 flex items-center justify-between">
-            <span x-text="errorMsg"></span>
-            <button type="button" @click="errorMsg = ''" class="act-btn"><x-icon name="x" /></button>
+        <div x-show="errorMsg" x-cloak class="alert alert-crit mb-3" role="alert">
+            <x-icon name="alert" />
+            <span class="flex-1 min-w-0" x-text="errorMsg"></span>
+            <button type="button" @click="errorMsg = ''" class="act-btn flex-none -my-1 -mr-1"><x-icon name="x" /></button>
         </div>
 
         <div class="panel">
@@ -126,10 +127,17 @@
                         </div>
                     </div>
 
-                    <form action="{{ route('production_ngs.store') }}" method="POST" class="space-y-4">
+                    <form action="{{ route('production_ngs.store') }}" method="POST" novalidate
+                          @submit.prevent="submitForm($el)"
+                          class="space-y-4">
                         @csrf
                         <input type="hidden" name="mode" value="scanner">
                         <input type="hidden" name="item_id" :value="scannedItem?.id">
+
+                        <div x-show="formError" x-cloak class="alert alert-crit text-xs" role="alert">
+                            <x-icon name="alert" />
+                            <span class="flex-1 min-w-0" x-text="formError"></span>
+                        </div>
 
                         <div>
                             <label class="lbl">Pilih Nomor Lot Aktif (ON PROGRESS)</label>
@@ -159,7 +167,7 @@
 
                         <div>
                             <label class="lbl">Pilih Problem Reason (Alasan NG)</label>
-                            <select name="problem_reason" required class="w-full h-11 text-xs font-semibold">
+                            <select name="problem_reason" x-model="problemReason" required class="w-full h-11 text-xs font-semibold">
                                 @foreach($reasons as $r)
                                     <option value="{{ $r }}">{{ $r }}</option>
                                 @endforeach
@@ -170,16 +178,12 @@
                             <label class="lbl">Qty NG (<span x-text="scannedItem?.uom"></span>)</label>
                             <input type="number" step="0.01" min="0.01"
                                    :max="selectedLotObj ? selectedLotObj.act_fg : null"
-                                   name="qty_ng" x-model.number="qtyNg" required
+                                   name="qty_ng" x-model="qtyNg" required
                                    placeholder="Contoh: 2"
                                    class="num w-full h-14 text-2xl text-center font-bold">
-                            <div x-show="selectedLotObj && qtyNg > selectedLotObj.act_fg" class="text-xs text-rose-600 font-semibold mt-1">
-                                Ditolak: Qty NG (<span class="num" x-text="qtyNg"></span>) melebihi saldo Act FG (<span class="num" x-text="selectedLotObj?.act_fg"></span>).
-                            </div>
                         </div>
 
-                        <button type="submit" class="btn btn-primary btn-lg w-full"
-                                :disabled="!selectedLotObj || !qtyNg || qtyNg <= 0 || qtyNg > selectedLotObj.act_fg">
+                        <button type="submit" class="btn btn-primary btn-lg w-full">
                             Simpan Data NG (- Stok)
                         </button>
                     </form>
@@ -232,12 +236,13 @@
     </div>
 
     <script>
-        function ngScanner(items, activeLots, allScans, todayStr) {
+        function ngScanner(items, activeLots, allScans, todayStr, defaultReason) {
             return {
                 step: 1,
                 cameraActive: false,
                 manualCode: '',
                 errorMsg: '',
+                formError: '',
                 items: items,
                 activeLots: activeLots,
                 allScans: allScans,
@@ -246,6 +251,7 @@
                 histSearch: '',
                 scannedItem: null,
                 selectedLotId: '',
+                problemReason: defaultReason || 'MATERIAL',
                 qtyNg: '',
 
                 initScanner() {
@@ -269,6 +275,7 @@
                 },
                 handleScan(rawCode) {
                     this.errorMsg = '';
+                    this.formError = '';
                     const c = String(rawCode || '').trim().toUpperCase();
                     if (!c) return;
                     const found = this.items.find(i => i.part_no === c || i.part_name === c);
@@ -295,6 +302,35 @@
                 get selectedLotObj() {
                     return this.itemLots.find(l => String(l.id) === String(this.selectedLotId)) || null;
                 },
+                submitForm(formEl) {
+                    this.formError = '';
+                    if (!this.scannedItem) {
+                        this.formError = 'Silakan scan barang temuan NG terlebih dahulu.';
+                        return;
+                    }
+                    if (!this.selectedLotId || !this.selectedLotObj) {
+                        this.formError = 'Nomor Lot aktif wajib dipilih terlebih dahulu.';
+                        return;
+                    }
+                    if (!this.problemReason) {
+                        this.formError = 'Problem Reason wajib dipilih.';
+                        return;
+                    }
+                    const qty = parseFloat(this.qtyNg);
+                    if (this.qtyNg === '' || this.qtyNg === null || isNaN(qty) || qty <= 0) {
+                        this.formError = 'Qty NG wajib diisi dan lebih besar dari 0.';
+                        return;
+                    }
+                    if (qty > this.selectedLotObj.act_fg + 0.0001) {
+                        this.formError = `Ditolak: Qty NG (${qty}) melebihi saldo Act FG pada Lot ${this.selectedLotObj.lot_number} (Maksimal: ${this.selectedLotObj.act_fg} ${this.scannedItem.uom}).`;
+                        return;
+                    }
+                    if (qty > (this.scannedItem.stock || 0) + 0.0001) {
+                        this.formError = `Ditolak: Qty NG (${qty}) melebihi Current Stock ${this.scannedItem.part_name} di gudang (${this.scannedItem.stock} ${this.scannedItem.uom}).`;
+                        return;
+                    }
+                    formEl.submit();
+                },
                 get filteredHistory() {
                     return this.allScans.filter(s => {
                         if (this.histDate && s.date !== this.histDate) return false;
@@ -312,6 +348,7 @@
                     this.qtyNg = '';
                     this.manualCode = '';
                     this.errorMsg = '';
+                    this.formError = '';
                     this.step = 1;
                     if (window.DRCScanner && window.DRCScanner.isPermitted()) {
                         this.activateCamera();

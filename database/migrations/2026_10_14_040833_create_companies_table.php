@@ -10,11 +10,13 @@ return new class extends Migration
     {
         Schema::create('companies', function (Blueprint $table) {
             $table->id();
-            $table->string('company_code')->unique();
+            $table->string('company_code');
             $table->string('company_name');
             $table->string('type_company');
             $table->softDeletes();
             $table->timestamps();
+
+            $table->unique(['company_code', 'type_company']);
         });
     }
 

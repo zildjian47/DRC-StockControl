@@ -671,6 +671,35 @@
     color: var(--accent);
   }
 
+  /* Preview & Error Kalkulator Seragam */
+  .calc-preview {
+    margin-top: 4px;
+    font-size: 11.5px;
+    color: var(--ink2);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .calc-preview b {
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  .calc-err {
+    margin-top: 4px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--crit);
+  }
+
+  .calc-err > .ic {
+    width: 13px;
+    height: 13px;
+    flex: 0 0 13px;
+  }
+
   /* ===== Tipe Item (Chip Berwarna CAPSLOCK) ===== */
   .ty {
     display: inline-flex;
@@ -1582,13 +1611,20 @@
   }
 
   .alert {
-    display: block;
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
     padding: 10px 13px;
     border: 1px solid;
     border-radius: var(--r);
     font-size: 12.5px;
     font-weight: 500;
     line-height: 1.5;
+  }
+
+  .alert > .ic {
+    margin-top: 2px;
+    flex: 0 0 16px;
   }
 
   .alert-good {

@@ -6,6 +6,7 @@ use App\Models\Company;
 use App\Models\Item;
 use App\Models\ProblemDelay;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class CompanyController extends Controller
 {
@@ -38,9 +39,17 @@ class CompanyController extends Controller
         ]);
 
         $request->validate([
-            'company_code' => 'required|string|max:50|unique:companies,company_code',
+            'company_code' => [
+                'required',
+                'string',
+                'max:50',
+                Rule::unique('companies', 'company_code')
+                    ->where(fn ($q) => $q->where('type_company', $request->type_company)->whereNull('deleted_at')),
+            ],
             'company_name' => 'required|string|max:255',
             'type_company' => 'required|in:SUPPLIER,INTERNAL,CUSTOMER',
+        ], [
+            'company_code.unique' => "Kode perusahaan {$request->company_code} dengan tipe {$request->type_company} sudah terdaftar.",
         ]);
 
         Company::create($request->only(['company_code', 'company_name', 'type_company']));
@@ -57,9 +66,18 @@ class CompanyController extends Controller
         ]);
 
         $request->validate([
-            'company_code' => 'required|string|max:50|unique:companies,company_code,' . $company->id,
+            'company_code' => [
+                'required',
+                'string',
+                'max:50',
+                Rule::unique('companies', 'company_code')
+                    ->ignore($company->id)
+                    ->where(fn ($q) => $q->where('type_company', $request->type_company)->whereNull('deleted_at')),
+            ],
             'company_name' => 'required|string|max:255',
             'type_company' => 'required|in:SUPPLIER,INTERNAL,CUSTOMER',
+        ], [
+            'company_code.unique' => "Kode perusahaan {$request->company_code} dengan tipe {$request->type_company} sudah terdaftar.",
         ]);
 
         $company->update($request->only(['company_code', 'company_name', 'type_company']));

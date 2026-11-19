@@ -260,21 +260,30 @@
 
     @if (session('success'))
         <div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 4000)" class="toast toast-good" role="status">
-            <span>{{ session('success') }}</span>
+            <span class="inline-flex items-center gap-2 min-w-0">
+                <x-icon name="check" />
+                <span>{{ session('success') }}</span>
+            </span>
             <button type="button" @click="show = false" class="text-white/80 hover:text-white"><x-icon name="x" /></button>
         </div>
     @endif
 
     @if (session('error'))
         <div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 5000)" class="toast toast-crit" role="alert">
-            <span>{{ session('error') }}</span>
+            <span class="inline-flex items-center gap-2 min-w-0">
+                <x-icon name="alert" />
+                <span>{{ session('error') }}</span>
+            </span>
             <button type="button" @click="show = false" class="text-white/80 hover:text-white"><x-icon name="x" /></button>
         </div>
     @endif
 
     @if ($errors->any())
         <div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 5000)" class="toast toast-crit" role="alert">
-            <span>{{ $errors->first() }}</span>
+            <span class="inline-flex items-center gap-2 min-w-0">
+                <x-icon name="alert" />
+                <span>{{ $errors->first() }}</span>
+            </span>
             <button type="button" @click="show = false" class="text-white/80 hover:text-white"><x-icon name="x" /></button>
         </div>
     @endif

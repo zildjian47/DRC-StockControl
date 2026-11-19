@@ -13,6 +13,10 @@
 
     <x-flash />
 
+    @php
+        $stockMap = \App\Models\InventoryStock::pluck('current_stock', 'item_id');
+    @endphp
+
     <div class="panel"
          x-data="inboundPage({{ $inbounds->count() }})"
          x-init="recalc()"
@@ -94,6 +98,7 @@
                             $uom        = $inb->item->uom ?? '';
                             $compCode   = $inb->item->company->company_code ?? '-';
                             $tyCls      = 'ty-' . ($itemType === 'FG/KOMPONEN' ? 'FGK' : $itemType);
+                            $currStock  = floatval($stockMap[$inb->item_id] ?? 0);
                         @endphp
                         <tr data-row
                             data-search="{{ strtolower($partNo . ' ' . $partName . ' ' . $uName . ' ' . $compCode) }}"
@@ -135,7 +140,7 @@
                             </td>
                             <td class="text-center">
                                 <button type="button" class="act-btn" title="Koreksi Qty Inbound"
-                                        @click="openEdit({{ $inb->id }}, '{{ addslashes($partNo) }}', '{{ addslashes($partName) }}', '{{ $itemType }}', {{ floatval($inb->qty) }}, '{{ $uom }}')">
+                                        @click="openEdit({{ $inb->id }}, '{{ addslashes($partNo) }}', '{{ addslashes($partName) }}', '{{ $itemType }}', {{ floatval($inb->qty) }}, '{{ $uom }}', {{ $currStock }})">
                                     <x-icon name="edit" />
                                 </button>
                             </td>
@@ -157,7 +162,9 @@
                     </button>
                 </div>
 
-                <form action="{{ route('inbounds.verify_batch') }}" method="POST" class="flex flex-col min-h-0 flex-1">
+                <form action="{{ route('inbounds.verify_batch') }}" method="POST" novalidate
+                      @submit.prevent="submitEdit($el)"
+                      class="flex flex-col min-h-0 flex-1">
                     @csrf
                     <div class="dlg-split">
                         <aside class="dlg-side">
@@ -176,6 +183,11 @@
                         </aside>
 
                         <div class="dlg-main">
+                            <div x-show="editError" x-cloak class="alert alert-crit text-xs" role="alert">
+                                <x-icon name="alert" />
+                                <span x-text="editError"></span>
+                            </div>
+
                             <input type="hidden" :name="'items[' + editId + '][qty_check]'" value="TIDAK SESUAI">
                             <div>
                                 <label class="lbl" for="inb_actual_qty">Qty Inbound Sebenarnya</label>
@@ -189,12 +201,17 @@
                                         <x-icon name="calc" />
                                     </span>
                                 </div>
-                                <div class="hasil mt-1" x-show="evalCalc(editNewQty) !== null">
-                                    Hasil: <b x-text="evalCalc(editNewQty) + ' ' + editUom"></b>
+                                <div class="calc-preview" x-show="String(editNewQty || '').trim() !== '' && evalCalc(editNewQty) !== null" x-cloak>
+                                    Hasil: <b x-text="evalCalc(editNewQty)"></b> <span x-text="editUom"></span>
+                                </div>
+                                <div class="calc-err" x-show="String(editNewQty || '').trim() !== '' && evalCalc(editNewQty) === null" x-cloak>
+                                    <x-icon name="alert" />
+                                    <span>Format perhitungan tidak valid</span>
                                 </div>
                             </div>
                             <div class="alert alert-info text-xs leading-relaxed">
-                                Menyimpan koreksi akan otomatis menyesuaikan <b>Current Stock</b> di gudang dan menandai status transaksi menjadi <b>DIKOREKSI</b>.
+                                <x-icon name="info" />
+                                <div>Menyimpan koreksi akan otomatis menyesuaikan <b>Current Stock</b> di gudang dan menandai status transaksi menjadi <b>DIKOREKSI</b>.</div>
                             </div>
                         </div>
                     </div>
@@ -220,6 +237,7 @@
                 fStatus: '',
                 visibleCount: initialCount,
                 editOpen: false,
+                editError: '',
                 editId: null,
                 editPartNo: '',
                 editPartName: '',
@@ -227,8 +245,9 @@
                 editOldQty: 0,
                 editNewQty: '',
                 editUom: '',
+                editStock: 0,
 
-                openEdit(id, partNo, partName, type, qty, uom) {
+                openEdit(id, partNo, partName, type, qty, uom, stock) {
                     this.editId = id;
                     this.editPartNo = partNo;
                     this.editPartName = partName;
@@ -236,18 +255,42 @@
                     this.editOldQty = qty;
                     this.editNewQty = String(qty);
                     this.editUom = uom;
+                    this.editStock = Number(stock) || 0;
+                    this.editError = '';
                     this.editOpen = true;
                 },
                 evalCalc(raw) {
                     if (raw === null || raw === undefined) return null;
-                    const expr = String(raw).replace(/,/g, '.').replace(/\s+/g, '');
-                    if (!expr || !/^[0-9.+\-*\/()]+$/.test(expr)) return null;
+                    const expr = String(raw).replace(/,/g, '.').replace(/[xX]/g, '*').replace(/:/g, '/').replace(/\s+/g, '');
+                    if (!expr || !/^[0-9.+\-*\/()]+$/.test(expr) || /[\+\-\*\/]{2,}/.test(expr)) return null;
                     try {
                         const r = Function('return (' + expr + ')')();
-                        return (typeof r === 'number' && isFinite(r) && r > 0) ? Math.round(r * 100) / 100 : null;
+                        return (typeof r === 'number' && isFinite(r)) ? Math.round(r * 100) / 100 : null;
                     } catch (e) {
                         return null;
                     }
+                },
+                submitEdit(formEl) {
+                    this.editError = '';
+                    if (String(this.editNewQty || '').trim() === '') {
+                        this.editError = 'Qty Inbound koreksi wajib diisi.';
+                        return;
+                    }
+                    const val = this.evalCalc(this.editNewQty);
+                    if (val === null) {
+                        this.editError = 'Format perhitungan Qty koreksi tidak valid.';
+                        return;
+                    }
+                    if (val <= 0) {
+                        this.editError = 'Qty koreksi harus lebih besar dari 0.';
+                        return;
+                    }
+                    const diff = Math.round((val - this.editOldQty) * 100) / 100;
+                    if (this.editStock + diff < -0.0001) {
+                        this.editError = 'Ditolak: Koreksi Inbound untuk ' + this.editPartName + ' membuat Current Stock minus (Stok saat ini: ' + this.editStock + ' ' + this.editUom + ').';
+                        return;
+                    }
+                    formEl.submit();
                 },
                 resetFilter() {
                     this.q = '';

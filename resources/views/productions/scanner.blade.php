@@ -54,9 +54,10 @@
             </div>
         </div>
 
-        <div x-show="errorMsg" x-cloak class="alert alert-crit mb-3 flex items-center justify-between">
-            <span x-text="errorMsg"></span>
-            <button type="button" @click="errorMsg = ''" class="act-btn"><x-icon name="x" /></button>
+        <div x-show="errorMsg" x-cloak class="alert alert-crit mb-3" role="alert">
+            <x-icon name="alert" />
+            <span class="flex-1 min-w-0" x-text="errorMsg"></span>
+            <button type="button" @click="errorMsg = ''" class="act-btn flex-none -my-1 -mr-1"><x-icon name="x" /></button>
         </div>
 
         <div class="panel">
@@ -114,10 +115,17 @@
                         </div>
                     </div>
 
-                    <form action="{{ route('productions.store') }}" method="POST" class="space-y-4">
+                    <form action="{{ route('productions.store') }}" method="POST" novalidate
+                          @submit.prevent="submitForm($el)"
+                          class="space-y-4">
                         @csrf
                         <input type="hidden" name="mode" value="scanner">
                         <input type="hidden" name="item_id" :value="scannedItem?.id">
+
+                        <div x-show="formError" x-cloak class="alert alert-crit text-xs" role="alert">
+                            <x-icon name="alert" />
+                            <span class="flex-1 min-w-0" x-text="formError"></span>
+                        </div>
 
                         <div>
                             <label class="lbl">Pilih Nomor Lot Aktif (Klik &amp; Ketik untuk Mencari)</label>
@@ -146,16 +154,25 @@
                         </div>
 
                         <div>
-                            <label class="lbl">Qty Hasil Produksi (<span x-text="scannedItem?.uom"></span>) — Mendukung Kalkulator</label>
-                            <input type="text" name="qty" x-model="rawQty" required
-                                   placeholder="Contoh: 20"
-                                   class="num w-full h-14 text-2xl text-center font-bold">
-                            <div x-show="selectedLotObj && parsedQty > selectedLotObj.qty_wip" class="text-xs text-rose-600 font-semibold mt-1">
-                                Ditolak: Qty Production (<span class="num" x-text="parsedQty"></span>) melebihi sisa WIP (<span class="num" x-text="selectedLotObj?.qty_wip"></span>).
+                            <label class="lbl">Qty Hasil Produksi (<span x-text="scannedItem?.uom"></span>)</label>
+                            <div class="inp-calc">
+                                <input type="text" name="qty" x-model="rawQty" required
+                                       placeholder="Contoh: 20"
+                                       class="num w-full h-14 text-2xl text-center font-bold pl-[30px]">
+                                <span class="inp-calc-ic" title="Mendukung perhitungan kalkulator (+, -, *, /)">
+                                    <x-icon name="calc" />
+                                </span>
+                            </div>
+                            <div class="calc-preview text-center" x-show="String(rawQty || '').trim() !== '' && evalCalc(rawQty) !== null" x-cloak>
+                                Hasil: <b x-text="evalCalc(rawQty)"></b> <span x-text="scannedItem?.uom || ''"></span>
+                            </div>
+                            <div class="calc-err justify-center w-full" x-show="String(rawQty || '').trim() !== '' && evalCalc(rawQty) === null" x-cloak>
+                                <x-icon name="alert" />
+                                <span>Format perhitungan tidak valid</span>
                             </div>
                         </div>
 
-                        <button type="submit" class="btn btn-primary btn-lg w-full" :disabled="!canSubmit">
+                        <button type="submit" class="btn btn-primary btn-lg w-full">
                             Simpan Hasil Production (+ Stok)
                         </button>
                     </form>
@@ -214,6 +231,7 @@
                 cameraActive: false,
                 manualCode: '',
                 errorMsg: '',
+                formError: '',
                 items: items,
                 activeLots: activeLots,
                 allScans: allScans,
@@ -245,6 +263,7 @@
                 },
                 handleScan(rawCode) {
                     this.errorMsg = '';
+                    this.formError = '';
                     const c = String(rawCode || '').trim().toUpperCase();
                     if (!c) return;
                     const found = this.items.find(i => i.part_no === c || i.part_name === c);
@@ -275,21 +294,49 @@
                 get selectedLotObj() {
                     return this.itemLots.find(l => l.lot_number === this.lotNumber) || null;
                 },
-                get parsedQty() {
-                    const clean = String(this.rawQty || '').replace(/,/g, '.').replace(/\s+/g, '');
-                    if (!clean || !/^[0-9\.\+\-\*\/\(\)]+$/.test(clean)) return 0;
+                evalCalc(raw) {
+                    if (raw === null || raw === undefined) return null;
+                    const expr = String(raw).replace(/,/g, '.').replace(/\s+/g, '');
+                    if (!expr || !/^[0-9\.\+\-\*\/\(\)]+$/.test(expr) || /[\+\-\*\/]{2,}/.test(expr)) return null;
                     try {
-                        const r = Function('return (' + clean + ')')();
-                        return (typeof r === 'number' && isFinite(r) && r > 0) ? Math.round(r * 100) / 100 : 0;
+                        const r = Function('return (' + expr + ')')();
+                        return (typeof r === 'number' && isFinite(r)) ? Math.round(r * 100) / 100 : null;
                     } catch (e) {
-                        return 0;
+                        return null;
                     }
                 },
-                get canSubmit() {
-                    return this.scannedItem &&
-                           this.selectedLotObj &&
-                           this.parsedQty > 0 &&
-                           this.parsedQty <= this.selectedLotObj.qty_wip;
+                get parsedQty() {
+                    const r = this.evalCalc(this.rawQty);
+                    return (r !== null && r > 0) ? r : 0;
+                },
+                submitForm(formEl) {
+                    this.formError = '';
+                    if (!this.scannedItem) {
+                        this.formError = 'Silakan scan barang hasil produksi terlebih dahulu.';
+                        return;
+                    }
+                    if (!this.lotNumber || !this.selectedLotObj) {
+                        this.formError = 'Nomor Lot aktif wajib dipilih terlebih dahulu.';
+                        return;
+                    }
+                    if (String(this.rawQty || '').trim() === '') {
+                        this.formError = 'Qty Hasil Produksi wajib diisi.';
+                        return;
+                    }
+                    const val = this.evalCalc(this.rawQty);
+                    if (val === null) {
+                        this.formError = 'Format perhitungan Qty Production tidak valid.';
+                        return;
+                    }
+                    if (val <= 0) {
+                        this.formError = 'Qty Production harus lebih besar dari 0.';
+                        return;
+                    }
+                    if (val > this.selectedLotObj.qty_wip + 0.0001) {
+                        this.formError = `Ditolak: Qty Production (${val}) melebihi sisa Qty WIP pada Lot ${this.selectedLotObj.lot_number} (Sisa WIP: ${this.selectedLotObj.qty_wip} ${this.scannedItem?.uom || ''}).`;
+                        return;
+                    }
+                    formEl.submit();
                 },
                 get filteredHistory() {
                     return this.allScans.filter(s => {
@@ -308,6 +355,7 @@
                     this.rawQty = '';
                     this.manualCode = '';
                     this.errorMsg = '';
+                    this.formError = '';
                     this.step = 1;
                     if (window.DRCScanner && window.DRCScanner.isPermitted()) {
                         this.activateCamera();

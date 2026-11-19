@@ -66,9 +66,10 @@
             </div>
         </div>
 
-        <div x-show="errorMsg" x-cloak class="alert alert-crit mb-3 flex items-center justify-between">
-            <span x-text="errorMsg"></span>
-            <button type="button" @click="errorMsg = ''" class="act-btn"><x-icon name="x" /></button>
+        <div x-show="errorMsg" x-cloak class="alert alert-crit mb-3" role="alert">
+            <x-icon name="alert" />
+            <span class="flex-1 min-w-0" x-text="errorMsg"></span>
+            <button type="button" @click="errorMsg = ''" class="act-btn flex-none -my-1 -mr-1"><x-icon name="x" /></button>
         </div>
 
         <div class="panel">
@@ -142,11 +143,18 @@
                         </div>
                     </div>
 
-                    <form action="{{ route('material_returns.store') }}" method="POST" class="space-y-4">
+                    <form action="{{ route('material_returns.store') }}" method="POST" novalidate
+                          @submit.prevent="submitForm($el)"
+                          class="space-y-4">
                         @csrf
                         <input type="hidden" name="mode" value="scanner">
                         <input type="hidden" name="material_item_id" :value="materialItem?.id">
                         <input type="hidden" name="target_item_id" :value="targetItem?.id">
+
+                        <div x-show="formError" x-cloak class="alert alert-crit text-xs" role="alert">
+                            <x-icon name="alert" />
+                            <span class="flex-1 min-w-0" x-text="formError"></span>
+                        </div>
 
                         <div>
                             <label class="lbl">Pilih Nomor Lot Aktif (Klik &amp; Ketik untuk Mencari)</label>
@@ -165,16 +173,25 @@
                         </div>
 
                         <div>
-                            <label class="lbl">Qty Material Return (<span x-text="materialItem?.uom || 'Unit'"></span>) — Mendukung Kalkulator</label>
-                            <input type="text" name="qty" x-model="rawQty" required
-                                   placeholder="Contoh: 5"
-                                   class="num w-full h-14 text-2xl text-center font-bold">
-                            <div x-show="selectedLotObj && parsedQty > selectedLotObj.mat_saat_ini" class="text-xs text-rose-600 font-semibold mt-1">
-                                Ditolak: Qty Return (<span class="num" x-text="parsedQty"></span>) melebihi sisa Material Saat Ini di mesin (<span class="num" x-text="selectedLotObj?.mat_saat_ini"></span>).
+                            <label class="lbl">Qty Material Return (<span x-text="materialItem?.uom || 'Unit'"></span>)</label>
+                            <div class="inp-calc">
+                                <input type="text" name="qty" x-model="rawQty" required
+                                       placeholder="Contoh: 5"
+                                       class="num w-full h-14 text-2xl text-center font-bold pl-[30px]">
+                                <span class="inp-calc-ic" title="Mendukung perhitungan kalkulator (+, -, *, /)">
+                                    <x-icon name="calc" />
+                                </span>
+                            </div>
+                            <div class="calc-preview text-center" x-show="String(rawQty || '').trim() !== '' && evalCalc(rawQty) !== null" x-cloak>
+                                Hasil: <b x-text="evalCalc(rawQty)"></b> <span x-text="materialItem?.uom || ''"></span>
+                            </div>
+                            <div class="calc-err justify-center w-full" x-show="String(rawQty || '').trim() !== '' && evalCalc(rawQty) === null" x-cloak>
+                                <x-icon name="alert" />
+                                <span>Format perhitungan tidak valid</span>
                             </div>
                         </div>
 
-                        <button type="submit" class="btn btn-primary btn-lg w-full" :disabled="!canSubmit">
+                        <button type="submit" class="btn btn-primary btn-lg w-full">
                             Simpan Material Return (+ Stok)
                         </button>
                     </form>
@@ -233,6 +250,7 @@
                 cameraActive: false,
                 manualCode: '',
                 errorMsg: '',
+                formError: '',
                 items: items,
                 activeLots: activeLots,
                 allScans: allScans,
@@ -271,6 +289,7 @@
                 },
                 handleScan(rawCode) {
                     this.errorMsg = '';
+                    this.formError = '';
                     const found = this.findItem(rawCode);
                     if (!found) {
                         this.errorMsg = `Ditolak: Kode "${rawCode}" tidak ditemukan di Master Item aktif.`;
@@ -317,25 +336,49 @@
                 get selectedLotObj() {
                     return this.matchingLots.find(l => l.lot_number === this.lotNumber) || null;
                 },
-                evalMath(expr) {
-                    const clean = String(expr || '').replace(/,/g, '.').replace(/\s+/g, '');
-                    if (!clean || !/^[0-9\.\+\-\*\/\(\)]+$/.test(clean)) return 0;
+                evalCalc(raw) {
+                    if (raw === null || raw === undefined) return null;
+                    const expr = String(raw).replace(/,/g, '.').replace(/\s+/g, '');
+                    if (!expr || !/^[0-9\.\+\-\*\/\(\)]+$/.test(expr) || /[\+\-\*\/]{2,}/.test(expr)) return null;
                     try {
-                        const r = Function('return (' + clean + ')')();
-                        return (typeof r === 'number' && isFinite(r) && r > 0) ? Math.round(r * 100) / 100 : 0;
+                        const r = Function('return (' + expr + ')')();
+                        return (typeof r === 'number' && isFinite(r)) ? Math.round(r * 100) / 100 : null;
                     } catch (e) {
-                        return 0;
+                        return null;
                     }
                 },
                 get parsedQty() {
-                    return this.evalMath(this.rawQty);
+                    const r = this.evalCalc(this.rawQty);
+                    return (r !== null && r > 0) ? r : 0;
                 },
-                get canSubmit() {
-                    return this.materialItem &&
-                           this.targetItem &&
-                           this.selectedLotObj &&
-                           this.parsedQty > 0 &&
-                           this.parsedQty <= this.selectedLotObj.mat_saat_ini;
+                submitForm(formEl) {
+                    this.formError = '';
+                    if (!this.materialItem || !this.targetItem) {
+                        this.formError = 'Silakan scan Material dan Target Output terlebih dahulu.';
+                        return;
+                    }
+                    if (!this.lotNumber || !this.selectedLotObj) {
+                        this.formError = 'Nomor Lot aktif wajib dipilih terlebih dahulu.';
+                        return;
+                    }
+                    if (String(this.rawQty || '').trim() === '') {
+                        this.formError = 'Qty Material Return wajib diisi.';
+                        return;
+                    }
+                    const val = this.evalCalc(this.rawQty);
+                    if (val === null) {
+                        this.formError = 'Format perhitungan Qty Material Return tidak valid.';
+                        return;
+                    }
+                    if (val <= 0) {
+                        this.formError = 'Qty Material Return harus lebih besar dari 0.';
+                        return;
+                    }
+                    if (val > this.selectedLotObj.mat_saat_ini + 0.0001) {
+                        this.formError = `Ditolak: Qty Return (${val}) melebihi sisa Material Saat Ini di mesin (${this.selectedLotObj.mat_saat_ini} ${this.materialItem?.uom || ''}).`;
+                        return;
+                    }
+                    formEl.submit();
                 },
                 get filteredHistory() {
                     return this.allScans.filter(s => {
@@ -355,6 +398,7 @@
                     this.rawQty = '';
                     this.manualCode = '';
                     this.errorMsg = '';
+                    this.formError = '';
                     this.step = 1;
                     if (window.DRCScanner && window.DRCScanner.isPermitted()) {
                         this.activateCamera();

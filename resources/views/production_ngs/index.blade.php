@@ -30,12 +30,13 @@
             'act_prod'  => floatval($lt->actual_qty_prod),
             'qty_ng'    => floatval($lt->qty_ng),
             'act_fg'    => floatval($lt->act_fg),
+            'stock'     => floatval($lt->targetItem?->inventoryStock?->current_stock ?? 0),
         ])->values();
     @endphp
 
     <div class="panel"
          x-data="prodNgPage({{ $ngs->count() }}, {{ Js::from($lotsJs) }}, {{ $errors->any() ? 'true' : 'false' }})"
-         @open-add-ng.window="addOpen = true"
+         @open-add-ng.window="addOpen = true; addError = ''"
          x-init="recalc()"
          @table-refreshed.window="recalc()">
 
@@ -155,7 +156,9 @@
                     </button>
                 </div>
 
-                <form action="{{ route('production_ngs.store') }}" method="POST" class="flex flex-col min-h-0 flex-1">
+                <form action="{{ route('production_ngs.store') }}" method="POST" novalidate
+                      @submit.prevent="submitAdd($el)"
+                      class="flex flex-col min-h-0 flex-1">
                     @csrf
                     <div class="dlg-split">
                         <aside class="dlg-side hide-sm">
@@ -182,6 +185,11 @@
                         </aside>
 
                         <div class="dlg-main">
+                            <div x-show="addError" x-cloak class="alert alert-crit text-xs" role="alert">
+                                <x-icon name="alert" />
+                                <span x-text="addError"></span>
+                            </div>
+
                             <div>
                                 <label class="lbl" for="ng_lot">Pilih Nomor Lot &amp; Target Item (ON PROGRESS)</label>
                                 <select id="ng_lot" name="lot_tracer_id" x-model="selectedLotId" required class="w-full h-9 text-xs">
@@ -238,12 +246,38 @@
                 visibleCount: initialCount,
                 lotsList: lotsList,
                 addOpen: openInitially,
+                addError: '',
                 selectedLotId: '',
                 selectedReason: 'PROSES',
                 qtyNg: '',
 
                 get selectedLot() {
                     return this.lotsList.find(x => String(x.id) === String(this.selectedLotId)) || null;
+                },
+                submitAdd(formEl) {
+                    this.addError = '';
+                    if (!this.selectedLotId || !this.selectedLot) {
+                        this.addError = 'Nomor Lot wajib dipilih terlebih dahulu.';
+                        return;
+                    }
+                    if (!this.selectedReason) {
+                        this.addError = 'Problem Reason wajib dipilih.';
+                        return;
+                    }
+                    const qty = parseFloat(this.qtyNg);
+                    if (this.qtyNg === '' || this.qtyNg === null || isNaN(qty) || qty <= 0) {
+                        this.addError = 'Qty NG wajib diisi dan lebih besar dari 0.';
+                        return;
+                    }
+                    if (qty > this.selectedLot.act_fg + 0.0001) {
+                        this.addError = 'Ditolak: Qty NG (' + qty + ') melebihi saldo Act FG pada Lot ' + this.selectedLot.lot_no + ' (Maksimal: ' + this.selectedLot.act_fg + ' ' + this.selectedLot.uom + ').';
+                        return;
+                    }
+                    if (qty > this.selectedLot.stock + 0.0001) {
+                        this.addError = 'Ditolak: Qty NG (' + qty + ') melebihi Current Stock ' + this.selectedLot.part_name + ' di gudang (' + this.selectedLot.stock + ' ' + this.selectedLot.uom + ').';
+                        return;
+                    }
+                    formEl.submit();
                 },
                 resetFilter() {
                     this.q = '';

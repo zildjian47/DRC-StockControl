@@ -44,9 +44,10 @@
             </div>
         </div>
 
-        <div x-show="errorMsg" x-cloak class="alert alert-crit mb-3 flex items-center justify-between">
-            <span x-text="errorMsg"></span>
-            <button type="button" @click="errorMsg = ''" class="act-btn"><x-icon name="x" /></button>
+        <div x-show="errorMsg" x-cloak class="alert alert-crit mb-3" role="alert">
+            <x-icon name="alert" />
+            <span class="flex-1 min-w-0" x-text="errorMsg"></span>
+            <button type="button" @click="errorMsg = ''" class="act-btn flex-none -my-1 -mr-1"><x-icon name="x" /></button>
         </div>
 
         <div class="panel">
@@ -107,23 +108,41 @@
                         </div>
                     </div>
 
-                    <form action="{{ route('inbounds.store') }}" method="POST" class="space-y-4">
+                    <form action="{{ route('inbounds.store') }}" method="POST" novalidate
+                          @submit.prevent="submitForm($el)"
+                          class="space-y-4">
                         @csrf
                         <input type="hidden" name="mode" value="scanner">
                         <input type="hidden" name="item_id" :value="scannedItem?.id">
 
+                        <div x-show="formError" x-cloak class="alert alert-crit text-xs" role="alert">
+                            <x-icon name="alert" />
+                            <span class="flex-1 min-w-0" x-text="formError"></span>
+                        </div>
+
                         <div>
-                            <label class="lbl">Qty Inbound (<span x-text="scannedItem?.uom"></span>) — Mendukung Kalkulator</label>
-                            <input type="text" name="qty" x-model="rawQty" required
-                                   placeholder="Contoh: 100 atau 4*25"
-                                   class="num w-full h-14 text-2xl text-center font-bold">
-                            <div x-show="parsedQty > 0" class="text-xs text-emerald-700 font-semibold mt-1 text-center num">
-                                Hasil Input: +<span x-text="parsedQty"></span> <span x-text="scannedItem?.uom"></span>
-                                (Stok Menjadi: <span x-text="Math.round(((scannedItem?.stock || 0) + parsedQty) * 100) / 100"></span> <span x-text="scannedItem?.uom"></span>)
+                            <label class="lbl">Qty Inbound (<span x-text="scannedItem?.uom"></span>)</label>
+                            <div class="inp-calc">
+                                <input type="text" name="qty" x-model="rawQty" required
+                                       placeholder="Contoh: 100 atau 4*25"
+                                       class="num w-full h-14 text-2xl text-center font-bold pl-[30px]">
+                                <span class="inp-calc-ic" title="Mendukung perhitungan kalkulator (+, -, *, /)">
+                                    <x-icon name="calc" />
+                                </span>
+                            </div>
+                            <div class="calc-preview text-center" x-show="String(rawQty || '').trim() !== '' && evalCalc(rawQty) !== null" x-cloak>
+                                Hasil: <b x-text="evalCalc(rawQty)"></b> <span x-text="scannedItem?.uom"></span>
+                            </div>
+                            <div class="calc-err justify-center w-full" x-show="String(rawQty || '').trim() !== '' && evalCalc(rawQty) === null" x-cloak>
+                                <x-icon name="alert" />
+                                <span>Format perhitungan tidak valid</span>
+                            </div>
+                            <div x-show="parsedQty > 0" x-cloak class="text-xs text-emerald-700 font-semibold mt-1 text-center num">
+                                Stok: <span x-text="scannedItem?.stock ?? 0"></span> → <span x-text="Math.round(((scannedItem?.stock || 0) + parsedQty) * 100) / 100"></span> <span x-text="scannedItem?.uom"></span>
                             </div>
                         </div>
 
-                        <button type="submit" class="btn btn-primary btn-lg w-full" :disabled="parsedQty <= 0">
+                        <button type="submit" class="btn btn-primary btn-lg w-full">
                             Simpan Inbound (+ Stok)
                         </button>
                     </form>
@@ -182,6 +201,7 @@
                 cameraActive: false,
                 manualCode: '',
                 errorMsg: '',
+                formError: '',
                 items: items,
                 allScans: allScans,
                 todayStr: todayStr,
@@ -211,6 +231,7 @@
                 },
                 handleScan(rawCode) {
                     this.errorMsg = '';
+                    this.formError = '';
                     const c = String(rawCode || '').trim().toUpperCase();
                     if (!c) return;
                     const found = this.items.find(i => i.part_no === c || i.part_name === c);
@@ -228,15 +249,41 @@
                     window.DRCScanner.stop();
                     this.cameraActive = false;
                 },
-                get parsedQty() {
-                    const clean = String(this.rawQty || '').replace(/,/g, '.').replace(/\s+/g, '');
-                    if (!clean || !/^[0-9\.\+\-\*\/\(\)]+$/.test(clean)) return 0;
+                evalCalc(raw) {
+                    if (raw === null || raw === undefined) return null;
+                    const expr = String(raw).replace(/,/g, '.').replace(/\s+/g, '');
+                    if (!expr || !/^[0-9\.\+\-\*\/\(\)]+$/.test(expr) || /[\+\-\*\/]{2,}/.test(expr)) return null;
                     try {
-                        const r = Function('return (' + clean + ')')();
-                        return (typeof r === 'number' && isFinite(r) && r > 0) ? Math.round(r * 100) / 100 : 0;
+                        const r = Function('return (' + expr + ')')();
+                        return (typeof r === 'number' && isFinite(r)) ? Math.round(r * 100) / 100 : null;
                     } catch (e) {
-                        return 0;
+                        return null;
                     }
+                },
+                get parsedQty() {
+                    const r = this.evalCalc(this.rawQty);
+                    return (r !== null && r > 0) ? r : 0;
+                },
+                submitForm(formEl) {
+                    this.formError = '';
+                    if (!this.scannedItem) {
+                        this.formError = 'Silakan scan barang terlebih dahulu.';
+                        return;
+                    }
+                    if (String(this.rawQty || '').trim() === '') {
+                        this.formError = 'Qty Inbound wajib diisi.';
+                        return;
+                    }
+                    const val = this.evalCalc(this.rawQty);
+                    if (val === null) {
+                        this.formError = 'Format perhitungan Qty Inbound tidak valid.';
+                        return;
+                    }
+                    if (val <= 0) {
+                        this.formError = 'Qty Inbound harus lebih besar dari 0.';
+                        return;
+                    }
+                    formEl.submit();
                 },
                 get filteredHistory() {
                     return this.allScans.filter(s => {
@@ -254,6 +301,7 @@
                     this.rawQty = '';
                     this.manualCode = '';
                     this.errorMsg = '';
+                    this.formError = '';
                     this.step = 1;
                     if (window.DRCScanner && window.DRCScanner.isPermitted()) {
                         this.activateCamera();

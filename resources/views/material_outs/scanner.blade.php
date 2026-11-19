@@ -69,9 +69,10 @@
         </div>
 
         {{-- NOTIFIKASI ERROR VALIDASI SCANNER --}}
-        <div x-show="errorMsg" x-cloak class="alert alert-crit mb-3 flex items-center justify-between">
-            <span x-text="errorMsg"></span>
-            <button type="button" @click="errorMsg = ''" class="act-btn"><x-icon name="x" /></button>
+        <div x-show="errorMsg" x-cloak class="alert alert-crit mb-3" role="alert">
+            <x-icon name="alert" />
+            <span class="flex-1 min-w-0" x-text="errorMsg"></span>
+            <button type="button" @click="errorMsg = ''" class="act-btn flex-none -my-1 -mr-1"><x-icon name="x" /></button>
         </div>
 
         {{-- KARTU UTAMA SCANNER --}}
@@ -212,12 +213,19 @@
                     </div>
 
                     {{-- FORM SUBMIT MATERIAL OUT --}}
-                    <form action="{{ route('material_outs.store') }}" method="POST" class="space-y-4">
+                    <form action="{{ route('material_outs.store') }}" method="POST" novalidate
+                          @submit.prevent="submitForm($el)"
+                          class="space-y-4">
                         @csrf
                         <input type="hidden" name="mode" value="scanner">
                         <input type="hidden" name="material_item_id" :value="materialItem?.id">
                         <input type="hidden" name="target_item_id" :value="targetItem?.id">
                         <input type="hidden" name="bom_group" :value="selectedBomGroup">
+
+                        <div x-show="formError" x-cloak class="alert alert-crit text-xs" role="alert">
+                            <x-icon name="alert" />
+                            <span class="flex-1 min-w-0" x-text="formError"></span>
+                        </div>
 
                         <div>
                             <label class="lbl">Nomor Lot Produksi (1 Huruf Kapital + 6 Angka)</label>
@@ -225,29 +233,28 @@
                                    @input="lotNumber = lotNumber.toUpperCase()"
                                    maxlength="7" required placeholder="Contoh: J260178"
                                    class="num uppercase w-full h-11 text-base font-bold tracking-wider">
-                            <div x-show="lotNumber && !isValidLotFormat" class="text-xs text-rose-600 font-semibold mt-1">
-                                Format wajib 1 Huruf Kapital diikuti 6 Angka (contoh: J260178).
-                            </div>
-                            <div x-show="isLotDuplicate" class="text-xs text-rose-600 font-semibold mt-1">
-                                Ditolak: Nomor Lot <span class="num" x-text="lotNumber"></span> sudah digunakan pada Material Out sebelumnya.
-                            </div>
                         </div>
 
                         <div>
-                            <label class="lbl">Qty Material Out (<span x-text="materialItem?.uom || 'Unit'"></span>) — Mendukung Kalkulator</label>
-                            <input type="text" name="qty" x-model="rawQty" required
-                                   placeholder="Contoh: 20 atau 10*2"
-                                   class="num w-full h-14 text-2xl text-center font-bold">
-                            <div x-show="parsedQty > (materialItem?.stock ?? 0)" class="text-xs text-rose-600 font-semibold mt-1">
-                                Ditolak: Qty Material Out (<span class="num" x-text="parsedQty"></span>) melebihi stok tersedia (<span class="num" x-text="materialItem?.stock"></span>).
+                            <label class="lbl">Qty Material Out (<span x-text="materialItem?.uom || 'Unit'"></span>)</label>
+                            <div class="inp-calc">
+                                <input type="text" name="qty" x-model="rawQty" required
+                                       placeholder="Contoh: 20 atau 10*2"
+                                       class="num w-full h-14 text-2xl text-center font-bold pl-[30px]">
+                                <span class="inp-calc-ic" title="Mendukung perhitungan kalkulator (+, -, *, /)">
+                                    <x-icon name="calc" />
+                                </span>
                             </div>
-                            <div x-show="hasInsufficientCompanion" class="text-xs text-rose-600 font-semibold mt-1">
-                                Ditolak: Terdapat komponen pendamping yang stoknya tidak mencukupi.
+                            <div class="calc-preview text-center" x-show="String(rawQty || '').trim() !== '' && evalCalc(rawQty) !== null" x-cloak>
+                                Hasil: <b x-text="evalCalc(rawQty)"></b> <span x-text="materialItem?.uom || ''"></span>
+                            </div>
+                            <div class="calc-err justify-center w-full" x-show="String(rawQty || '').trim() !== '' && evalCalc(rawQty) === null" x-cloak>
+                                <x-icon name="alert" />
+                                <span>Format perhitungan tidak valid</span>
                             </div>
                         </div>
 
-                        <button type="submit" class="btn btn-primary btn-lg w-full"
-                                :disabled="!canSubmit">
+                        <button type="submit" class="btn btn-primary btn-lg w-full">
                             Simpan Material Out (- Stok)
                         </button>
                     </form>
@@ -306,6 +313,7 @@
                 cameraActive: false,
                 manualCode: '',
                 errorMsg: '',
+                formError: '',
                 items: items,
                 boms: boms,
                 existingLots: existingLots,
@@ -347,6 +355,7 @@
                 },
                 handleScan(rawCode) {
                     this.errorMsg = '';
+                    this.formError = '';
                     const found = this.findItem(rawCode);
                     if (!found) {
                         this.errorMsg = `Ditolak: Kode "${rawCode}" tidak ditemukan di Master Item aktif.`;
@@ -406,18 +415,20 @@
                         this.cameraActive = false;
                     }
                 },
-                evalMath(expr) {
-                    const clean = String(expr || '').replace(/,/g, '.').replace(/\s+/g, '');
-                    if (!clean || !/^[0-9\.\+\-\*\/\(\)]+$/.test(clean)) return 0;
+                evalCalc(raw) {
+                    if (raw === null || raw === undefined) return null;
+                    const expr = String(raw).replace(/,/g, '.').replace(/\s+/g, '');
+                    if (!expr || !/^[0-9\.\+\-\*\/\(\)]+$/.test(expr) || /[\+\-\*\/]{2,}/.test(expr)) return null;
                     try {
-                        const r = Function('return (' + clean + ')')();
-                        return (typeof r === 'number' && isFinite(r) && r > 0) ? Math.round(r * 100) / 100 : 0;
+                        const r = Function('return (' + expr + ')')();
+                        return (typeof r === 'number' && isFinite(r)) ? Math.round(r * 100) / 100 : null;
                     } catch (e) {
-                        return 0;
+                        return null;
                     }
                 },
                 get parsedQty() {
-                    return this.evalMath(this.rawQty);
+                    const r = this.evalCalc(this.rawQty);
+                    return (r !== null && r > 0) ? r : 0;
                 },
                 get activeGroupType() {
                     const g = this.candidateGroups.find(x => x.bom_group === this.selectedBomGroup);
@@ -484,17 +495,49 @@
                     if (!this.lotNumber) return false;
                     return this.existingLots.includes(this.lotNumber.toUpperCase());
                 },
-                get hasInsufficientCompanion() {
-                    return this.groupCompanions.some(c => c.needed > c.stock);
-                },
-                get canSubmit() {
-                    return this.materialItem &&
-                           this.targetItem &&
-                           this.isValidLotFormat &&
-                           !this.isLotDuplicate &&
-                           this.parsedQty > 0 &&
-                           this.parsedQty <= (this.materialItem.stock || 0) &&
-                           !this.hasInsufficientCompanion;
+                submitForm(formEl) {
+                    this.formError = '';
+                    if (!this.materialItem || !this.targetItem) {
+                        this.formError = 'Silakan scan Material Trigger dan Target Output terlebih dahulu.';
+                        return;
+                    }
+                    const lot = String(this.lotNumber || '').trim().toUpperCase();
+                    this.lotNumber = lot;
+                    if (!lot) {
+                        this.formError = 'Nomor Lot Produksi wajib diisi.';
+                        return;
+                    }
+                    if (!this.isValidLotFormat) {
+                        this.formError = 'Format Nomor Lot wajib 1 Huruf Kapital diikuti 6 Angka (contoh: J260178).';
+                        return;
+                    }
+                    if (this.isLotDuplicate) {
+                        this.formError = `Ditolak: Nomor Lot ${lot} sudah digunakan pada Material Out sebelumnya.`;
+                        return;
+                    }
+                    if (String(this.rawQty || '').trim() === '') {
+                        this.formError = 'Qty Material Out wajib diisi.';
+                        return;
+                    }
+                    const val = this.evalCalc(this.rawQty);
+                    if (val === null) {
+                        this.formError = 'Format perhitungan Qty Material Out tidak valid.';
+                        return;
+                    }
+                    if (val <= 0) {
+                        this.formError = 'Qty Material Out harus lebih besar dari 0.';
+                        return;
+                    }
+                    if (val > (this.materialItem.stock || 0) + 0.0001) {
+                        this.formError = `Ditolak: Qty Material Out (${val}) melebihi stok ${this.materialItem.part_name} yang tersedia (${this.materialItem.stock} ${this.materialItem.uom}).`;
+                        return;
+                    }
+                    const lacking = this.groupCompanions.find(c => c.needed > c.stock + 0.0001);
+                    if (lacking) {
+                        this.formError = `Ditolak: Stok komponen pendamping [${lacking.part_name}] tidak mencukupi (Butuh: ${lacking.needed} ${lacking.uom}, Tersedia: ${lacking.stock} ${lacking.uom}).`;
+                        return;
+                    }
+                    formEl.submit();
                 },
                 get filteredHistory() {
                     return this.allScans.filter(s => {
@@ -516,6 +559,7 @@
                     this.rawQty = '';
                     this.manualCode = '';
                     this.errorMsg = '';
+                    this.formError = '';
                     this.step = 1;
                     if (window.DRCScanner && window.DRCScanner.isPermitted()) {
                         this.activateCamera();

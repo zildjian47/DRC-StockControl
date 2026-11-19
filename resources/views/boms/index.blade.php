@@ -34,7 +34,7 @@
 
     <div class="panel"
          x-data="bomPage({{ $groupedBoms->count() }}, {{ $boms->count() }}, {{ Js::from($inputItemsJs) }}, {{ Js::from($outputItemsJs) }}, {{ $errors->any() ? 'true' : 'false' }})"
-         @open-add-bom.window="addOpen = true"
+         @open-add-bom.window="addOpen = true; addError = ''"
          x-init="recalc()"
          @table-refreshed.window="recalc()">
 
@@ -200,11 +200,18 @@
                     </button>
                 </div>
 
-                <form action="{{ route('boms.store') }}" method="POST" class="flex flex-col min-h-0 flex-1">
+                <form action="{{ route('boms.store') }}" method="POST" novalidate
+                      @submit.prevent="submitAdd($el)"
+                      class="flex flex-col min-h-0 flex-1">
                     @csrf
                     <input type="hidden" name="trigger_index" :value="triggerIndex">
 
                     <div class="dlg-main flex-1 min-h-0">
+                        <div x-show="addError" x-cloak class="alert alert-crit text-xs" role="alert">
+                            <x-icon name="alert" />
+                            <span x-text="addError"></span>
+                        </div>
+
                         <div class="flow3" x-ref="flow3"
                              @input="$nextTick(() => drawLinks())"
                              @change="$nextTick(() => drawLinks())"
@@ -254,9 +261,13 @@
                                                     <x-icon name="calc" />
                                                 </span>
                                             </div>
-                                            <div class="hasil" style="margin-top: 4px" x-show="evalFormula(inp.qty_usage) !== null">
+                                            <div class="calc-preview" x-show="evalFormula(inp.qty_usage) !== null">
                                                 Hasil: <b x-text="evalFormula(inp.qty_usage)"></b>
-                                                <span x-text="getItemUom(inp.item_id, true) + ' per 1 ' + (getItemUom(formOutputs[0]?.item_id, false) || 'Output')"></span>
+                                                <span x-text="(getItemUom(inp.item_id, true) ? getItemUom(inp.item_id, true) + ' ' : '') + 'per 1 ' + (getItemUom(formOutputs[0]?.item_id, false) || 'Output')"></span>
+                                            </div>
+                                            <div class="calc-err" x-show="String(inp.qty_usage || '').trim() !== '' && evalFormula(inp.qty_usage) === null" x-cloak>
+                                                <x-icon name="alert" />
+                                                <span>Format perhitungan tidak valid</span>
                                             </div>
                                         </div>
                                     </div>
@@ -267,7 +278,7 @@
                             <div class="fmid">
                                 <div class="pnode" data-n="proc">
                                     <div class="dlg-k">Proses Manufaktur</div>
-                                    <select name="process_id" required aria-label="Proses manufaktur" class="w-full h-9 text-xs">
+                                    <select name="process_id" x-model="addProcessId" required aria-label="Proses manufaktur" class="w-full h-9 text-xs">
                                         <option value="">-- Pilih Proses --</option>
                                         @foreach($processes as $proc)
                                             <option value="{{ $proc->id }}">{{ $proc->process_name }}</option>
@@ -325,9 +336,13 @@
                                                             <x-icon name="calc" />
                                                         </span>
                                                     </div>
-                                                    <div class="hasil mt-0.5" x-show="evalFormula(out.usages[iIdx]) !== null">
+                                                    <div class="calc-preview" x-show="evalFormula(out.usages[iIdx]) !== null">
                                                         Hasil: <b x-text="evalFormula(out.usages[iIdx])"></b>
                                                         <span x-text="getItemUom(inp.item_id, true)"></span>
+                                                    </div>
+                                                    <div class="calc-err" x-show="String(out.usages[iIdx] || '').trim() !== '' && evalFormula(out.usages[iIdx]) === null" x-cloak>
+                                                        <x-icon name="alert" />
+                                                        <span>Format perhitungan tidak valid</span>
                                                     </div>
                                                 </div>
                                             </template>
@@ -354,6 +369,8 @@
                 fProcess: '',
                 fBomType: '',
                 addOpen: openInitially,
+                addProcessId: '',
+                addError: '',
                 visibleGroups: initialGroups,
                 inputItemsList: inputItemsList,
                 outputItemsList: outputItemsList,
@@ -365,6 +382,7 @@
                     this.$watch('addOpen', (open) => {
                         if (open) this.$nextTick(() => this.drawLinks());
                     });
+                    this.$watch('addError', () => this.$nextTick(() => this.drawLinks()));
                     this.$watch('formInputs', () => this.$nextTick(() => this.drawLinks()));
                     this.$watch('formOutputs', () => this.$nextTick(() => this.drawLinks()));
                     if (window.ResizeObserver && this.$refs.flow3) {
@@ -459,12 +477,77 @@
                     if (val === undefined || val === null || String(val).trim() === '') return null;
                     const expr = String(val).replace(/,/g, '.').replace(/\s+/g, '');
                     if (!/^[0-9\.\+\-\*\/\(\)]+$/.test(expr)) return null;
+                    if (/[\+\-\*\/]{2,}/.test(expr)) return null;
                     try {
                         const r = Function('return (' + expr + ')')();
                         return (typeof r === 'number' && isFinite(r) && r >= 0) ? Math.round(r * 100000000) / 100000000 : null;
                     } catch (e) {
                         return null;
                     }
+                },
+                submitAdd(formEl) {
+                    this.addError = '';
+                    if (!this.addProcessId) {
+                        this.addError = 'Proses Manufaktur wajib dipilih.';
+                        return;
+                    }
+
+                    const inIds = this.formInputs.map(i => String(i.item_id || '').trim());
+                    const outIds = this.formOutputs.map(o => String(o.item_id || '').trim());
+
+                    if (inIds.some(id => !id)) {
+                        this.addError = 'Semua baris Material Pembentuk (Input) wajib dipilih.';
+                        return;
+                    }
+                    if (outIds.some(id => !id)) {
+                        this.addError = 'Semua baris Target Output wajib dipilih.';
+                        return;
+                    }
+                    if (new Set(inIds).size !== inIds.length) {
+                        this.addError = 'Terdapat Material Input yang dipilih ganda dalam 1 resep.';
+                        return;
+                    }
+                    if (new Set(outIds).size !== outIds.length) {
+                        this.addError = 'Terdapat Target Output yang dipilih ganda dalam 1 resep.';
+                        return;
+                    }
+                    if (inIds.some(id => outIds.includes(id))) {
+                        this.addError = 'Material Input dan Target Output tidak boleh item yang sama.';
+                        return;
+                    }
+
+                    if (this.formOutputs.length === 1) {
+                        for (let i = 0; i < this.formInputs.length; i++) {
+                            const val = this.evalFormula(this.formInputs[i].qty_usage);
+                            if (val === null || val <= 0) {
+                                this.addError = 'Qty Usage pada setiap Material Input wajib berformat valid dan lebih besar dari 0.';
+                                return;
+                            }
+                        }
+                    } else {
+                        for (let oIdx = 0; oIdx < this.formOutputs.length; oIdx++) {
+                            const out = this.formOutputs[oIdx];
+                            for (let iIdx = 0; iIdx < this.formInputs.length; iIdx++) {
+                                const raw = out.usages ? out.usages[iIdx] : '';
+                                const isTrig = (iIdx === this.triggerIndex);
+                                if (isTrig) {
+                                    const val = this.evalFormula(raw);
+                                    if (val === null || val <= 0) {
+                                        this.addError = 'Qty Usage untuk Material Trigger wajib valid dan lebih besar dari 0 pada setiap Target Output.';
+                                        return;
+                                    }
+                                } else if (String(raw ?? '').trim() !== '') {
+                                    const val = this.evalFormula(raw);
+                                    if (val === null || val < 0) {
+                                        this.addError = 'Format Qty Usage pada Material Pendamping tidak valid.';
+                                        return;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    formEl.submit();
                 },
                 matchRow(el) {
                     const s = (el.dataset.search || '').toLowerCase();

@@ -13,9 +13,16 @@
 
     <x-flash />
 
+    @php
+        $processesJs = $processes->map(fn ($p) => [
+            'id'   => $p->id,
+            'name' => strtoupper(trim((string) $p->process_name)),
+        ])->values();
+    @endphp
+
     <div class="panel"
-         x-data="processPage({{ $processes->count() }}, {{ $errors->any() ? 'true' : 'false' }})"
-         @open-add-process.window="addOpen = true"
+         x-data="processPage({{ $processes->count() }}, {{ Js::from($processesJs) }}, {{ $errors->any() ? 'true' : 'false' }})"
+         @open-add-process.window="addOpen = true; addError = ''"
          x-init="recalc()">
 
         <div class="panel-head">
@@ -86,7 +93,9 @@
                     </button>
                 </div>
 
-                <form action="{{ route('processes.store') }}" method="POST" class="flex flex-col min-h-0 flex-1">
+                <form action="{{ route('processes.store') }}" method="POST" novalidate
+                      @submit.prevent="submitAdd($el)"
+                      class="flex flex-col min-h-0 flex-1">
                     @csrf
                     <div class="dlg-split">
                         <aside class="dlg-side">
@@ -101,6 +110,11 @@
                         </aside>
 
                         <div class="dlg-main">
+                            <div x-show="addError" x-cloak class="alert alert-crit text-xs" role="alert">
+                                <x-icon name="alert" />
+                                <span x-text="addError"></span>
+                            </div>
+
                             <div>
                                 <label class="lbl" for="add_proc_name">Nama Proses (Otomatis Huruf Kapital)</label>
                                 <input id="add_proc_name" type="text" name="process_name" x-model="addName" required
@@ -129,7 +143,9 @@
                     </button>
                 </div>
 
-                <form :action="'{{ url('processes') }}/' + editId" method="POST" class="flex flex-col min-h-0 flex-1">
+                <form :action="'{{ url('processes') }}/' + editId" method="POST" novalidate
+                      @submit.prevent="submitEdit($el)"
+                      class="flex flex-col min-h-0 flex-1">
                     @csrf
                     @method('PUT')
                     <div class="dlg-split">
@@ -145,6 +161,11 @@
                         </aside>
 
                         <div class="dlg-main">
+                            <div x-show="editError" x-cloak class="alert alert-crit text-xs" role="alert">
+                                <x-icon name="alert" />
+                                <span x-text="editError"></span>
+                            </div>
+
                             <div>
                                 <label class="lbl" for="edit_proc_name">Nama Proses</label>
                                 <input id="edit_proc_name" type="text" name="process_name" x-model="editName" required
@@ -164,19 +185,49 @@
     </div>
 
     <script>
-        function processPage(initialCount, openInitially) {
+        function processPage(initialCount, existingProcesses, openInitially) {
             return {
                 q: '',
+                existingProcesses: existingProcesses || [],
                 addOpen: openInitially,
                 addName: '',
+                addError: '',
                 editOpen: false,
                 editId: null,
                 editName: '',
+                editError: '',
                 visibleCount: initialCount,
                 openEditModal(id, name) {
                     this.editId = id;
                     this.editName = name;
+                    this.editError = '';
                     this.editOpen = true;
+                },
+                submitAdd(formEl) {
+                    this.addError = '';
+                    const name = (this.addName || '').trim().toUpperCase();
+                    if (!name) {
+                        this.addError = 'Nama proses wajib diisi.';
+                        return;
+                    }
+                    if (this.existingProcesses.some(p => p.name === name)) {
+                        this.addError = 'Nama proses ' + name + ' sudah terdaftar.';
+                        return;
+                    }
+                    formEl.submit();
+                },
+                submitEdit(formEl) {
+                    this.editError = '';
+                    const name = (this.editName || '').trim().toUpperCase();
+                    if (!name) {
+                        this.editError = 'Nama proses wajib diisi.';
+                        return;
+                    }
+                    if (this.existingProcesses.some(p => String(p.id) !== String(this.editId) && p.name === name)) {
+                        this.editError = 'Nama proses ' + name + ' sudah terdaftar.';
+                        return;
+                    }
+                    formEl.submit();
                 },
                 matchRow(el) {
                     const s = (el.dataset.search || '').toLowerCase();

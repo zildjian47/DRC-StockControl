@@ -13,6 +13,10 @@
 
     <x-flash />
 
+    @php
+        $stockMap = \App\Models\InventoryStock::pluck('current_stock', 'item_id');
+    @endphp
+
     <div class="panel"
          x-data="matOutPage({{ $groupedOuts->count() }}, {{ $materialOuts->count() }})"
          x-init="recalc()"
@@ -94,11 +98,12 @@
                 <tbody x-show="viewMode === 'grouped'">
                     @forelse($groupedOuts as $idx => $grp)
                         @php
-                            $first   = $grp['first'];
-                            $dt      = \Carbon\Carbon::parse($first->date_time);
-                            $bType   = $grp['bom_type'];
-                            $matItem = $first->materialItem;
-                            $uName   = $first->user->name ?? 'Operator';
+                            $first     = $grp['first'];
+                            $dt        = \Carbon\Carbon::parse($first->date_time);
+                            $bType     = $grp['bom_type'];
+                            $matItem   = $first->materialItem;
+                            $uName     = $first->user->name ?? 'Operator';
+                            $currStock = floatval($stockMap[$first->material_item_id] ?? 0);
                         @endphp
                         <tr data-grp-row
                             data-search="{{ $grp['search_index'] }}"
@@ -197,7 +202,7 @@
                             </td>
                             <td class="text-center">
                                 <button type="button" class="act-btn" title="Koreksi Qty Material Out"
-                                        @click="openEdit({{ $first->id }}, '{{ $grp['lot_number'] }}', '{{ addslashes($matItem->part_no ?: '-') }}', '{{ addslashes($matItem->part_name ?? '-') }}', {{ floatval($grp['qty_trigger']) }}, '{{ $matItem->uom ?? '' }}')">
+                                        @click="openEdit({{ $first->id }}, '{{ $grp['lot_number'] }}', '{{ addslashes($matItem->part_no ?: '-') }}', '{{ addslashes($matItem->part_name ?? '-') }}', {{ floatval($grp['qty_trigger']) }}, '{{ $matItem->uom ?? '' }}', {{ $currStock }})">
                                     <x-icon name="edit" />
                                 </button>
                             </td>
@@ -211,13 +216,14 @@
                 <tbody x-show="viewMode === 'flat'" x-cloak>
                     @forelse($materialOuts as $idx => $row)
                         @php
-                            $dt       = \Carbon\Carbon::parse($row->date_time);
-                            $bType    = $row->bom_type ?: 'SINGLE';
-                            $statLbl  = $row->qty_check === 'TIDAK SESUAI' ? 'DIKOREKSI' : 'TERCATAT';
-                            $matItem  = $row->materialItem;
-                            $tgtItem  = $row->targetItem;
-                            $uName    = $row->user->name ?? 'Operator';
-                            $sIndex   = strtolower($row->lot_number . ' ' . $bType . ' ' . $uName . ' ' . ($matItem->part_no ?? '') . ' ' . ($matItem->part_name ?? '') . ' ' . ($tgtItem->part_no ?? '') . ' ' . ($tgtItem->part_name ?? ''));
+                            $dt        = \Carbon\Carbon::parse($row->date_time);
+                            $bType     = $row->bom_type ?: 'SINGLE';
+                            $statLbl   = $row->qty_check === 'TIDAK SESUAI' ? 'DIKOREKSI' : 'TERCATAT';
+                            $matItem   = $row->materialItem;
+                            $tgtItem   = $row->targetItem;
+                            $uName     = $row->user->name ?? 'Operator';
+                            $currStock = floatval($stockMap[$row->material_item_id] ?? 0);
+                            $sIndex    = strtolower($row->lot_number . ' ' . $bType . ' ' . $uName . ' ' . ($matItem->part_no ?? '') . ' ' . ($matItem->part_name ?? '') . ' ' . ($tgtItem->part_no ?? '') . ' ' . ($tgtItem->part_name ?? ''));
                         @endphp
                         <tr data-flat-row
                             data-search="{{ $sIndex }}"
@@ -278,7 +284,7 @@
                             </td>
                             <td class="text-center">
                                 <button type="button" class="act-btn" title="Koreksi Qty Material Out"
-                                        @click="openEdit({{ $row->id }}, '{{ $row->lot_number }}', '{{ addslashes($matItem->part_no ?: '-') }}', '{{ addslashes($matItem->part_name ?? '-') }}', {{ floatval($row->qty) }}, '{{ $matItem->uom ?? '' }}')">
+                                        @click="openEdit({{ $row->id }}, '{{ $row->lot_number }}', '{{ addslashes($matItem->part_no ?: '-') }}', '{{ addslashes($matItem->part_name ?? '-') }}', {{ floatval($row->qty) }}, '{{ $matItem->uom ?? '' }}', {{ $currStock }})">
                                     <x-icon name="edit" />
                                 </button>
                             </td>
@@ -300,7 +306,9 @@
                     </button>
                 </div>
 
-                <form action="{{ route('material_outs.verify_batch') }}" method="POST" class="flex flex-col min-h-0 flex-1">
+                <form action="{{ route('material_outs.verify_batch') }}" method="POST" novalidate
+                      @submit.prevent="submitEdit($el)"
+                      class="flex flex-col min-h-0 flex-1">
                     @csrf
                     <div class="dlg-split">
                         <aside class="dlg-side">
@@ -317,6 +325,11 @@
                         </aside>
 
                         <div class="dlg-main">
+                            <div x-show="editError" x-cloak class="alert alert-crit text-xs" role="alert">
+                                <x-icon name="alert" />
+                                <span x-text="editError"></span>
+                            </div>
+
                             <input type="hidden" :name="'items[' + editId + '][qty_check]'" value="TIDAK SESUAI">
                             <div>
                                 <label class="lbl" for="mo_actual_qty">Qty Material Out (Trigger) Sebenarnya</label>
@@ -330,12 +343,17 @@
                                         <x-icon name="calc" />
                                     </span>
                                 </div>
-                                <div class="hasil mt-1" x-show="evalCalc(editNewQty) !== null">
-                                    Hasil: <b x-text="evalCalc(editNewQty) + ' ' + editUom"></b>
+                                <div class="calc-preview" x-show="String(editNewQty || '').trim() !== '' && evalCalc(editNewQty) !== null" x-cloak>
+                                    Hasil: <b x-text="evalCalc(editNewQty)"></b> <span x-text="editUom"></span>
+                                </div>
+                                <div class="calc-err" x-show="String(editNewQty || '').trim() !== '' && evalCalc(editNewQty) === null" x-cloak>
+                                    <x-icon name="alert" />
+                                    <span>Format perhitungan tidak valid</span>
                                 </div>
                             </div>
                             <div class="alert alert-info text-xs leading-relaxed">
-                                Koreksi ini otomatis menyesuaikan stok <b>Material Trigger</b>, stok <b>Komponen Pendamping</b> secara proporsional, serta <b>Target Estimasi &amp; WIP</b> di Lot Tracer.
+                                <x-icon name="info" />
+                                <div>Koreksi ini otomatis menyesuaikan stok <b>Material Trigger</b>, stok <b>Komponen Pendamping</b> secara proporsional, serta <b>Target Estimasi &amp; WIP</b> di Lot Tracer.</div>
                             </div>
                         </div>
                     </div>
@@ -363,6 +381,7 @@
                 visibleGrouped: initialGrouped,
                 visibleFlat: initialFlat,
                 editOpen: false,
+                editError: '',
                 editId: null,
                 editLot: '',
                 editPartNo: '',
@@ -370,8 +389,9 @@
                 editOldQty: 0,
                 editNewQty: '',
                 editUom: '',
+                editStock: 0,
 
-                openEdit(id, lot, partNo, partName, qty, uom) {
+                openEdit(id, lot, partNo, partName, qty, uom, stock) {
                     this.editId = id;
                     this.editLot = lot;
                     this.editPartNo = partNo;
@@ -379,18 +399,42 @@
                     this.editOldQty = qty;
                     this.editNewQty = String(qty);
                     this.editUom = uom;
+                    this.editStock = Number(stock) || 0;
+                    this.editError = '';
                     this.editOpen = true;
                 },
                 evalCalc(raw) {
                     if (raw === null || raw === undefined) return null;
-                    const expr = String(raw).replace(/,/g, '.').replace(/\s+/g, '');
-                    if (!expr || !/^[0-9.+\-*\/()]+$/.test(expr)) return null;
+                    const expr = String(raw).replace(/,/g, '.').replace(/[xX]/g, '*').replace(/:/g, '/').replace(/\s+/g, '');
+                    if (!expr || !/^[0-9.+\-*\/()]+$/.test(expr) || /[\+\-\*\/]{2,}/.test(expr)) return null;
                     try {
                         const r = Function('return (' + expr + ')')();
-                        return (typeof r === 'number' && isFinite(r) && r > 0) ? Math.round(r * 100) / 100 : null;
+                        return (typeof r === 'number' && isFinite(r)) ? Math.round(r * 100) / 100 : null;
                     } catch (e) {
                         return null;
                     }
+                },
+                submitEdit(formEl) {
+                    this.editError = '';
+                    if (String(this.editNewQty || '').trim() === '') {
+                        this.editError = 'Qty Material Out koreksi wajib diisi.';
+                        return;
+                    }
+                    const val = this.evalCalc(this.editNewQty);
+                    if (val === null) {
+                        this.editError = 'Format perhitungan Qty koreksi tidak valid.';
+                        return;
+                    }
+                    if (val <= 0) {
+                        this.editError = 'Qty koreksi harus lebih besar dari 0.';
+                        return;
+                    }
+                    const diff = Math.round((val - this.editOldQty) * 100) / 100;
+                    if (diff > 0 && diff > this.editStock + 0.0001) {
+                        this.editError = 'Ditolak: Stok Material Trigger (' + this.editPartName + ') tidak mencukupi untuk selisih koreksi (Tersedia: ' + this.editStock + ' ' + this.editUom + ').';
+                        return;
+                    }
+                    formEl.submit();
                 },
                 resetFilter() {
                     this.q = '';
