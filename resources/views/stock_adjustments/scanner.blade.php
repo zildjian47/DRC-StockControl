@@ -115,6 +115,7 @@
                         @csrf
                         <input type="hidden" name="mode" value="scanner">
                         <input type="hidden" name="item_id" :value="selectedItem?.id">
+                        <input type="hidden" name="input_mode" :value="inputMode">
 
                         <div>
                             <span class="lbl">Kategori Adjustment</span>
@@ -250,6 +251,7 @@
                 qtySystem: 0,
                 rawActual: '',
                 rawDiff: '',
+                inputMode: 'actual',
 
                 tyClass(t) {
                     return 'ty-' + (t === 'FG/KOMPONEN' ? 'FGK' : (t || 'RM'));
@@ -326,6 +328,7 @@
                     return d === null ? 0 : d;
                 },
                 onInputActual() {
+                    this.inputMode = 'actual';
                     const val = this.evalCalc(this.rawActual);
                     if (val !== null) {
                         const diff = Math.round((val - this.qtySystem) * 100) / 100;
@@ -333,6 +336,7 @@
                     }
                 },
                 onInputDiff() {
+                    this.inputMode = 'diff';
                     const val = this.evalCalc(this.rawDiff);
                     if (val !== null) {
                         const act = Math.round((this.qtySystem + val) * 100) / 100;
@@ -413,6 +417,7 @@
                     this.qtySystem = 0;
                     this.rawActual = '';
                     this.rawDiff = '';
+                    this.inputMode = 'actual';
                     this.manualCode = '';
                     this.lastCamCode = '';
                     this.lastCamAt = 0;

@@ -164,64 +164,74 @@ class StockAdjustmentController extends Controller
             'adjustment_type' => 'required|in:LOSS,SURPLUS,STOCK OPNAME,FOUND,REPAIR',
             'qty_actual'      => 'nullable|string',
             'qty_diff'        => 'nullable|string',
+            'input_mode'      => 'nullable|in:actual,diff',
             'notes'           => 'nullable|string|max:500',
         ]);
 
-        $item  = Item::findOrFail($request->item_id);
-        $stock = InventoryStock::firstOrCreate(
-            ['item_id' => $item->id],
-            ['current_stock' => 0, 'status_stock' => 'EMPTY STOCK']
-        );
-
-        $qtySystem = (float) $stock->current_stock;
-
+        $item         = Item::findOrFail($request->item_id);
         $parsedActual = $request->filled('qty_actual') ? self::parseSignedCalculatorValue($request->qty_actual) : null;
         $parsedDiff   = $request->filled('qty_diff') ? self::parseSignedCalculatorValue($request->qty_diff) : null;
+        $inputMode    = $request->input('input_mode', 'actual');
+        $type         = $request->adjustment_type;
+        $qtyDiff      = 0.0;
 
-        if ($parsedActual !== null) {
-            $qtyActual = $parsedActual;
-            $qtyDiff   = round($qtyActual - $qtySystem, 2);
-        } elseif ($parsedDiff !== null) {
-            $qtyDiff   = $parsedDiff;
-            $qtyActual = round($qtySystem + $qtyDiff, 2);
-        } else {
-            return back()->withInput()->with('error', 'Format Qty tidak valid.');
+        try {
+            DB::transaction(function () use ($item, $parsedActual, $parsedDiff, $inputMode, $type, $request, &$qtyDiff) {
+                InventoryStock::firstOrCreate(
+                    ['item_id' => $item->id],
+                    ['current_stock' => 0, 'status_stock' => 'EMPTY STOCK']
+                );
+                $stock = InventoryStock::where('item_id', $item->id)->lockForUpdate()->first();
+
+                $qtySystem = (float) $stock->current_stock;
+
+                if ($inputMode === 'diff' && $parsedDiff !== null) {
+                    $qtyDiff   = $parsedDiff;
+                    $qtyActual = round($qtySystem + $qtyDiff, 2);
+                } elseif ($parsedActual !== null) {
+                    $qtyActual = $parsedActual;
+                    $qtyDiff   = round($qtyActual - $qtySystem, 2);
+                } elseif ($parsedDiff !== null) {
+                    $qtyDiff   = $parsedDiff;
+                    $qtyActual = round($qtySystem + $qtyDiff, 2);
+                } else {
+                    throw new \RuntimeException('Format Qty tidak valid.');
+                }
+
+                if ($qtyActual < 0) {
+                    throw new \RuntimeException('Qty Actual tidak boleh minus.');
+                }
+
+                if ($type === 'LOSS' && $qtyActual >= $qtySystem) {
+                    throw new \RuntimeException('Kategori LOSS: Qty Actual harus lebih kecil dari Qty System (' . floatval($qtySystem) . ').');
+                }
+
+                if (in_array($type, ['SURPLUS', 'FOUND', 'REPAIR'], true) && $qtyActual <= $qtySystem) {
+                    throw new \RuntimeException("Kategori {$type}: Qty Actual harus lebih besar dari Qty System (" . floatval($qtySystem) . ').');
+                }
+
+                if ($type === 'STOCK OPNAME' && abs($qtyDiff) < 0.0001) {
+                    throw new \RuntimeException('Tidak ada perubahan stok (selisih 0).');
+                }
+
+                StockAdjustment::create([
+                    'date_time'       => now(),
+                    'item_id'         => $item->id,
+                    'user_id'         => Auth::id(),
+                    'qty_system'      => $qtySystem,
+                    'qty_actual'      => $qtyActual,
+                    'qty_diff'        => $qtyDiff,
+                    'adjustment_type' => $type,
+                    'notes'           => $request->notes,
+                ]);
+
+                $stock->current_stock = $qtyActual;
+                $stock->status_stock  = $stock->calculateDynamicStatus();
+                $stock->save();
+            });
+        } catch (\RuntimeException $e) {
+            return back()->withInput()->with('error', $e->getMessage());
         }
-
-        if ($qtyActual < 0) {
-            return back()->withInput()->with('error', 'Qty Actual tidak boleh minus.');
-        }
-
-        $type = $request->adjustment_type;
-
-        if ($type === 'LOSS' && $qtyActual >= $qtySystem) {
-            return back()->withInput()->with('error', 'Kategori LOSS: Qty Actual harus lebih kecil dari Qty System (' . floatval($qtySystem) . ').');
-        }
-
-        if (in_array($type, ['SURPLUS', 'FOUND', 'REPAIR'], true) && $qtyActual <= $qtySystem) {
-            return back()->withInput()->with('error', "Kategori {$type}: Qty Actual harus lebih besar dari Qty System (" . floatval($qtySystem) . ').');
-        }
-
-        if ($type === 'STOCK OPNAME' && abs($qtyDiff) < 0.0001) {
-            return back()->withInput()->with('error', 'Tidak ada perubahan stok (selisih 0).');
-        }
-
-        DB::transaction(function () use ($item, $stock, $qtySystem, $qtyActual, $qtyDiff, $type, $request) {
-            StockAdjustment::create([
-                'date_time'       => now(),
-                'item_id'         => $item->id,
-                'user_id'         => Auth::id(),
-                'qty_system'      => $qtySystem,
-                'qty_actual'      => $qtyActual,
-                'qty_diff'        => $qtyDiff,
-                'adjustment_type' => $type,
-                'notes'           => $request->notes,
-            ]);
-
-            $stock->current_stock = $qtyActual;
-            $stock->status_stock  = $stock->calculateDynamicStatus();
-            $stock->save();
-        });
 
         $sign = $qtyDiff > 0 ? '+' : '';
         $msg  = "Adjustment {$item->part_name} ({$sign}" . floatval($qtyDiff) . " {$item->uom}) tersimpan.";

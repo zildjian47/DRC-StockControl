@@ -72,28 +72,33 @@ class DeliveryController extends Controller
             return back()->with('error', 'Item TRANSIT wajib ber-perusahaan SUPPLIER atau CUSTOMER.');
         }
 
-        $stock = InventoryStock::firstOrCreate(
-            ['item_id' => $item->id],
-            ['current_stock' => 0, 'status_stock' => 'EMPTY STOCK']
-        );
+        try {
+            DB::transaction(function () use ($item, $qty) {
+                InventoryStock::firstOrCreate(
+                    ['item_id' => $item->id],
+                    ['current_stock' => 0, 'status_stock' => 'EMPTY STOCK']
+                );
+                $stock = InventoryStock::where('item_id', $item->id)->lockForUpdate()->first();
 
-        if ($qty > (float) $stock->current_stock) {
-            return back()->with('error', 'Stok kurang. Tersedia: ' . floatval($stock->current_stock) . " {$item->uom}.");
+                if ($qty > (float) $stock->current_stock) {
+                    throw new \RuntimeException('Stok kurang. Tersedia: ' . floatval($stock->current_stock) . " {$item->uom}.");
+                }
+
+                Delivery::create([
+                    'date_time' => now(),
+                    'item_id'   => $item->id,
+                    'user_id'   => Auth::id(),
+                    'qty'       => $qty,
+                    'qty_check' => 'TERCATAT',
+                ]);
+
+                $stock->current_stock = (float) $stock->current_stock - $qty;
+                $stock->status_stock  = $stock->calculateDynamicStatus();
+                $stock->save();
+            });
+        } catch (\RuntimeException $e) {
+            return back()->withInput()->with('error', $e->getMessage());
         }
-
-        DB::transaction(function () use ($item, $qty, $stock) {
-            Delivery::create([
-                'date_time' => now(),
-                'item_id'   => $item->id,
-                'user_id'   => Auth::id(),
-                'qty'       => $qty,
-                'qty_check' => 'TERCATAT',
-            ]);
-
-            $stock->current_stock = (float) $stock->current_stock - $qty;
-            $stock->status_stock  = $stock->calculateDynamicStatus();
-            $stock->save();
-        });
 
         $msg = "Delivery {$item->part_name} (-" . floatval($qty) . " {$item->uom}) tersimpan.";
 
@@ -118,14 +123,15 @@ class DeliveryController extends Controller
                         throw new \RuntimeException('Format Qty koreksi tidak valid (wajib > 0).');
                     }
 
-                    $delivery = Delivery::with('item')->findOrFail($id);
+                    $delivery = Delivery::with('item')->lockForUpdate()->findOrFail($id);
                     $oldQty   = (float) $delivery->qty;
                     $diff     = $newQty - $oldQty;
 
-                    $stock = InventoryStock::firstOrCreate(
+                    InventoryStock::firstOrCreate(
                         ['item_id' => $delivery->item_id],
                         ['current_stock' => 0, 'status_stock' => 'EMPTY STOCK']
                     );
+                    $stock = InventoryStock::where('item_id', $delivery->item_id)->lockForUpdate()->first();
 
                     if ($diff > 0 && $diff > (float) $stock->current_stock) {
                         throw new \RuntimeException("Stok {$delivery->item->part_name} tidak cukup untuk koreksi.");

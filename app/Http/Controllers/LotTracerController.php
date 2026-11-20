@@ -6,6 +6,7 @@ use App\Models\Bom;
 use App\Models\LotTracer;
 use App\Models\Process;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class LotTracerController extends Controller
 {
@@ -66,7 +67,15 @@ class LotTracerController extends Controller
                 $triggerUsage = ($tBom && (float) $tBom->qty_usage > 0) ? (float) $tBom->qty_usage : 1;
 
                 $estInitial = (float) $r->qty_material_out / $triggerUsage;
+                if (abs($estInitial - round($estInitial)) < 0.001) {
+                    $estInitial = round($estInitial);
+                }
+
                 $estReturn = (float) $r->qty_material_return / $triggerUsage;
+                if (abs($estReturn - round($estReturn)) < 0.001) {
+                    $estReturn = round($estReturn);
+                }
+
                 $actProd = (float) $r->actual_qty_prod;
 
                 $compRows = $groupBoms->where('output_item_id', $r->target_item_id)->where('is_trigger', false);
@@ -79,21 +88,21 @@ class LotTracerController extends Controller
                     $cOut = round($estInitial * $u, 2);
                     $cRet = round($estReturn * $u, 2);
                     $cUsed = round($actProd * $u, 2);
-                    $cCurr = max(0, round($cOut - $cRet - $cUsed, 2));
+                    $cCurr = $r->status_lot === 'FINISH' ? 0.0 : max(0, round($cOut - $cRet - $cUsed, 2));
 
                     if (!isset($companionsMap[$cId])) {
                         $companionsMap[$cId] = [
-                            'part_no'     => $cBom->inputItem->part_no ?: '-',
-                            'part_name'   => $cBom->inputItem->part_name,
-                            'uom'         => $cBom->inputItem->uom,
-                            'qty_out'     => $cOut,
-                            'qty_return'  => $cRet,
-                            'qty_current' => $cCurr,
+                            'part_no'      => $cBom->inputItem->part_no ?: '-',
+                            'part_name'    => $cBom->inputItem->part_name,
+                            'uom'          => $cBom->inputItem->uom,
+                            'qty_out'      => $cOut,
+                            'qty_return'   => $cRet,
+                            'qty_saat_ini' => $cCurr,
                         ];
                     } else {
                         $companionsMap[$cId]['qty_out'] = round($companionsMap[$cId]['qty_out'] + $cOut, 2);
                         $companionsMap[$cId]['qty_return'] = round($companionsMap[$cId]['qty_return'] + $cRet, 2);
-                        $companionsMap[$cId]['qty_current'] = round($companionsMap[$cId]['qty_current'] + $cCurr, 2);
+                        $companionsMap[$cId]['qty_saat_ini'] = round($companionsMap[$cId]['qty_saat_ini'] + $cCurr, 2);
                     }
                 }
             }
@@ -130,10 +139,12 @@ class LotTracerController extends Controller
 
     public function finish(LotTracer $lotTracer)
     {
-        $lotTracer->update([
-            'qty_wip'    => 0,
-            'status_lot' => 'FINISH',
-        ]);
+        DB::transaction(function () use ($lotTracer) {
+            LotTracer::where('lot_number', $lotTracer->lot_number)->update([
+                'qty_wip'    => 0,
+                'status_lot' => 'FINISH',
+            ]);
+        });
 
         return redirect()->route('lot_tracers.index')
             ->with('success', "Lot {$lotTracer->lot_number} berhasil ditutup (FINISH).");

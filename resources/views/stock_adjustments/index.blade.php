@@ -168,6 +168,7 @@
                       @submit.prevent="submitAdd($el)"
                       class="flex flex-col min-h-0 flex-1">
                     @csrf
+                    <input type="hidden" name="input_mode" :value="inputMode">
                     <div class="dlg-split">
                         <aside class="dlg-side hide-sm">
                             <div class="dlg-k">Ringkasan Koreksi</div>
@@ -296,7 +297,7 @@
                 qtySystem: 0,
                 rawActual: '',
                 rawDiff: '',
-                previewText: '',
+                inputMode: 'actual',
 
                 get selectedItem() {
                     return this.itemsList.find(x => String(x.id) === String(this.selectedItemId)) || null;
@@ -312,7 +313,7 @@
                 evalCalc(raw) {
                     if (raw === null || raw === undefined) return null;
                     const expr = String(raw).replace(/,/g, '.').replace(/[xX]/g, '*').replace(/:/g, '/').replace(/\s+/g, '');
-                    if (!expr || !/^[0-9.+\-*\/()]+$/.test(expr)) return null;
+                    if (!expr || !/^[0-9.+\-*\/()]+$/.test(expr) || /[\+\-\*\/]{2,}/.test(expr)) return null;
                     try {
                         const r = Function('return (' + expr + ')')();
                         return (typeof r === 'number' && isFinite(r)) ? Math.round(r * 100) / 100 : null;
@@ -323,13 +324,14 @@
                 onSelectItem() {
                     const it = this.selectedItem;
                     this.qtySystem = it ? it.stock : 0;
-                    if (this.rawActual !== '') {
-                        this.onInputActual();
-                    } else if (this.rawDiff !== '') {
+                    if (this.inputMode === 'diff' && this.rawDiff !== '') {
                         this.onInputDiff();
+                    } else if (this.rawActual !== '') {
+                        this.onInputActual();
                     }
                 },
                 onInputActual() {
+                    this.inputMode = 'actual';
                     const val = this.evalCalc(this.rawActual);
                     if (val !== null) {
                         const diff = Math.round((val - this.qtySystem) * 100) / 100;
@@ -337,6 +339,7 @@
                     }
                 },
                 onInputDiff() {
+                    this.inputMode = 'diff';
                     const val = this.evalCalc(this.rawDiff);
                     if (val !== null) {
                         const act = Math.round((this.qtySystem + val) * 100) / 100;

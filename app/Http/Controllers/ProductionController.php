@@ -78,43 +78,50 @@ class ProductionController extends Controller
         }
 
         $lotNumber = $request->lot_number;
-        $lot = LotTracer::where('lot_number', $lotNumber)
-            ->where('target_item_id', $item->id)
-            ->first();
 
-        if (!$lot) {
-            return back()->withInput()->with('error', "Lot {$lotNumber} untuk {$item->part_name} tidak ditemukan.");
+        try {
+            DB::transaction(function () use ($item, $lotNumber, $qtyProd) {
+                $lot = LotTracer::where('lot_number', $lotNumber)
+                    ->where('target_item_id', $item->id)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (!$lot) {
+                    throw new \RuntimeException("Lot {$lotNumber} untuk {$item->part_name} tidak ditemukan.");
+                }
+
+                if ($lot->status_lot !== 'ON PROGRESS') {
+                    throw new \RuntimeException("Lot {$lotNumber} sudah berstatus FINISH.");
+                }
+
+                if ($qtyProd > (float) $lot->qty_wip + 0.0001) {
+                    throw new \RuntimeException('Qty melebihi sisa WIP (tersedia ' . floatval($lot->qty_wip) . " {$item->uom}).");
+                }
+
+                Production::create([
+                    'date_time'  => now(),
+                    'item_id'    => $item->id,
+                    'user_id'    => Auth::id(),
+                    'lot_number' => $lotNumber,
+                    'qty'        => $qtyProd,
+                    'qty_check'  => 'TERCATAT',
+                ]);
+
+                $lot->actual_qty_prod = (float) $lot->actual_qty_prod + $qtyProd;
+                $lot->recalculateLotMetrics();
+
+                InventoryStock::firstOrCreate(
+                    ['item_id' => $item->id],
+                    ['current_stock' => 0, 'status_stock' => 'EMPTY STOCK']
+                );
+                $stock = InventoryStock::where('item_id', $item->id)->lockForUpdate()->first();
+                $stock->current_stock = (float) $stock->current_stock + $qtyProd;
+                $stock->status_stock  = $stock->calculateDynamicStatus();
+                $stock->save();
+            });
+        } catch (\RuntimeException $e) {
+            return back()->withInput()->with('error', $e->getMessage());
         }
-
-        if ($lot->status_lot !== 'ON PROGRESS') {
-            return back()->withInput()->with('error', "Lot {$lotNumber} sudah berstatus FINISH.");
-        }
-
-        if ($qtyProd > (float) $lot->qty_wip + 0.0001) {
-            return back()->withInput()->with('error', 'Qty melebihi sisa WIP (tersedia ' . floatval($lot->qty_wip) . " {$item->uom}).");
-        }
-
-        DB::transaction(function () use ($item, $lot, $lotNumber, $qtyProd) {
-            Production::create([
-                'date_time'  => now(),
-                'item_id'    => $item->id,
-                'user_id'    => Auth::id(),
-                'lot_number' => $lotNumber,
-                'qty'        => $qtyProd,
-                'qty_check'  => 'TERCATAT',
-            ]);
-
-            $lot->actual_qty_prod = (float) $lot->actual_qty_prod + $qtyProd;
-            $lot->recalculateLotMetrics();
-
-            $stock = InventoryStock::firstOrCreate(
-                ['item_id' => $item->id],
-                ['current_stock' => 0, 'status_stock' => 'EMPTY STOCK']
-            );
-            $stock->current_stock = (float) $stock->current_stock + $qtyProd;
-            $stock->status_stock  = $stock->calculateDynamicStatus();
-            $stock->save();
-        });
 
         $msg = "Production Lot {$lotNumber} (+" . floatval($qtyProd) . " {$item->uom}) tersimpan.";
 
@@ -139,10 +146,15 @@ class ProductionController extends Controller
                         throw new \RuntimeException('Format Qty koreksi tidak valid (wajib > 0).');
                     }
 
-                    $prod = Production::with('item')->findOrFail($id);
+                    $prod = Production::with('item')->lockForUpdate()->findOrFail($id);
                     $lot  = LotTracer::where('lot_number', $prod->lot_number)
                         ->where('target_item_id', $prod->item_id)
+                        ->lockForUpdate()
                         ->firstOrFail();
+
+                    if ($lot->status_lot === 'FINISH') {
+                        throw new \RuntimeException("Lot {$lot->lot_number} sudah berstatus FINISH sehingga tidak dapat dikoreksi.");
+                    }
 
                     $oldQty = (float) $prod->qty;
                     $diff   = $newQty - $oldQty;
@@ -152,10 +164,11 @@ class ProductionController extends Controller
                         throw new \RuntimeException('Qty koreksi tidak boleh lebih kecil dari Qty NG (' . floatval($lot->qty_ng) . ').');
                     }
 
-                    $stock = InventoryStock::firstOrCreate(
+                    InventoryStock::firstOrCreate(
                         ['item_id' => $prod->item_id],
                         ['current_stock' => 0, 'status_stock' => 'EMPTY STOCK']
                     );
+                    $stock = InventoryStock::where('item_id', $prod->item_id)->lockForUpdate()->first();
 
                     if ((float) $stock->current_stock + $diff < 0) {
                         throw new \RuntimeException("Stok {$prod->item->part_name} tidak boleh minus akibat koreksi.");

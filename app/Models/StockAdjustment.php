@@ -11,6 +11,13 @@ class StockAdjustment extends Model
 
     protected $guarded = ['id'];
 
+    protected $casts = [
+        'date_time'  => 'datetime',
+        'qty_system' => 'decimal:2',
+        'qty_actual' => 'decimal:2',
+        'qty_diff'   => 'decimal:2',
+    ];
+
     public function item()
     {
         return $this->belongsTo(Item::class, 'item_id')->withTrashed();

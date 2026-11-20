@@ -7,6 +7,7 @@ use App\Models\Company;
 use App\Models\InventoryStock;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class ItemController extends Controller
 {
@@ -75,8 +76,18 @@ class ItemController extends Controller
         $allowsPo = in_array($type, ['FG', 'TRANSIT', 'FG/KOMPONEN'], true);
 
         $rules = [
-            'part_no'    => ($type === 'RM' ? 'nullable' : 'required') . '|string|max:100',
-            'part_name'  => 'required|string|max:255',
+            'part_no' => [
+                $type === 'RM' ? 'nullable' : 'required',
+                'string',
+                'max:100',
+                Rule::unique('items', 'part_no')->whereNull('deleted_at'),
+            ],
+            'part_name' => [
+                'required',
+                'string',
+                'max:255',
+                Rule::unique('items', 'part_name')->whereNull('deleted_at'),
+            ],
             'type'       => 'required|in:RM,FG,FG/KOMPONEN,KOMPONEN,TRANSIT',
             'uom'        => 'required|in:PCS,KG,SHEET,BATANG,MTR,LTR,SET',
             'company_id' => 'required|exists:companies,id',
@@ -90,6 +101,8 @@ class ItemController extends Controller
 
         $request->validate($rules, [
             'part_no.required' => 'Part No wajib diisi untuk tipe item selain RM.',
+            'part_no.unique'   => "Part No {$request->part_no} sudah terdaftar pada item aktif lain.",
+            'part_name.unique' => "Part Name {$request->part_name} sudah terdaftar pada item aktif lain.",
         ]);
 
         // Validasi kesesuaian Type Item vs Type Company
@@ -148,8 +161,18 @@ class ItemController extends Controller
             $allowsPo = in_array($type, ['FG', 'TRANSIT', 'FG/KOMPONEN'], true);
 
             $rules = [
-                'part_no'    => ($type === 'RM' ? 'nullable' : 'required') . '|string|max:100',
-                'part_name'  => 'required|string|max:255',
+                'part_no' => [
+                    $type === 'RM' ? 'nullable' : 'required',
+                    'string',
+                    'max:100',
+                    Rule::unique('items', 'part_no')->ignore($item->id)->whereNull('deleted_at'),
+                ],
+                'part_name' => [
+                    'required',
+                    'string',
+                    'max:255',
+                    Rule::unique('items', 'part_name')->ignore($item->id)->whereNull('deleted_at'),
+                ],
                 'type'       => 'required|in:RM,FG,FG/KOMPONEN,KOMPONEN,TRANSIT',
                 'uom'        => 'required|in:PCS,KG,SHEET,BATANG,MTR,LTR,SET',
                 'company_id' => 'required|exists:companies,id',
@@ -163,6 +186,8 @@ class ItemController extends Controller
 
             $request->validate($rules, [
                 'part_no.required' => 'Part No wajib diisi untuk tipe item selain RM.',
+                'part_no.unique'   => "Part No {$request->part_no} sudah terdaftar pada item aktif lain.",
+                'part_name.unique' => "Part Name {$request->part_name} sudah terdaftar pada item aktif lain.",
             ]);
 
             $company      = Company::findOrFail($request->company_id);
@@ -246,6 +271,15 @@ class ItemController extends Controller
     public function restore($id)
     {
         $item = Item::onlyTrashed()->findOrFail($id);
+
+        if (!empty($item->part_no) && Item::where('part_no', $item->part_no)->exists()) {
+            return back()->with('error', "Gagal mengaktifkan kembali: Part No {$item->part_no} sudah digunakan oleh item aktif lain.");
+        }
+
+        if (Item::where('part_name', $item->part_name)->exists()) {
+            return back()->with('error', "Gagal mengaktifkan kembali: Part Name {$item->part_name} sudah digunakan oleh item aktif lain.");
+        }
+
         $item->restore();
 
         if ($item->inventoryStock) {

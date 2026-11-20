@@ -5,6 +5,9 @@ namespace App\Http\Controllers;
 use App\Models\Bom;
 use App\Models\InventoryStock;
 use App\Models\Item;
+use App\Models\LotTracer;
+use App\Models\MaterialOut;
+use App\Models\MaterialReturn;
 use App\Models\Process;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -15,30 +18,12 @@ class BomController extends Controller
     public static function evaluateMath($expr): float
     {
         if (is_numeric($expr)) {
-            return round((float) $expr, 8);
+            $val = (float) $expr;
+            return ($val > 0 && is_finite($val)) ? round($val, 8) : 0.0;
         }
 
-        $clean = str_replace([',', 'x', 'X', ':'], ['.', '*', '*', '/'], trim((string) $expr));
-        $clean = preg_replace('/\s+/', '', $clean);
-
-        if ($clean === '' || !preg_match('/^[0-9\.\+\-\*\/\(\)]+$/', $clean)) {
-            return 0.0;
-        }
-
-        if (preg_match('/[\+\-\*\/]{2,}/', $clean)) {
-            return 0.0;
-        }
-
-        try {
-            $result = eval("return ($clean);");
-            if (is_numeric($result) && is_finite((float) $result)) {
-                return round((float) $result, 8);
-            }
-        } catch (\Throwable $e) {
-            return 0.0;
-        }
-
-        return 0.0;
+        $parsed = Bom::parseCalculatorValue($expr);
+        return ($parsed !== null && is_finite($parsed)) ? round($parsed, 8) : 0.0;
     }
 
     public function index()
@@ -256,6 +241,44 @@ class BomController extends Controller
 
     public function destroy(Bom $bom)
     {
+        $groupRows = !empty($bom->bom_group)
+            ? Bom::where('bom_group', $bom->bom_group)->get()
+            : Bom::where('process_id', $bom->process_id)
+                ->where('output_item_id', $bom->output_item_id)
+                ->get();
+
+        $isUsed = false;
+
+        if (!empty($bom->bom_group)) {
+            $isUsed = LotTracer::where('bom_group', $bom->bom_group)->exists()
+                || MaterialOut::where('bom_group', $bom->bom_group)->exists()
+                || MaterialReturn::where('bom_group', $bom->bom_group)->exists();
+        }
+
+        if (!$isUsed) {
+            foreach ($groupRows->where('is_trigger', true) as $row) {
+                $usedByTrigger = LotTracer::where('process_id', $row->process_id)
+                    ->where('material_item_id', $row->input_item_id)
+                    ->where('target_item_id', $row->output_item_id)
+                    ->exists()
+                    || MaterialOut::where('material_item_id', $row->input_item_id)
+                        ->where('target_item_id', $row->output_item_id)
+                        ->exists()
+                    || MaterialReturn::where('material_item_id', $row->input_item_id)
+                        ->where('target_item_id', $row->output_item_id)
+                        ->exists();
+
+                if ($usedByTrigger) {
+                    $isUsed = true;
+                    break;
+                }
+            }
+        }
+
+        if ($isUsed) {
+            return back()->with('error', 'Resep BOM tidak dapat dihapus karena sudah digunakan pada riwayat Lot Tracer atau transaksi produksi.');
+        }
+
         DB::transaction(function () use ($bom) {
             if (!empty($bom->bom_group)) {
                 Bom::where('bom_group', $bom->bom_group)->delete();

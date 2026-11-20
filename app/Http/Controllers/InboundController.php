@@ -73,10 +73,11 @@ class InboundController extends Controller
                 'qty_check' => 'TERCATAT',
             ]);
 
-            $stock = InventoryStock::firstOrCreate(
+            InventoryStock::firstOrCreate(
                 ['item_id' => $item->id],
                 ['current_stock' => 0, 'status_stock' => 'EMPTY STOCK']
             );
+            $stock = InventoryStock::where('item_id', $item->id)->lockForUpdate()->first();
             $stock->current_stock = (float) $stock->current_stock + $qty;
             $stock->status_stock  = $stock->calculateDynamicStatus();
             $stock->save();
@@ -105,14 +106,15 @@ class InboundController extends Controller
                         throw new \RuntimeException('Format Qty koreksi tidak valid (wajib > 0).');
                     }
 
-                    $inbound = Inbound::with('item')->findOrFail($id);
+                    $inbound = Inbound::with('item')->lockForUpdate()->findOrFail($id);
                     $oldQty  = (float) $inbound->qty;
                     $diff    = $newQty - $oldQty;
 
-                    $stock = InventoryStock::firstOrCreate(
+                    InventoryStock::firstOrCreate(
                         ['item_id' => $inbound->item_id],
                         ['current_stock' => 0, 'status_stock' => 'EMPTY STOCK']
                     );
+                    $stock = InventoryStock::where('item_id', $inbound->item_id)->lockForUpdate()->first();
 
                     if ((float) $stock->current_stock + $diff < 0) {
                         throw new \RuntimeException("Stok {$inbound->item->part_name} tidak boleh minus akibat koreksi.");

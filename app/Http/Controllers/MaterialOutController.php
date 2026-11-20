@@ -204,10 +204,6 @@ class MaterialOutController extends Controller
             return back()->withInput()->with('error', 'Qty harus lebih dari 0.');
         }
 
-        if (LotTracer::where('lot_number', $request->lot_number)->exists()) {
-            return back()->withInput()->with('error', "Nomor Lot {$request->lot_number} sudah terdaftar.");
-        }
-
         $materialItem = Item::with('company')->findOrFail($request->material_item_id);
         $targetItem = Item::with('company')->findOrFail($request->target_item_id);
 
@@ -244,11 +240,6 @@ class MaterialOutController extends Controller
             $triggerBomsInGroup = collect([$triggerBom]);
         }
 
-        $matStock = InventoryStock::firstOrCreate(['item_id' => $materialItem->id], ['current_stock' => 0]);
-        if ((float) $matStock->current_stock < $qtyOut) {
-            return back()->withInput()->with('error', 'Stok kurang. Tersedia: ' . floatval($matStock->current_stock) . " {$materialItem->uom}.");
-        }
-
         $companionDeductions = [];
         foreach ($triggerBomsInGroup as $tBom) {
             $rawEst = (float) $tBom->qty_usage > 0 ? ($qtyOut / (float) $tBom->qty_usage) : 0;
@@ -278,58 +269,75 @@ class MaterialOutController extends Controller
             }
         }
 
-        foreach ($companionDeductions as $cId => $cData) {
-            $cStock = InventoryStock::firstOrCreate(['item_id' => $cId], ['current_stock' => 0]);
-            if ((float) $cStock->current_stock < $cData['needed']) {
-                $cName = $cData['item']->part_name ?? 'Komponen';
-                $cUom = $cData['item']->uom ?? '';
-                return back()->withInput()->with('error', "Stok pendamping {$cName} kurang (butuh " . floatval($cData['needed']) . ', tersedia ' . floatval($cStock->current_stock) . " {$cUom}).");
-            }
+        try {
+            DB::transaction(function () use ($request, $materialItem, $triggerBomsInGroup, $groupKey, $qtyOut, $companionDeductions) {
+                if (LotTracer::where('lot_number', $request->lot_number)->lockForUpdate()->exists()) {
+                    throw new \RuntimeException("Nomor Lot {$request->lot_number} sudah terdaftar.");
+                }
+
+                InventoryStock::firstOrCreate(['item_id' => $materialItem->id], ['current_stock' => 0]);
+                $matStock = InventoryStock::where('item_id', $materialItem->id)->lockForUpdate()->first();
+                if ((float) $matStock->current_stock < $qtyOut) {
+                    throw new \RuntimeException('Stok kurang. Tersedia: ' . floatval($matStock->current_stock) . " {$materialItem->uom}.");
+                }
+
+                $lockedCompStocks = [];
+                foreach ($companionDeductions as $cId => $cData) {
+                    InventoryStock::firstOrCreate(['item_id' => $cId], ['current_stock' => 0]);
+                    $cStock = InventoryStock::where('item_id', $cId)->lockForUpdate()->first();
+                    if ((float) $cStock->current_stock < $cData['needed']) {
+                        $cName = $cData['item']->part_name ?? 'Komponen';
+                        $cUom = $cData['item']->uom ?? '';
+                        throw new \RuntimeException("Stok pendamping {$cName} kurang (butuh " . floatval($cData['needed']) . ', tersedia ' . floatval($cStock->current_stock) . " {$cUom}).");
+                    }
+                    $lockedCompStocks[$cId] = $cStock;
+                }
+
+                $matStock->decrement('current_stock', $qtyOut);
+                $matStock->refresh()->updateDynamicStatus();
+
+                foreach ($companionDeductions as $cId => $cData) {
+                    $cStock = $lockedCompStocks[$cId];
+                    $cStock->decrement('current_stock', $cData['needed']);
+                    $cStock->refresh()->updateDynamicStatus();
+                }
+
+                foreach ($triggerBomsInGroup as $tBom) {
+                    $savedGroup = $tBom->bom_group ?: $groupKey;
+
+                    MaterialOut::create([
+                        'date_time'        => now(),
+                        'user_id'          => Auth::id(),
+                        'material_item_id' => $materialItem->id,
+                        'target_item_id'   => $tBom->output_item_id,
+                        'lot_number'       => $request->lot_number,
+                        'bom_group'        => $savedGroup,
+                        'qty'              => $qtyOut,
+                        'qty_check'        => 'TERCATAT',
+                    ]);
+
+                    $rawEst = (float) $tBom->qty_usage > 0 ? ($qtyOut / (float) $tBom->qty_usage) : 0;
+                    $estQty = abs($rawEst - round($rawEst)) < 0.001 ? round($rawEst) : round($rawEst, 2);
+
+                    LotTracer::create([
+                        'lot_number'          => $request->lot_number,
+                        'bom_group'           => $savedGroup,
+                        'process_id'          => $tBom->process_id,
+                        'material_item_id'    => $materialItem->id,
+                        'target_item_id'      => $tBom->output_item_id,
+                        'qty_material_out'    => $qtyOut,
+                        'qty_material_return' => 0,
+                        'target_qty_estimasi' => $estQty,
+                        'actual_qty_prod'     => 0,
+                        'qty_ng'              => 0,
+                        'qty_wip'             => $estQty,
+                        'status_lot'          => 'ON PROGRESS',
+                    ]);
+                }
+            });
+        } catch (\RuntimeException $e) {
+            return back()->withInput()->with('error', $e->getMessage());
         }
-
-        DB::transaction(function () use ($request, $materialItem, $triggerBomsInGroup, $groupKey, $qtyOut, $matStock, $companionDeductions) {
-            $matStock->decrement('current_stock', $qtyOut);
-            $matStock->refresh()->updateDynamicStatus();
-
-            foreach ($companionDeductions as $cId => $cData) {
-                $cStock = InventoryStock::firstOrCreate(['item_id' => $cId], ['current_stock' => 0]);
-                $cStock->decrement('current_stock', $cData['needed']);
-                $cStock->refresh()->updateDynamicStatus();
-            }
-
-            foreach ($triggerBomsInGroup as $tBom) {
-                $savedGroup = $tBom->bom_group ?: $groupKey;
-
-                MaterialOut::create([
-                    'date_time'        => now(),
-                    'user_id'          => Auth::id(),
-                    'material_item_id' => $materialItem->id,
-                    'target_item_id'   => $tBom->output_item_id,
-                    'lot_number'       => $request->lot_number,
-                    'bom_group'        => $savedGroup,
-                    'qty'              => $qtyOut,
-                    'qty_check'        => 'TERCATAT',
-                ]);
-
-                $rawEst = (float) $tBom->qty_usage > 0 ? ($qtyOut / (float) $tBom->qty_usage) : 0;
-                $estQty = abs($rawEst - round($rawEst)) < 0.001 ? round($rawEst) : round($rawEst, 2);
-
-                LotTracer::create([
-                    'lot_number'          => $request->lot_number,
-                    'bom_group'           => $savedGroup,
-                    'process_id'          => $tBom->process_id,
-                    'material_item_id'    => $materialItem->id,
-                    'target_item_id'      => $tBom->output_item_id,
-                    'qty_material_out'    => $qtyOut,
-                    'qty_material_return' => 0,
-                    'target_qty_estimasi' => $estQty,
-                    'actual_qty_prod'     => 0,
-                    'qty_ng'              => 0,
-                    'qty_wip'             => $estQty,
-                    'status_lot'          => 'ON PROGRESS',
-                ]);
-            }
-        });
 
         $redirectParams = $request->input('mode') === 'scanner' ? ['mode' => 'scanner'] : [];
         return redirect()->route('material_outs.index', $redirectParams)
@@ -353,23 +361,40 @@ class MaterialOutController extends Controller
                         continue;
                     }
 
-                    $matOut = MaterialOut::findOrFail($id);
+                    $matOut = MaterialOut::lockForUpdate()->findOrFail($id);
 
                     if ($status === 'DIKOREKSI') {
-                        $newQty = BomController::evaluateMath($data['actual_qty'] ?? 0);
+                        $newQty = round(BomController::evaluateMath($data['actual_qty'] ?? 0), 2);
                         if ($newQty <= 0) {
                             throw new \Exception('Qty koreksi harus lebih dari 0.');
                         }
 
                         $oldQty = (float) $matOut->qty;
-                        $diffTrigger = $newQty - $oldQty;
+                        $diffTrigger = round($newQty - $oldQty, 2);
 
                         $siblingOuts = MaterialOut::where('lot_number', $matOut->lot_number)
                             ->where('material_item_id', $matOut->material_item_id)
+                            ->lockForUpdate()
                             ->get();
 
                         if ($diffTrigger != 0) {
-                            $matStock = InventoryStock::firstOrCreate(['item_id' => $matOut->material_item_id], ['current_stock' => 0]);
+                            $lotRows = LotTracer::where('lot_number', $matOut->lot_number)
+                                ->where('material_item_id', $matOut->material_item_id)
+                                ->lockForUpdate()
+                                ->get();
+
+                            if ($diffTrigger < 0) {
+                                foreach ($lotRows as $lt) {
+                                    $metaLt = $this->resolveBomMeta((int) $lt->material_item_id, (int) $lt->target_item_id, $allBoms, $lt->bom_group);
+                                    $minRequired = round((float) $lt->qty_material_return + ((float) $lt->actual_qty_prod * $metaLt['qty_usage']), 2);
+                                    if ($newQty < $minRequired - 0.0001) {
+                                        throw new \Exception('Qty koreksi tidak boleh lebih kecil dari total material yang sudah diretur dan terpakai produksi (minimal ' . floatval($minRequired) . ').');
+                                    }
+                                }
+                            }
+
+                            InventoryStock::firstOrCreate(['item_id' => $matOut->material_item_id], ['current_stock' => 0]);
+                            $matStock = InventoryStock::where('item_id', $matOut->material_item_id)->lockForUpdate()->first();
                             if ($diffTrigger > 0 && (float) $matStock->current_stock < $diffTrigger) {
                                 throw new \Exception('Stok Material Trigger tidak cukup untuk koreksi.');
                             }
@@ -382,10 +407,11 @@ class MaterialOutController extends Controller
                                 foreach ($meta['companions'] as $compBom) {
                                     $oldComp = round($oldEst * (float) $compBom->qty_usage, 2);
                                     $newComp = round($newEst * (float) $compBom->qty_usage, 2);
-                                    $diffComp = $newComp - $oldComp;
+                                    $diffComp = round($newComp - $oldComp, 2);
 
                                     if ($diffComp != 0) {
-                                        $cStock = InventoryStock::firstOrCreate(['item_id' => $compBom->input_item_id], ['current_stock' => 0]);
+                                        InventoryStock::firstOrCreate(['item_id' => $compBom->input_item_id], ['current_stock' => 0]);
+                                        $cStock = InventoryStock::where('item_id', $compBom->input_item_id)->lockForUpdate()->first();
                                         if ($diffComp > 0 && (float) $cStock->current_stock < $diffComp) {
                                             throw new \Exception('Stok komponen pendamping tidak cukup untuk koreksi.');
                                         }
@@ -399,9 +425,7 @@ class MaterialOutController extends Controller
                                     'qty_check' => 'DIKOREKSI',
                                 ]);
 
-                                $lot = LotTracer::where('lot_number', $sib->lot_number)
-                                    ->where('target_item_id', $sib->target_item_id)
-                                    ->first();
+                                $lot = $lotRows->firstWhere('target_item_id', $sib->target_item_id);
 
                                 if ($lot) {
                                     $netMat = max(0, $newQty - (float) $lot->qty_material_return);

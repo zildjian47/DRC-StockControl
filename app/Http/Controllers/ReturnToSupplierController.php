@@ -64,28 +64,33 @@ class ReturnToSupplierController extends Controller
             return back()->with('error', 'Perusahaan item ini wajib bertipe SUPPLIER.');
         }
 
-        $stock = InventoryStock::firstOrCreate(
-            ['item_id' => $item->id],
-            ['current_stock' => 0, 'status_stock' => 'EMPTY STOCK']
-        );
+        try {
+            DB::transaction(function () use ($item, $qty) {
+                InventoryStock::firstOrCreate(
+                    ['item_id' => $item->id],
+                    ['current_stock' => 0, 'status_stock' => 'EMPTY STOCK']
+                );
+                $stock = InventoryStock::where('item_id', $item->id)->lockForUpdate()->first();
 
-        if ($qty > (float) $stock->current_stock) {
-            return back()->with('error', 'Stok kurang. Tersedia: ' . floatval($stock->current_stock) . " {$item->uom}.");
+                if ($qty > (float) $stock->current_stock) {
+                    throw new \RuntimeException('Stok kurang. Tersedia: ' . floatval($stock->current_stock) . " {$item->uom}.");
+                }
+
+                ReturnToSupplier::create([
+                    'date_time' => now(),
+                    'item_id'   => $item->id,
+                    'user_id'   => Auth::id(),
+                    'qty'       => $qty,
+                    'qty_check' => 'TERCATAT',
+                ]);
+
+                $stock->current_stock = (float) $stock->current_stock - $qty;
+                $stock->status_stock  = $stock->calculateDynamicStatus();
+                $stock->save();
+            });
+        } catch (\RuntimeException $e) {
+            return back()->withInput()->with('error', $e->getMessage());
         }
-
-        DB::transaction(function () use ($item, $qty, $stock) {
-            ReturnToSupplier::create([
-                'date_time' => now(),
-                'item_id'   => $item->id,
-                'user_id'   => Auth::id(),
-                'qty'       => $qty,
-                'qty_check' => 'TERCATAT',
-            ]);
-
-            $stock->current_stock = (float) $stock->current_stock - $qty;
-            $stock->status_stock  = $stock->calculateDynamicStatus();
-            $stock->save();
-        });
 
         $msg = "Return to Supplier {$item->part_name} (-" . floatval($qty) . " {$item->uom}) tersimpan.";
 
@@ -110,14 +115,15 @@ class ReturnToSupplierController extends Controller
                         throw new \RuntimeException('Format Qty koreksi tidak valid (wajib > 0).');
                     }
 
-                    $ret    = ReturnToSupplier::with('item')->findOrFail($id);
+                    $ret    = ReturnToSupplier::with('item')->lockForUpdate()->findOrFail($id);
                     $oldQty = (float) $ret->qty;
                     $diff   = $newQty - $oldQty;
 
-                    $stock = InventoryStock::firstOrCreate(
+                    InventoryStock::firstOrCreate(
                         ['item_id' => $ret->item_id],
                         ['current_stock' => 0, 'status_stock' => 'EMPTY STOCK']
                     );
+                    $stock = InventoryStock::where('item_id', $ret->item_id)->lockForUpdate()->first();
 
                     if ($diff > 0 && $diff > (float) $stock->current_stock) {
                         throw new \RuntimeException("Stok {$ret->item->part_name} tidak cukup untuk koreksi.");

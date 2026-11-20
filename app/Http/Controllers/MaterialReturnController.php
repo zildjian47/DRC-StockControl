@@ -207,69 +207,85 @@ class MaterialReturnController extends Controller
             return back()->withInput()->with('error', 'Qty harus lebih dari 0.');
         }
 
-        if (MaterialReturn::where('lot_number', $request->lot_number)->exists()) {
-            return back()->withInput()->with('error', "Lot {$request->lot_number} sudah pernah melakukan Material Return.");
-        }
-
-        $lotRows = LotTracer::with('materialItem')
-            ->where('lot_number', $request->lot_number)
-            ->where('material_item_id', $request->material_item_id)
-            ->get();
-
-        if ($lotRows->isEmpty()) {
-            return back()->withInput()->with('error', 'Lot dan pasangan Material tidak ditemukan di Lot Tracer.');
-        }
-
-        $matUom = $lotRows->first()?->materialItem?->uom ?? '';
-        $maxReturnable = $lotRows->min(fn ($lt) => (float) $lt->material_saat_ini);
-        if ($qtyReturn > $maxReturnable) {
-            $availTxt = trim(floatval($maxReturnable) . ' ' . $matUom);
-            return back()->withInput()->with('error', "Qty melebihi sisa material di mesin (tersedia {$availTxt}).");
-        }
-
         $allBoms = Bom::with('inputItem')->get();
+        $matUom = '';
 
-        DB::transaction(function () use ($request, $lotRows, $qtyReturn, $allBoms) {
-            $matStock = InventoryStock::firstOrCreate(['item_id' => $request->material_item_id], ['current_stock' => 0]);
-            $matStock->increment('current_stock', $qtyReturn);
-            $matStock->refresh()->updateDynamicStatus();
-
-            foreach ($lotRows as $lot) {
-                $meta = $this->resolveBomMeta((int) $lot->material_item_id, (int) $lot->target_item_id, $allBoms, $lot->bom_group);
-                $estReturnedTarget = $meta['qty_usage'] > 0 ? ($qtyReturn / $meta['qty_usage']) : 0;
-
-                foreach ($meta['companions'] as $compBom) {
-                    $cAdd = round($estReturnedTarget * (float) $compBom->qty_usage, 2);
-                    if ($cAdd > 0) {
-                        $cStock = InventoryStock::firstOrCreate(['item_id' => $compBom->input_item_id], ['current_stock' => 0]);
-                        $cStock->increment('current_stock', $cAdd);
-                        $cStock->refresh()->updateDynamicStatus();
-                    }
+        try {
+            DB::transaction(function () use ($request, $qtyReturn, $allBoms, &$matUom) {
+                if (MaterialReturn::where('lot_number', $request->lot_number)->lockForUpdate()->exists()) {
+                    throw new \RuntimeException("Lot {$request->lot_number} sudah pernah melakukan Material Return.");
                 }
 
-                MaterialReturn::create([
-                    'date_time'        => now(),
-                    'user_id'          => Auth::id(),
-                    'material_item_id' => $lot->material_item_id,
-                    'target_item_id'   => $lot->target_item_id,
-                    'lot_number'       => $lot->lot_number,
-                    'bom_group'        => $lot->bom_group ?: $meta['bom_group'],
-                    'qty'              => $qtyReturn,
-                    'qty_check'        => 'TERCATAT',
-                ]);
+                $lotRows = LotTracer::with('materialItem')
+                    ->where('lot_number', $request->lot_number)
+                    ->where('material_item_id', $request->material_item_id)
+                    ->lockForUpdate()
+                    ->get();
 
-                $newNetMat = max(0, (float) $lot->qty_material_out - $qtyReturn);
-                $rawEst = $meta['qty_usage'] > 0 ? ($newNetMat / $meta['qty_usage']) : 0;
-                $newEst = abs($rawEst - round($rawEst)) < 0.001 ? round($rawEst) : round($rawEst, 2);
-                $newWip = $lot->status_lot === 'FINISH' ? 0 : round(max(0, $newEst - (float) $lot->actual_qty_prod), 2);
+                if ($lotRows->isEmpty()) {
+                    throw new \RuntimeException('Lot dan pasangan Material tidak ditemukan di Lot Tracer.');
+                }
 
-                $lot->update([
-                    'qty_material_return' => $qtyReturn,
-                    'target_qty_estimasi' => $newEst,
-                    'qty_wip'             => $newWip,
-                ]);
-            }
-        });
+                if ($lotRows->contains('status_lot', 'FINISH')) {
+                    throw new \RuntimeException("Lot {$request->lot_number} sudah berstatus FINISH.");
+                }
+
+                if (!$lotRows->contains('target_item_id', (int) $request->target_item_id)) {
+                    throw new \RuntimeException('Target Output tidak sesuai dengan Lot yang dipilih.');
+                }
+
+                $matUom = $lotRows->first()?->materialItem?->uom ?? '';
+                $maxReturnable = $lotRows->min(fn ($lt) => (float) $lt->material_saat_ini);
+                if ($qtyReturn > $maxReturnable) {
+                    $availTxt = trim(floatval($maxReturnable) . ' ' . $matUom);
+                    throw new \RuntimeException("Qty melebihi sisa material di mesin (tersedia {$availTxt}).");
+                }
+
+                InventoryStock::firstOrCreate(['item_id' => $request->material_item_id], ['current_stock' => 0]);
+                $matStock = InventoryStock::where('item_id', $request->material_item_id)->lockForUpdate()->first();
+                $matStock->increment('current_stock', $qtyReturn);
+                $matStock->refresh()->updateDynamicStatus();
+
+                foreach ($lotRows as $lot) {
+                    $meta = $this->resolveBomMeta((int) $lot->material_item_id, (int) $lot->target_item_id, $allBoms, $lot->bom_group);
+                    $estReturnedTarget = $meta['qty_usage'] > 0 ? ($qtyReturn / $meta['qty_usage']) : 0;
+
+                    foreach ($meta['companions'] as $compBom) {
+                        $cAdd = round($estReturnedTarget * (float) $compBom->qty_usage, 2);
+                        if ($cAdd > 0) {
+                            InventoryStock::firstOrCreate(['item_id' => $compBom->input_item_id], ['current_stock' => 0]);
+                            $cStock = InventoryStock::where('item_id', $compBom->input_item_id)->lockForUpdate()->first();
+                            $cStock->increment('current_stock', $cAdd);
+                            $cStock->refresh()->updateDynamicStatus();
+                        }
+                    }
+
+                    MaterialReturn::create([
+                        'date_time'        => now(),
+                        'user_id'          => Auth::id(),
+                        'material_item_id' => $lot->material_item_id,
+                        'target_item_id'   => $lot->target_item_id,
+                        'lot_number'       => $lot->lot_number,
+                        'bom_group'        => $lot->bom_group ?: $meta['bom_group'],
+                        'qty'              => $qtyReturn,
+                        'qty_check'        => 'TERCATAT',
+                    ]);
+
+                    $newNetMat = max(0, (float) $lot->qty_material_out - $qtyReturn);
+                    $rawEst = $meta['qty_usage'] > 0 ? ($newNetMat / $meta['qty_usage']) : 0;
+                    $newEst = abs($rawEst - round($rawEst)) < 0.001 ? round($rawEst) : round($rawEst, 2);
+                    $newWip = $lot->status_lot === 'FINISH' ? 0 : round(max(0, $newEst - (float) $lot->actual_qty_prod), 2);
+
+                    $lot->update([
+                        'qty_material_return' => $qtyReturn,
+                        'target_qty_estimasi' => $newEst,
+                        'qty_wip'             => $newWip,
+                    ]);
+                }
+            });
+        } catch (\RuntimeException $e) {
+            return back()->withInput()->with('error', $e->getMessage());
+        }
 
         $qtyTxt = trim('+' . floatval($qtyReturn) . ' ' . $matUom);
         $redirectParams = $request->input('mode') === 'scanner' ? ['mode' => 'scanner'] : [];
@@ -294,19 +310,20 @@ class MaterialReturnController extends Controller
                         continue;
                     }
 
-                    $matRet = MaterialReturn::findOrFail($id);
+                    $matRet = MaterialReturn::lockForUpdate()->findOrFail($id);
 
                     if ($status === 'DIKOREKSI') {
-                        $newQty = BomController::evaluateMath($data['actual_qty'] ?? 0);
+                        $newQty = round(BomController::evaluateMath($data['actual_qty'] ?? 0), 2);
                         if ($newQty <= 0) {
                             throw new \Exception('Qty koreksi harus lebih dari 0.');
                         }
 
                         $oldQty = (float) $matRet->qty;
-                        $diffTrigger = $newQty - $oldQty;
+                        $diffTrigger = round($newQty - $oldQty, 2);
 
                         $lotRows = LotTracer::where('lot_number', $matRet->lot_number)
                             ->where('material_item_id', $matRet->material_item_id)
+                            ->lockForUpdate()
                             ->get();
 
                         foreach ($lotRows as $lt) {
@@ -320,10 +337,12 @@ class MaterialReturnController extends Controller
 
                         $siblingRets = MaterialReturn::where('lot_number', $matRet->lot_number)
                             ->where('material_item_id', $matRet->material_item_id)
+                            ->lockForUpdate()
                             ->get();
 
                         if ($diffTrigger != 0) {
-                            $matStock = InventoryStock::firstOrCreate(['item_id' => $matRet->material_item_id], ['current_stock' => 0]);
+                            InventoryStock::firstOrCreate(['item_id' => $matRet->material_item_id], ['current_stock' => 0]);
+                            $matStock = InventoryStock::where('item_id', $matRet->material_item_id)->lockForUpdate()->first();
                             if ($diffTrigger < 0 && (float) $matStock->current_stock < abs($diffTrigger)) {
                                 throw new \Exception('Stok gudang tidak cukup untuk koreksi return.');
                             }
@@ -336,10 +355,14 @@ class MaterialReturnController extends Controller
                                 foreach ($meta['companions'] as $compBom) {
                                     $oldComp = round($oldEst * (float) $compBom->qty_usage, 2);
                                     $newComp = round($newEst * (float) $compBom->qty_usage, 2);
-                                    $diffComp = $newComp - $oldComp;
+                                    $diffComp = round($newComp - $oldComp, 2);
 
                                     if ($diffComp != 0) {
-                                        $cStock = InventoryStock::firstOrCreate(['item_id' => $compBom->input_item_id], ['current_stock' => 0]);
+                                        InventoryStock::firstOrCreate(['item_id' => $compBom->input_item_id], ['current_stock' => 0]);
+                                        $cStock = InventoryStock::where('item_id', $compBom->input_item_id)->lockForUpdate()->first();
+                                        if ($diffComp < 0 && (float) $cStock->current_stock < abs($diffComp)) {
+                                            throw new \Exception('Stok komponen pendamping di gudang tidak cukup untuk koreksi return.');
+                                        }
                                         $cStock->increment('current_stock', $diffComp);
                                         $cStock->refresh()->updateDynamicStatus();
                                     }
@@ -350,9 +373,7 @@ class MaterialReturnController extends Controller
                                     'qty_check' => 'DIKOREKSI',
                                 ]);
 
-                                $lot = LotTracer::where('lot_number', $sib->lot_number)
-                                    ->where('target_item_id', $sib->target_item_id)
-                                    ->first();
+                                $lot = $lotRows->firstWhere('target_item_id', $sib->target_item_id);
 
                                 if ($lot) {
                                     $netMat = max(0, (float) $lot->qty_material_out - $newQty);

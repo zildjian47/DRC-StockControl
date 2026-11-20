@@ -75,7 +75,7 @@
                             $first = $grp['first'];
                             $matItem = $first->materialItem;
                             $matUom = $matItem->uom ?? '';
-                            $companions = $first->companion_items ?? [];
+                            $companions = $first->companion_details ?? [];
                             $rows = $grp['rows'];
                             $topEndVal = $first->top_end_coil;
                         @endphp
@@ -322,36 +322,32 @@
                             </td>
 
                             {{-- 16. STATUS & AKSI --}}
-                            <td class="text-center !p-0">
-                                <div class="divide-y divide-slate-200">
-                                    @foreach($rows as $r)
-                                        @php
-                                            $closeMsg = "Tutup Lot {$r->lot_number} (" . ($r->targetItem->part_name ?? '-') . ") menjadi FINISH? Sisa WIP akan dianggap 0"
-                                                . ($first->is_coil ? " dan sisa berat Coil akan dicatat sebagai Top/End Coil." : ".");
-                                        @endphp
-                                        <div class="subrow justify-center gap-1.5">
-                                            @if($r->status_lot === 'ON PROGRESS')
-                                                <span class="pill pill-good">ON PROGRESS</span>
-                                                <form id="fin-lot-{{ $r->id }}"
-                                                      action="{{ route('lot_tracers.set_finish', $r->id) }}"
-                                                      method="POST"
-                                                      class="inline"
-                                                      data-confirm-title="Tutup Lot Produksi"
-                                                      data-confirm-msg="{{ $closeMsg }}"
-                                                      @submit.prevent="$dispatch('open-confirm', { form: $el, title: $el.dataset.confirmTitle, message: $el.dataset.confirmMsg })">
-                                                    @csrf
-                                                    @method('PATCH')
-                                                    <button type="submit"
-                                                            class="act-btn"
-                                                            title="Tutup Lot (Set FINISH)">
-                                                        <x-icon name="check" />
-                                                    </button>
-                                                </form>
-                                            @else
-                                                <span class="pill pill-neu">FINISH</span>
-                                            @endif
-                                        </div>
-                                    @endforeach
+                            <td class="text-center whitespace-nowrap">
+                                @php
+                                    $closeMsg = "Tutup seluruh Lot {$grp['lot_number']} menjadi FINISH? Semua sisa WIP pada Lot ini akan dianggap 0"
+                                        . ($first->is_coil ? " dan sisa berat Coil akan dicatat sebagai Top/End Coil." : ".");
+                                @endphp
+                                <div class="inline-flex items-center justify-center gap-1.5">
+                                    @if($grp['status_lot'] === 'ON PROGRESS')
+                                        <span class="pill pill-good">ON PROGRESS</span>
+                                        <form id="fin-lot-{{ $first->id }}"
+                                              action="{{ route('lot_tracers.set_finish', $first->id) }}"
+                                              method="POST"
+                                              class="inline"
+                                              data-confirm-title="Tutup Lot Produksi"
+                                              data-confirm-msg="{{ $closeMsg }}"
+                                              @submit.prevent="$dispatch('open-confirm', { form: $el, title: $el.dataset.confirmTitle, message: $el.dataset.confirmMsg })">
+                                            @csrf
+                                            @method('PATCH')
+                                            <button type="submit"
+                                                    class="act-btn"
+                                                    title="Tutup Lot (Set FINISH)">
+                                                <x-icon name="check" />
+                                            </button>
+                                        </form>
+                                    @else
+                                        <span class="pill pill-neu">FINISH</span>
+                                    @endif
                                 </div>
                             </td>
                         </tr>

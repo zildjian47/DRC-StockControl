@@ -80,6 +80,15 @@ class CompanyController extends Controller
             'company_code.unique' => "Kode perusahaan {$request->company_code} dengan tipe {$request->type_company} sudah terdaftar.",
         ]);
 
+        if ($request->type_company !== $company->type_company) {
+            $isUsed = Item::withTrashed()->where('company_id', $company->id)->exists()
+                || ProblemDelay::where('company_id', $company->id)->exists();
+
+            if ($isUsed) {
+                return back()->withInput()->with('error', 'Tipe perusahaan tidak dapat diubah karena sudah terhubung dengan Master Item atau Log Delay.');
+            }
+        }
+
         $company->update($request->only(['company_code', 'company_name', 'type_company']));
 
         return redirect()->route('companies.index')->with('success', 'Data perusahaan berhasil diperbarui.');
