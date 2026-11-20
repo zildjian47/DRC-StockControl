@@ -185,25 +185,25 @@ class StockAdjustmentController extends Controller
             $qtyDiff   = $parsedDiff;
             $qtyActual = round($qtySystem + $qtyDiff, 2);
         } else {
-            return back()->withInput()->with('error', 'Format Qty Actual atau Qty Diff tidak valid.');
+            return back()->withInput()->with('error', 'Format Qty tidak valid.');
         }
 
         if ($qtyActual < 0) {
-            return back()->withInput()->with('error', 'Ditolak: Qty Actual tidak boleh bernilai minus.');
+            return back()->withInput()->with('error', 'Qty Actual tidak boleh minus.');
         }
 
         $type = $request->adjustment_type;
 
         if ($type === 'LOSS' && $qtyActual >= $qtySystem) {
-            return back()->withInput()->with('error', "Ditolak: Untuk kategori LOSS, Qty Actual ({$qtyActual}) wajib lebih kecil dari Qty System ({$qtySystem}).");
+            return back()->withInput()->with('error', 'Kategori LOSS: Qty Actual harus lebih kecil dari Qty System (' . floatval($qtySystem) . ').');
         }
 
         if (in_array($type, ['SURPLUS', 'FOUND', 'REPAIR'], true) && $qtyActual <= $qtySystem) {
-            return back()->withInput()->with('error', "Ditolak: Untuk kategori {$type}, Qty Actual ({$qtyActual}) wajib lebih besar dari Qty System ({$qtySystem}).");
+            return back()->withInput()->with('error', "Kategori {$type}: Qty Actual harus lebih besar dari Qty System (" . floatval($qtySystem) . ').');
         }
 
         if ($type === 'STOCK OPNAME' && abs($qtyDiff) < 0.0001) {
-            return back()->withInput()->with('error', 'Ditolak: Tidak ada perubahan kuantitas (Qty Diff = 0).');
+            return back()->withInput()->with('error', 'Tidak ada perubahan stok (selisih 0).');
         }
 
         DB::transaction(function () use ($item, $stock, $qtySystem, $qtyActual, $qtyDiff, $type, $request) {
@@ -224,7 +224,7 @@ class StockAdjustmentController extends Controller
         });
 
         $sign = $qtyDiff > 0 ? '+' : '';
-        $msg  = "Stock Adjustment ({$type}) untuk {$item->part_name} berhasil disimpan (Selisih: {$sign}" . floatval($qtyDiff) . " {$item->uom}).";
+        $msg  = "Adjustment {$item->part_name} ({$sign}" . floatval($qtyDiff) . " {$item->uom}) tersimpan.";
 
         if ($request->input('mode') === 'scanner') {
             return redirect()->route('stock_adjustments.index', ['mode' => 'scanner'])->with('success', $msg);

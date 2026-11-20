@@ -398,6 +398,27 @@
                 renderOptions();
             });
         })();
+
+        // Nonaktifkan saran ketikan / riwayat input browser di seluruh form & input scanner
+        (function () {
+            function disableAutocomplete(root) {
+                if (!root || !root.querySelectorAll) return;
+                root.querySelectorAll('form').forEach(f => f.setAttribute('autocomplete', 'off'));
+                root.querySelectorAll('input:not([type="hidden"]):not([type="password"]), textarea').forEach(el => {
+                    el.setAttribute('autocomplete', 'off');
+                    el.setAttribute('autocorrect', 'off');
+                    el.setAttribute('spellcheck', 'false');
+                });
+            }
+            document.addEventListener('DOMContentLoaded', () => disableAutocomplete(document));
+            document.addEventListener('focusin', (e) => {
+                const el = e.target;
+                if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') && el.type !== 'password') {
+                    el.setAttribute('autocomplete', 'off');
+                    if (el.form) el.form.setAttribute('autocomplete', 'off');
+                }
+            }, true);
+        })();
     </script>
 </body>
 </html>

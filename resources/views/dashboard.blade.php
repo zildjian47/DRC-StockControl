@@ -44,9 +44,13 @@
             'bomsAsOutput.process',
         ])->orderBy('part_name')->get();
 
-        $allRunningLots = \App\Models\LotTracer::where('status_lot', 'ON PROGRESS')->get();
+        $allRunningLots = \App\Models\LotTracer::with('process')
+            ->where('status_lot', 'ON PROGRESS')
+            ->orderBy('id', 'desc')
+            ->get();
 
         $wipByTargetItem = [];
+        $wipDetailsByTargetItem = [];
         $matInMachineByItem = [];
 
         foreach ($allRunningLots->groupBy('lot_number') as $lotNo => $lotRows) {
@@ -67,7 +71,15 @@
             }
             foreach ($lotRows as $lr) {
                 $tId = (int) $lr->target_item_id;
-                $wipByTargetItem[$tId] = round(($wipByTargetItem[$tId] ?? 0) + (float) $lr->qty_wip, 2);
+                $wipVal = (float) $lr->qty_wip;
+                $wipByTargetItem[$tId] = round(($wipByTargetItem[$tId] ?? 0) + $wipVal, 2);
+                if ($wipVal > 0) {
+                    $wipDetailsByTargetItem[$tId][] = [
+                        'lot_number'   => $lr->lot_number,
+                        'process_name' => $lr->process->process_name ?? '-',
+                        'qty_wip'      => floatval($wipVal),
+                    ];
+                }
             }
         }
 
@@ -122,7 +134,7 @@
             }
         }
 
-        $dashboardItems = $allActiveItems->map(function ($itm) use ($wipByTargetItem, $matInMachineByItem, $netAfter07) {
+        $dashboardItems = $allActiveItems->map(function ($itm) use ($wipByTargetItem, $wipDetailsByTargetItem, $matInMachineByItem, $netAfter07) {
             $st = $itm->inventoryStock;
             $currStock = $st ? (float) $st->current_stock : 0.0;
             $std1 = (float) $itm->calculated_std_day_1;
@@ -235,6 +247,7 @@
                 'status_07'          => $status07,
                 'ratio_07'           => $ratio07,
                 'wip_active'         => $wipActive,
+                'wip_details'        => $wipDetailsByTargetItem[$itm->id] ?? [],
                 'has_bom_inputs'     => $hasBomInputs,
                 'pot_max'            => $potMax,
                 'bottleneck_formula' => $bottleneckFormula,
@@ -327,7 +340,7 @@
         </div>
         <div class="kpi">
             <div class="kpi-l">Inbound Hari Ini</div>
-            <div class="kpi-v">{{ $inboundToday }}<small>dokumen</small></div>
+            <div class="kpi-v">{{ $inboundToday }}<small>data scan</small></div>
             <div class="kpi-s">
                 <span class="pill pill-good">TERCATAT DI SISTEM</span>
             </div>
@@ -707,7 +720,7 @@
                         </span>
                     </div>
 
-                    {{-- Panel Ringkasan Saat Batang Di-hover (Beserta Ratio Hari & Rumus Konversi) --}}
+                    {{-- Panel Ringkasan Saat Batang Di-hover (Beserta Ratio Hari, Rincian WIP, & Rumus Konversi) --}}
                     <div class="rounded border px-3.5 py-2.5 transition-colors"
                          :class="hoveredItem ? 'border-[#0B5CAD] bg-[#E4EEF8]/50' : 'border-slate-200 bg-slate-50/60'">
                         <template x-if="!hoveredItem">
@@ -775,6 +788,16 @@
                                                  x-text="dayFormula(totalPipeline(hoveredItem), hoveredItem.std_day_1)"></div>
                                         </div>
                                     </div>
+                                </div>
+
+                                {{-- Rincian WIP Aktif per Lot & Proses --}}
+                                <div class="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-200/80 text-[11px]"
+                                     x-show="hoveredItem.wip_details && hoveredItem.wip_details.length > 0">
+                                    <span class="font-semibold text-slate-600 mr-1">Rincian WIP:</span>
+                                    <template x-for="(wd, wIdx) in hoveredItem.wip_details" :key="'wd-' + wIdx">
+                                        <span class="count-chip count-chip-sub"
+                                              x-text="wd.lot_number + ' · ' + wd.process_name + ' : ' + wd.qty_wip + ' ' + hoveredItem.uom"></span>
+                                    </template>
                                 </div>
 
                                 {{-- Rincian Rumus Konversi Material Pembentuk (Stock Bahan ÷ Qty Usage = Kapasitas PCS) --}}

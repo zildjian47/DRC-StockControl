@@ -51,17 +51,17 @@ class ReturnToSupplierController extends Controller
 
         $qty = BomController::evaluateMath($request->qty);
         if ($qty <= 0) {
-            return back()->withInput()->with('error', 'Qty Return to Supplier harus lebih besar dari 0.');
+            return back()->withInput()->with('error', 'Qty harus lebih dari 0.');
         }
 
         $item = Item::with('company')->findOrFail($request->item_id);
 
         if (!in_array($item->type, ['RM', 'KOMPONEN', 'TRANSIT'], true)) {
-            return back()->with('error', "Ditolak: Item {$item->part_name} bertipe {$item->type}. Return to Supplier hanya menerima RM, KOMPONEN, atau TRANSIT.");
+            return back()->with('error', 'Item tidak sesuai untuk Return to Supplier (wajib RM, KOMPONEN, atau TRANSIT).');
         }
 
         if (!$item->company || $item->company->type_company !== 'SUPPLIER') {
-            return back()->with('error', "Ditolak: Perusahaan {$item->part_name} harus bertipe SUPPLIER.");
+            return back()->with('error', 'Perusahaan item ini wajib bertipe SUPPLIER.');
         }
 
         $stock = InventoryStock::firstOrCreate(
@@ -70,7 +70,7 @@ class ReturnToSupplierController extends Controller
         );
 
         if ($qty > (float) $stock->current_stock) {
-            return back()->with('error', "Ditolak: Qty Return ({$qty}) melebihi Current Stock {$item->part_name} ({$stock->current_stock} {$item->uom}).");
+            return back()->with('error', 'Stok kurang. Tersedia: ' . floatval($stock->current_stock) . " {$item->uom}.");
         }
 
         DB::transaction(function () use ($item, $qty, $stock) {
@@ -87,7 +87,7 @@ class ReturnToSupplierController extends Controller
             $stock->save();
         });
 
-        $msg = "Return to Supplier {$item->part_name} (-" . floatval($qty) . " {$item->uom}) berhasil dicatat.";
+        $msg = "Return to Supplier {$item->part_name} (-" . floatval($qty) . " {$item->uom}) tersimpan.";
 
         if ($request->input('mode') === 'scanner') {
             return redirect()->route('return_to_suppliers.index', ['mode' => 'scanner'])->with('success', $msg);
@@ -107,7 +107,7 @@ class ReturnToSupplierController extends Controller
                     $rawActual = $data['actual_qty'] ?? null;
                     $newQty = StockAdjustmentController::parseSignedCalculatorValue($rawActual);
                     if ($newQty === null || $newQty <= 0) {
-                        throw new \RuntimeException("Format Qty koreksi Return to Supplier tidak valid (wajib > 0).");
+                        throw new \RuntimeException('Format Qty koreksi tidak valid (wajib > 0).');
                     }
 
                     $ret    = ReturnToSupplier::with('item')->findOrFail($id);
@@ -120,7 +120,7 @@ class ReturnToSupplierController extends Controller
                     );
 
                     if ($diff > 0 && $diff > (float) $stock->current_stock) {
-                        throw new \RuntimeException("Stok {$ret->item->part_name} tidak mencukupi untuk penambahan koreksi Return to Supplier.");
+                        throw new \RuntimeException("Stok {$ret->item->part_name} tidak cukup untuk koreksi.");
                     }
 
                     $stock->current_stock = (float) $stock->current_stock - $diff;
@@ -139,10 +139,10 @@ class ReturnToSupplierController extends Controller
         }
 
         if ($processed === 0) {
-            return back()->with('error', 'Tidak ada koreksi Return to Supplier yang disimpan.');
+            return back()->with('error', 'Tidak ada koreksi yang disimpan.');
         }
 
         return redirect()->route('return_to_suppliers.index')
-            ->with('success', "Qty Return to Supplier berhasil dikoreksi dan stok gudang telah diperbarui.");
+            ->with('success', 'Koreksi Return to Supplier tersimpan.');
     }
 }

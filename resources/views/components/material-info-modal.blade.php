@@ -40,13 +40,19 @@
                          x-text="(info?.current_stock ?? 0) + ' ' + (info?.uom ?? '')"></div>
                     <div class="sbar">
                         <i :style="'width:' + pct(info?.current_stock) + '%; background:' + barColor(info?.status_stock)"></i>
-                        <u :style="'left:' + pct(info?.std_day_2) + '%'"></u>
-                        <u :style="'left:' + pct(info?.std_day_3) + '%'"></u>
+                        <template x-for="tk in stdTicks" :key="'ln-' + tk.key">
+                            <u :style="'left:' + tk.p + '%'" :title="tk.title"></u>
+                        </template>
                     </div>
-                    <div class="sbar-lbl">
-                        <span x-text="'Min ' + (info?.std_day_2 ?? 0)"></span>
-                        <span x-text="'Max ' + (info?.std_day_3 ?? 0)"></span>
+                    <div class="sbar-lbl" x-show="stdTicks.length > 0">
+                        <template x-for="tk in stdTicks" :key="'lb-' + tk.key">
+                            <span class="num" :style="'left:' + tk.lp + '%'" x-text="tk.val"></span>
+                        </template>
                     </div>
+                </div>
+
+                <div>
+                    <span class="pill" :class="pillClass(info?.status_stock)" x-text="info?.status_stock"></span>
                 </div>
 
                 <div>
@@ -77,10 +83,6 @@
                             <b class="num text-accent" x-text="(info?.ratio_stock ?? 0) + ' Hari'"></b>
                         </div>
                     </div>
-                </div>
-
-                <div>
-                    <span class="pill" :class="pillClass(info?.status_stock)" x-text="info?.status_stock"></span>
                 </div>
             </aside>
 
@@ -340,6 +342,32 @@
                 },
                 pct(v) {
                     return Math.min(100, Math.max(0, ((Number(v) || 0) / this.scaleMax) * 100)).toFixed(1);
+                },
+                get stdTicks() {
+                    if (!this.info) return [];
+                    const s1 = Number(this.info.std_day_1) || 0;
+                    const s2 = Number(this.info.std_day_2) || 0;
+                    const s3 = Number(this.info.std_day_3) || 0;
+                    if (s1 <= 0) return [];
+
+                    const raw = [
+                        { key: 's1', title: 'Std Day 1: ' + s1, val: s1, p: parseFloat(this.pct(s1)) },
+                        { key: 's2', title: 'Std Day 2: ' + s2, val: s2, p: parseFloat(this.pct(s2)) },
+                        { key: 's3', title: 'Std Day 3: ' + s3, val: s3, p: parseFloat(this.pct(s3)) },
+                    ];
+
+                    const minGap = 16;
+                    const lp = raw.map(t => Math.min(94, Math.max(6, t.p)));
+                    if (lp[1] - lp[0] < minGap) lp[1] = Math.min(94 - minGap, lp[0] + minGap);
+                    if (lp[2] - lp[1] < minGap) lp[2] = Math.min(94, lp[1] + minGap);
+
+                    return raw.map((t, i) => ({
+                        key: t.key,
+                        title: t.title,
+                        val: t.val,
+                        p: t.p.toFixed(1),
+                        lp: lp[i].toFixed(1),
+                    }));
                 },
                 dayLabel(d) {
                     const p = String(d).split('-');

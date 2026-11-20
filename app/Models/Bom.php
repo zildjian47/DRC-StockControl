@@ -132,14 +132,11 @@ class Bom extends Model
 
         $cleanDec = rtrim(rtrim(number_format($val, 8, '.', ''), '0'), '.');
 
-        for ($den = 2; $den <= 24; $den++) {
-            $num = round($val * $den);
-            if ($num > 0 && abs(($num / $den) - $val) < 0.000001) {
-                if ($num % $den === 0) {
-                    return (string) ($num / $den);
-                }
-                if (in_array($den, [3, 6, 7, 9, 11, 12, 13, 14, 15, 17, 18, 19, 21, 22, 23, 24], true)) {
-                    return "{$num}/{$den} ({$cleanDec})";
+        if ($val < 1) {
+            for ($den = 2; $den <= 100; $den++) {
+                $num = (int) round($val * $den);
+                if ($num > 0 && $num < $den && ($den <= 24 || $num === 1) && abs(($num / $den) - $val) < 0.000001) {
+                    return "{$num}/{$den}";
                 }
             }
         }

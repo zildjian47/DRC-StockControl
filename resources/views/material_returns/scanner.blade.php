@@ -54,15 +54,15 @@
         <div class="scan-stepper mb-3">
             <div class="scan-step" :class="step === 1 ? 'active' : (step > 1 ? 'done' : '')">
                 <span class="scan-step-num" x-text="step > 1 ? '✓' : '1'"></span>
-                <span class="truncate">Scan Material</span>
+                <span class="truncate">Material</span>
             </div>
             <div class="scan-step" :class="step === 2 ? 'active' : (step > 2 ? 'done' : '')">
                 <span class="scan-step-num" x-text="step > 2 ? '✓' : '2'"></span>
-                <span class="truncate">Scan Output</span>
+                <span class="truncate">Output</span>
             </div>
             <div class="scan-step" :class="step === 3 ? 'active' : ''">
                 <span class="scan-step-num">3</span>
-                <span class="truncate">Lot &amp; Qty Return</span>
+                <span class="truncate">Lot &amp; Qty</span>
             </div>
         </div>
 
@@ -75,11 +75,11 @@
         <div class="panel">
             <div class="panel-head">
                 <div class="panel-title">
-                    <span x-show="step === 1">Langkah 1 · Scan Material Dikembalikan</span>
-                    <span x-show="step === 2" x-cloak>Langkah 2 · Scan Target Output</span>
-                    <span x-show="step === 3" x-cloak>Langkah 3 · Pilih Lot &amp; Input Qty Return</span>
+                    <span x-show="step === 1">Langkah 1 · Scan Material</span>
+                    <span x-show="step === 2" x-cloak>Langkah 2 · Scan Output</span>
+                    <span x-show="step === 3" x-cloak>Langkah 3 · Lot &amp; Qty</span>
                 </div>
-                <span class="pill pill-info">1x Return / Lot</span>
+                <span class="pill pill-info">1X RETURN / LOT</span>
             </div>
 
             <div class="panel-body space-y-4">
@@ -94,25 +94,28 @@
                                 <x-icon name="scan" class="w-6 h-6" />
                             </div>
                             <div class="text-xs text-slate-300 leading-relaxed">
-                                Aktifkan izin kamera 1 kali untuk perangkat ini, atau gunakan input kode manual di bawah.
+                                Aktifkan kamera untuk scan QR, atau ketik kode di bawah.
                             </div>
                             <button type="button" @click="activateCamera()" class="btn btn-primary">
-                                <x-icon name="scan" /> Aktifkan Kamera Scanner
+                                <x-icon name="scan" /> Aktifkan Kamera
                             </button>
                         </div>
                     </div>
 
-                    <div x-show="step === 2 && materialItem" x-cloak class="p-3 rounded bg-slate-50 border border-slate-200 mb-3 flex items-center justify-between gap-2">
+                    <div x-show="step === 2 && materialItem" x-cloak class="p-3 rounded bg-slate-50 border border-slate-200 mb-3 flex items-center justify-between gap-3">
                         <div class="min-w-0 flex-1">
-                            <div class="text-[11px] font-semibold uppercase text-slate-500">Material Dikembalikan</div>
-                            <div class="num text-xs font-bold text-accent mt-0.5" x-text="materialItem?.part_no || materialItem?.type"></div>
+                            <div class="flex items-center gap-1.5 flex-wrap">
+                                <span class="ty" :class="tyClass(materialItem?.type)" x-text="materialItem?.type"></span>
+                                <span class="text-[11px] font-semibold uppercase text-slate-500">Material Retur</span>
+                            </div>
+                            <div class="num text-xs font-bold text-accent mt-1" x-text="materialItem?.part_no || '-'"></div>
                             <div class="text-xs font-semibold text-slate-900 break-words" x-text="materialItem?.part_name"></div>
                         </div>
                         <button type="button" @click="resetAll()" class="text-xs font-semibold text-rose-600 hover:underline flex-none">Ganti</button>
                     </div>
 
                     <div>
-                        <label class="lbl" x-text="step === 1 ? 'Ketik Part No / Part Name Material' : 'Ketik Part No / Part Name Target Output'"></label>
+                        <label class="lbl" x-text="step === 1 ? 'Part No / Part Name Material' : 'Part No / Part Name Output'"></label>
                         <div class="flex gap-2">
                             <input type="text" x-model="manualCode"
                                    @keydown.enter.prevent="handleScan(manualCode)"
@@ -130,15 +133,18 @@
                     <div class="p-3 rounded bg-slate-50 border border-slate-200 space-y-2 text-xs">
                         <div class="flex items-center justify-between gap-2">
                             <div class="min-w-0 flex-1">
-                                <div class="text-[11px] font-semibold text-slate-500 uppercase">Material Trigger</div>
-                                <div class="font-bold text-slate-900 break-words" x-text="(materialItem?.part_no ? materialItem.part_no + ' — ' : '') + (materialItem?.part_name || '')"></div>
+                                <div class="flex items-center gap-1.5 flex-wrap">
+                                    <span class="ty" :class="tyClass(materialItem?.type)" x-text="materialItem?.type"></span>
+                                    <span class="text-[11px] font-semibold text-slate-500 uppercase">Material</span>
+                                </div>
+                                <div class="font-bold text-slate-900 break-words mt-1" x-text="(materialItem?.part_no ? materialItem.part_no + ' — ' : '') + (materialItem?.part_name || '')"></div>
                             </div>
-                            <span class="pill pill-neu flex-none" x-text="materialItem?.uom"></span>
+                            <span class="num text-xs font-semibold text-slate-600 flex-none" x-text="materialItem?.uom"></span>
                         </div>
                         <div class="pt-2 border-t border-slate-200 flex items-center justify-between gap-2">
                             <div class="min-w-0 flex-1">
                                 <div class="text-[11px] font-semibold text-slate-500 uppercase">Target Output</div>
-                                <div class="font-bold text-accent break-words" x-text="(targetItem?.part_no ? targetItem.part_no + ' — ' : '') + (targetItem?.part_name || '')"></div>
+                                <div class="font-bold text-accent break-words mt-0.5" x-text="(targetItem?.part_no ? targetItem.part_no + ' — ' : '') + (targetItem?.part_name || '')"></div>
                             </div>
                         </div>
                     </div>
@@ -157,18 +163,18 @@
                         </div>
 
                         <div>
-                            <label class="lbl">Pilih Nomor Lot Aktif (Klik &amp; Ketik untuk Mencari)</label>
+                            <label class="lbl">Nomor Lot Aktif</label>
                             <select name="lot_number" x-model="lotNumber" required class="w-full h-11 text-xs font-semibold">
                                 <option value="">-- Pilih Nomor Lot --</option>
                                 <template x-for="lt in matchingLots" :key="lt.lot_number">
                                     <option :value="lt.lot_number"
-                                            x-text="lt.lot_number + ' — Sisa Material Saat Ini: ' + lt.mat_saat_ini + ' ' + lt.mat_uom"></option>
+                                            x-text="lt.lot_number + ' · Sisa: ' + lt.mat_saat_ini + ' ' + lt.mat_uom"></option>
                                 </template>
                             </select>
                         </div>
 
                         <div x-show="selectedLotObj" class="p-3 rounded bg-blue-50/70 border border-blue-200 flex items-center justify-between text-xs">
-                            <span class="text-blue-900 font-medium">Batas Maksimal Return (Material Saat Ini):</span>
+                            <span class="text-blue-900 font-medium">Sisa Material di Mesin</span>
                             <b class="num text-sm text-accent" x-text="(selectedLotObj?.mat_saat_ini ?? 0) + ' ' + (materialItem?.uom || '')"></b>
                         </div>
 
@@ -178,7 +184,7 @@
                                 <input type="text" name="qty" x-model="rawQty" required
                                        placeholder="Contoh: 5"
                                        class="num w-full h-14 text-2xl text-center font-bold pl-[30px]">
-                                <span class="inp-calc-ic" title="Mendukung perhitungan kalkulator (+, -, *, /)">
+                                <span class="inp-calc-ic" title="Mendukung kalkulator (+, -, *, /)">
                                     <x-icon name="calc" />
                                 </span>
                             </div>
@@ -191,8 +197,17 @@
                             </div>
                         </div>
 
+                        <div class="dlg-list" x-show="selectedLotObj && parsedQty > 0" x-cloak>
+                            <div>
+                                <span>Sisa Mesin</span>
+                                <b class="num"
+                                   :class="parsedQty > (selectedLotObj?.mat_saat_ini || 0) ? 'text-rose-700' : 'text-slate-900'"
+                                   x-text="(selectedLotObj?.mat_saat_ini ?? 0) + ' → ' + Math.round(((selectedLotObj?.mat_saat_ini || 0) - parsedQty) * 100) / 100 + ' ' + (materialItem?.uom || '')"></b>
+                            </div>
+                        </div>
+
                         <button type="submit" class="btn btn-primary btn-lg w-full">
-                            Simpan Material Return (+ Stok)
+                            Simpan Material Return
                         </button>
                     </form>
 
@@ -208,7 +223,7 @@
             <div class="panel-head">
                 <div class="panel-title">
                     <span>Riwayat Scan Material Return</span>
-                    <span class="count-chip"><span x-text="filteredHistory.length"></span><span>Scan</span></span>
+                    <span class="count-chip"><span x-text="filteredHistory.length"></span><span>SCAN</span></span>
                 </div>
             </div>
             <div class="p-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center gap-2">
@@ -224,7 +239,7 @@
                     <div class="p-3 flex items-center justify-between gap-3 text-xs bg-white hover:bg-slate-50">
                         <div class="min-w-0 flex-1">
                             <div class="flex items-center gap-1.5 flex-wrap">
-                                <span class="pill pill-info num text-[10.5px]" x-text="s.lot_number"></span>
+                                <span class="pill pill-info num" x-text="s.lot_number"></span>
                                 <span class="num text-[11px] text-slate-500" x-text="s.date_fmt"></span>
                                 <span class="text-[11px] text-slate-500" x-text="'· ' + s.user_name"></span>
                             </div>
@@ -263,6 +278,9 @@
                 lotNumber: '',
                 rawQty: '',
 
+                tyClass(t) {
+                    return 'ty-' + (t === 'FG/KOMPONEN' ? 'FGK' : (t || 'RM'));
+                },
                 initScanner() {
                     if (window.DRCScanner && window.DRCScanner.isPermitted()) {
                         this.activateCamera();
@@ -292,14 +310,14 @@
                     this.formError = '';
                     const found = this.findItem(rawCode);
                     if (!found) {
-                        this.errorMsg = `Ditolak: Kode "${rawCode}" tidak ditemukan di Master Item aktif.`;
+                        this.errorMsg = `Kode "${rawCode}" tidak ditemukan.`;
                         return;
                     }
 
                     if (this.step === 1) {
                         const hasLot = this.activeLots.some(l => String(l.material_item_id) === String(found.id));
                         if (!hasLot) {
-                            this.errorMsg = `Ditolak: Material [${found.part_name}] tidak memiliki Lot ON PROGRESS yang dapat diretur.`;
+                            this.errorMsg = `${found.part_name} tidak memiliki Lot aktif untuk diretur.`;
                             return;
                         }
                         this.materialItem = found;
@@ -311,7 +329,7 @@
                             String(l.target_item_id) === String(found.id)
                         );
                         if (matched.length === 0) {
-                            this.errorMsg = `Ditolak: Tidak ada Lot aktif yang memakai [${this.materialItem.part_name}] untuk memproduksi [${found.part_name}].`;
+                            this.errorMsg = `Tidak ada Lot aktif untuk ${this.materialItem.part_name} → ${found.part_name}.`;
                             return;
                         }
                         this.targetItem = found;
@@ -338,7 +356,7 @@
                 },
                 evalCalc(raw) {
                     if (raw === null || raw === undefined) return null;
-                    const expr = String(raw).replace(/,/g, '.').replace(/\s+/g, '');
+                    const expr = String(raw).replace(/,/g, '.').replace(/[xX]/g, '*').replace(/:/g, '/').replace(/\s+/g, '');
                     if (!expr || !/^[0-9\.\+\-\*\/\(\)]+$/.test(expr) || /[\+\-\*\/]{2,}/.test(expr)) return null;
                     try {
                         const r = Function('return (' + expr + ')')();
@@ -354,28 +372,28 @@
                 submitForm(formEl) {
                     this.formError = '';
                     if (!this.materialItem || !this.targetItem) {
-                        this.formError = 'Silakan scan Material dan Target Output terlebih dahulu.';
+                        this.formError = 'Scan Material dan Target Output terlebih dahulu.';
                         return;
                     }
                     if (!this.lotNumber || !this.selectedLotObj) {
-                        this.formError = 'Nomor Lot aktif wajib dipilih terlebih dahulu.';
+                        this.formError = 'Pilih Nomor Lot terlebih dahulu.';
                         return;
                     }
                     if (String(this.rawQty || '').trim() === '') {
-                        this.formError = 'Qty Material Return wajib diisi.';
+                        this.formError = 'Qty wajib diisi.';
                         return;
                     }
                     const val = this.evalCalc(this.rawQty);
                     if (val === null) {
-                        this.formError = 'Format perhitungan Qty Material Return tidak valid.';
+                        this.formError = 'Format perhitungan tidak valid.';
                         return;
                     }
                     if (val <= 0) {
-                        this.formError = 'Qty Material Return harus lebih besar dari 0.';
+                        this.formError = 'Qty harus lebih dari 0.';
                         return;
                     }
                     if (val > this.selectedLotObj.mat_saat_ini + 0.0001) {
-                        this.formError = `Ditolak: Qty Return (${val}) melebihi sisa Material Saat Ini di mesin (${this.selectedLotObj.mat_saat_ini} ${this.materialItem?.uom || ''}).`;
+                        this.formError = `Qty melebihi sisa material di mesin (tersedia ${this.selectedLotObj.mat_saat_ini} ${this.materialItem?.uom || ''}).`;
                         return;
                     }
                     formEl.submit();

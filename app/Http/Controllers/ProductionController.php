@@ -63,18 +63,18 @@ class ProductionController extends Controller
 
         $qtyProd = BomController::evaluateMath($request->qty);
         if ($qtyProd <= 0) {
-            return back()->withInput()->with('error', 'Qty Production harus lebih besar dari 0.');
+            return back()->withInput()->with('error', 'Qty harus lebih dari 0.');
         }
 
         $item = Item::with('company')->findOrFail($request->item_id);
 
         if (!in_array($item->type, ['FG', 'KOMPONEN', 'FG/KOMPONEN'], true)) {
-            return back()->withInput()->with('error', "Ditolak: Item {$item->part_name} bertipe {$item->type}. Production hanya menerima FG, KOMPONEN, atau FG/KOMPONEN.");
+            return back()->withInput()->with('error', 'Item tidak sesuai untuk Production (wajib FG, KOMPONEN, atau FG/KOMPONEN).');
         }
 
         $compType = $item->company ? $item->company->type_company : 'INTERNAL';
         if (!in_array($compType, ['INTERNAL', 'CUSTOMER'], true)) {
-            return back()->withInput()->with('error', "Ditolak: Perusahaan {$item->part_name} harus bertipe INTERNAL atau CUSTOMER.");
+            return back()->withInput()->with('error', 'Perusahaan item ini wajib bertipe INTERNAL atau CUSTOMER.');
         }
 
         $lotNumber = $request->lot_number;
@@ -83,15 +83,15 @@ class ProductionController extends Controller
             ->first();
 
         if (!$lot) {
-            return back()->withInput()->with('error', "Ditolak: Nomor Lot {$lotNumber} untuk item {$item->part_name} tidak ditemukan di Lot Tracer.");
+            return back()->withInput()->with('error', "Lot {$lotNumber} untuk {$item->part_name} tidak ditemukan.");
         }
 
         if ($lot->status_lot !== 'ON PROGRESS') {
-            return back()->withInput()->with('error', "Ditolak: Nomor Lot {$lotNumber} sudah berstatus FINISH.");
+            return back()->withInput()->with('error', "Lot {$lotNumber} sudah berstatus FINISH.");
         }
 
         if ($qtyProd > (float) $lot->qty_wip + 0.0001) {
-            return back()->withInput()->with('error', "Ditolak: Qty Production ({$qtyProd}) melebihi sisa Qty WIP pada Lot {$lotNumber} (Sisa WIP: {$lot->qty_wip} {$item->uom}).");
+            return back()->withInput()->with('error', 'Qty melebihi sisa WIP (tersedia ' . floatval($lot->qty_wip) . " {$item->uom}).");
         }
 
         DB::transaction(function () use ($item, $lot, $lotNumber, $qtyProd) {
@@ -116,7 +116,7 @@ class ProductionController extends Controller
             $stock->save();
         });
 
-        $msg = "Hasil Production Lot {$lotNumber} (+" . floatval($qtyProd) . " {$item->uom} {$item->part_name}) berhasil dicatat.";
+        $msg = "Production Lot {$lotNumber} (+" . floatval($qtyProd) . " {$item->uom}) tersimpan.";
 
         if ($request->input('mode') === 'scanner') {
             return redirect()->route('productions.index', ['mode' => 'scanner'])->with('success', $msg);
@@ -136,7 +136,7 @@ class ProductionController extends Controller
                     $rawActual = $data['actual_qty'] ?? null;
                     $newQty = StockAdjustmentController::parseSignedCalculatorValue($rawActual);
                     if ($newQty === null || $newQty <= 0) {
-                        throw new \RuntimeException("Format Qty koreksi Production tidak valid (wajib > 0).");
+                        throw new \RuntimeException('Format Qty koreksi tidak valid (wajib > 0).');
                     }
 
                     $prod = Production::with('item')->findOrFail($id);
@@ -149,7 +149,7 @@ class ProductionController extends Controller
 
                     $newActualLot = (float) $lot->actual_qty_prod + $diff;
                     if ($newActualLot < (float) $lot->qty_ng) {
-                        throw new \RuntimeException("Koreksi Production Lot {$prod->lot_number} tidak boleh lebih kecil dari Qty NG yang sudah tercatat ({$lot->qty_ng}).");
+                        throw new \RuntimeException('Qty koreksi tidak boleh lebih kecil dari Qty NG (' . floatval($lot->qty_ng) . ').');
                     }
 
                     $stock = InventoryStock::firstOrCreate(
@@ -158,7 +158,7 @@ class ProductionController extends Controller
                     );
 
                     if ((float) $stock->current_stock + $diff < 0) {
-                        throw new \RuntimeException("Koreksi Production ditolak karena membuat Current Stock {$prod->item->part_name} minus.");
+                        throw new \RuntimeException("Stok {$prod->item->part_name} tidak boleh minus akibat koreksi.");
                     }
 
                     $stock->current_stock = (float) $stock->current_stock + $diff;
@@ -180,10 +180,10 @@ class ProductionController extends Controller
         }
 
         if ($processed === 0) {
-            return back()->with('error', 'Tidak ada koreksi Production yang disimpan.');
+            return back()->with('error', 'Tidak ada koreksi yang disimpan.');
         }
 
         return redirect()->route('productions.index')
-            ->with('success', "Qty Production berhasil dikoreksi beserta saldo stok dan Lot Tracer.");
+            ->with('success', 'Koreksi Production tersimpan.');
     }
 }

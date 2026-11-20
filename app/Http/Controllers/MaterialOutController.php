@@ -177,16 +177,16 @@ class MaterialOutController extends Controller
             'qty'              => 'required',
             'bom_group'        => 'nullable|string',
         ], [
-            'lot_number.regex' => 'Format Nomor Lot wajib 1 Huruf Kapital diikuti 6 Angka (contoh: J260178).',
+            'lot_number.regex' => 'Format Lot wajib 1 huruf kapital + 6 angka (contoh: J260178).',
         ]);
 
         $qtyOut = BomController::evaluateMath($request->qty);
         if ($qtyOut <= 0) {
-            return back()->withInput()->with('error', 'Qty Material Out harus lebih besar dari 0.');
+            return back()->withInput()->with('error', 'Qty harus lebih dari 0.');
         }
 
         if (LotTracer::where('lot_number', $request->lot_number)->exists()) {
-            return back()->withInput()->with('error', "Nomor Lot {$request->lot_number} sudah digunakan pada Material Out sebelumnya.");
+            return back()->withInput()->with('error', "Nomor Lot {$request->lot_number} sudah terdaftar.");
         }
 
         $materialItem = Item::with('company')->findOrFail($request->material_item_id);
@@ -194,12 +194,12 @@ class MaterialOutController extends Controller
 
         $matCompanyType = $materialItem->company->type_company ?? '';
         if (!in_array($materialItem->type, ['RM', 'KOMPONEN', 'FG/KOMPONEN']) || !in_array($matCompanyType, ['SUPPLIER', 'INTERNAL'])) {
-            return back()->withInput()->with('error', 'Ditolak: Material Input harus bertipe RM, KOMPONEN, atau FG/KOMPONEN (SUPPLIER/INTERNAL).');
+            return back()->withInput()->with('error', 'Material Input wajib RM, KOMPONEN, atau FG/KOMPONEN (SUPPLIER/INTERNAL).');
         }
 
         $tgtCompanyType = $targetItem->company->type_company ?? '';
         if (!in_array($targetItem->type, ['FG', 'KOMPONEN', 'FG/KOMPONEN']) || !in_array($tgtCompanyType, ['INTERNAL', 'CUSTOMER'])) {
-            return back()->withInput()->with('error', 'Ditolak: Target Output harus bertipe FG, KOMPONEN, atau FG/KOMPONEN (INTERNAL/CUSTOMER).');
+            return back()->withInput()->with('error', 'Target Output wajib FG, KOMPONEN, atau FG/KOMPONEN (INTERNAL/CUSTOMER).');
         }
 
         $bomQuery = Bom::where('input_item_id', $materialItem->id)
@@ -212,7 +212,7 @@ class MaterialOutController extends Controller
 
         $triggerBom = $bomQuery->first();
         if (!$triggerBom) {
-            return back()->withInput()->with('error', 'Ditolak: Pasangan Material & Target Output ini tidak terdaftar sebagai Trigger Utama di BOM.');
+            return back()->withInput()->with('error', 'Pasangan Material & Target Output tidak terdaftar sebagai Trigger di BOM.');
         }
 
         $groupKey = $triggerBom->bom_group;
@@ -227,7 +227,7 @@ class MaterialOutController extends Controller
 
         $matStock = InventoryStock::firstOrCreate(['item_id' => $materialItem->id], ['current_stock' => 0]);
         if ((float) $matStock->current_stock < $qtyOut) {
-            return back()->withInput()->with('error', "Stok {$materialItem->part_name} tidak mencukupi (Tersedia: " . floatval($matStock->current_stock) . " {$materialItem->uom}).");
+            return back()->withInput()->with('error', 'Stok kurang. Tersedia: ' . floatval($matStock->current_stock) . " {$materialItem->uom}.");
         }
 
         $companionDeductions = [];
@@ -263,7 +263,7 @@ class MaterialOutController extends Controller
             if ((float) $cStock->current_stock < $cData['needed']) {
                 $cName = $cData['item']->part_name ?? 'Komponen';
                 $cUom = $cData['item']->uom ?? '';
-                return back()->withInput()->with('error', "Stok komponen pendamping [{$cName}] tidak mencukupi (Butuh: {$cData['needed']} {$cUom}, Tersedia: " . floatval($cStock->current_stock) . " {$cUom}).");
+                return back()->withInput()->with('error', "Stok pendamping {$cName} kurang (butuh " . floatval($cData['needed']) . ', tersedia ' . floatval($cStock->current_stock) . " {$cUom}).");
             }
         }
 
@@ -308,14 +308,14 @@ class MaterialOutController extends Controller
 
         $redirectParams = $request->input('mode') === 'scanner' ? ['mode' => 'scanner'] : [];
         return redirect()->route('material_outs.index', $redirectParams)
-            ->with('success', "Material Out Lot {$request->lot_number} berhasil dicatat.");
+            ->with('success', "Material Out Lot {$request->lot_number} (-" . floatval($qtyOut) . " {$materialItem->uom}) tersimpan.");
     }
 
     public function verifyBatch(Request $request)
     {
         $items = $request->input('items', []);
         if (empty($items)) {
-            return back()->with('error', 'Tidak ada data perubahan yang dikirim.');
+            return back()->with('error', 'Tidak ada koreksi yang disimpan.');
         }
 
         $allBoms = Bom::all();
@@ -342,7 +342,7 @@ class MaterialOutController extends Controller
                         if ($diffTrigger != 0) {
                             $matStock = InventoryStock::firstOrCreate(['item_id' => $matOut->material_item_id], ['current_stock' => 0]);
                             if ($diffTrigger > 0 && (float) $matStock->current_stock < $diffTrigger) {
-                                throw new \Exception('Stok Material Trigger tidak mencukupi untuk selisih koreksi.');
+                                throw new \Exception('Stok Material Trigger tidak cukup untuk koreksi.');
                             }
 
                             $siblingOuts = MaterialOut::where('lot_number', $matOut->lot_number)
@@ -362,7 +362,7 @@ class MaterialOutController extends Controller
                                     if ($diffComp != 0) {
                                         $cStock = InventoryStock::firstOrCreate(['item_id' => $compBom->input_item_id], ['current_stock' => 0]);
                                         if ($diffComp > 0 && (float) $cStock->current_stock < $diffComp) {
-                                            throw new \Exception('Stok komponen pendamping tidak cukup untuk selisih koreksi.');
+                                            throw new \Exception('Stok komponen pendamping tidak cukup untuk koreksi.');
                                         }
                                         $cStock->decrement('current_stock', $diffComp);
                                         $cStock->refresh()->updateDynamicStatus();
@@ -405,6 +405,6 @@ class MaterialOutController extends Controller
             return back()->with('error', $e->getMessage());
         }
 
-        return redirect()->route('material_outs.index')->with('success', 'Koreksi Material Out berhasil disimpan.');
+        return redirect()->route('material_outs.index')->with('success', 'Koreksi Material Out tersimpan.');
     }
 }

@@ -199,11 +199,11 @@
                                 <div class="dlg-name uppercase" x-text="addPartName || 'NAMA PART'"></div>
                                 <div class="flex items-center gap-2 mt-1">
                                     <span class="ty" :class="tyClass(addType)" x-text="addType"></span>
-                                    <span class="pill pill-neu num" x-text="addUom"></span>
+                                    <span class="num text-xs font-semibold text-slate-600" x-text="addUom"></span>
                                 </div>
                             </div>
                             <div>
-                                <div class="dlg-k" style="margin-bottom: 8px">Standar Buffer Harian</div>
+                                <div class="dlg-k" style="margin-bottom: 8px">Standar Buffer</div>
                                 <template x-if="allowsPo(addType)">
                                     <div class="dlg-list">
                                         <div><span>Std Day 1</span><b class="num" x-text="stdPreview(addPo, addWd, addKb)[0]"></b></div>
@@ -228,8 +228,11 @@
 
                             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <div>
-                                    <label class="lbl" for="add_part_no">Part No <span style="font-weight:400;color:var(--mut)">(opsional untuk RM Sheet/Coil)</span></label>
+                                    <label class="lbl" for="add_part_no">
+                                        Part No <span style="font-weight:400;color:var(--mut)" x-text="addType === 'RM' ? '(Opsional untuk RM)' : '(Wajib)'"></span>
+                                    </label>
                                     <input id="add_part_no" type="text" name="part_no" x-model="addPartNo"
+                                           :required="addType !== 'RM'"
                                            placeholder="Contoh: FG-BKT-001"
                                            oninput="this.value = this.value.toUpperCase()"
                                            class="num uppercase w-full h-9">
@@ -278,16 +281,16 @@
 
                             <div x-show="allowsPo(addType)" class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                                 <div>
-                                    <label class="lbl" for="add_po">Qty PO Sebulan</label>
-                                    <input id="add_po" type="number" step="0.01" min="0" name="qty_po" x-model="addPo" class="num w-full h-9">
+                                    <label class="lbl" for="add_po">Qty PO Sebulan <span style="font-weight:400;color:var(--mut)">(Opsional)</span></label>
+                                    <input id="add_po" type="number" step="0.01" min="0" name="qty_po" x-model="addPo" placeholder="0" class="num w-full h-9">
                                 </div>
                                 <div>
-                                    <label class="lbl" for="add_wd">Working Days (WD)</label>
-                                    <input id="add_wd" type="number" min="0" name="working_days" x-model="addWd" class="num w-full h-9">
+                                    <label class="lbl" for="add_wd">Working Days (WD) <span style="font-weight:400;color:var(--mut)">(Opsional)</span></label>
+                                    <input id="add_wd" type="number" min="0" name="working_days" x-model="addWd" placeholder="0" class="num w-full h-9">
                                 </div>
                                 <div>
-                                    <label class="lbl" for="add_kb">Qty per Kanban</label>
-                                    <input id="add_kb" type="number" step="0.01" min="0" name="qty_kanban" x-model="addKb" class="num w-full h-9">
+                                    <label class="lbl" for="add_kb">Qty per Kanban <span style="font-weight:400;color:var(--mut)">(Opsional)</span></label>
+                                    <input id="add_kb" type="number" step="0.01" min="0" name="qty_kanban" x-model="addKb" placeholder="0" class="num w-full h-9">
                                 </div>
                             </div>
 
@@ -331,11 +334,11 @@
                                 <div class="dlg-name uppercase" x-text="editData.part_name || 'NAMA PART'"></div>
                                 <div class="flex items-center gap-2 mt-1">
                                     <span class="ty" :class="tyClass(editData.type)" x-text="editData.type"></span>
-                                    <span class="pill pill-neu num" x-text="editData.uom"></span>
+                                    <span class="num text-xs font-semibold text-slate-600" x-text="editData.uom"></span>
                                 </div>
                             </div>
                             <div>
-                                <div class="dlg-k" style="margin-bottom: 8px">Standar Buffer Harian</div>
+                                <div class="dlg-k" style="margin-bottom: 8px">Standar Buffer</div>
                                 <template x-if="allowsPo(editData.type)">
                                     <div class="dlg-list">
                                         <div><span>Std Day 1</span><b class="num" x-text="stdPreview(editData.qty_po, editData.working_days, editData.qty_kanban)[0]"></b></div>
@@ -366,9 +369,12 @@
 
                             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <div>
-                                    <label class="lbl" for="edit_part_no">Part No</label>
+                                    <label class="lbl" for="edit_part_no">
+                                        Part No <span style="font-weight:400;color:var(--mut)" x-text="editData.type === 'RM' ? '(Opsional untuk RM)' : '(Wajib)'"></span>
+                                    </label>
                                     <input id="edit_part_no" type="text" name="part_no" x-model="editData.part_no"
                                            :disabled="editData.has_history"
+                                           :required="!editData.has_history && editData.type !== 'RM'"
                                            oninput="this.value = this.value.toUpperCase()"
                                            class="num uppercase w-full h-9">
                                 </div>
@@ -414,16 +420,16 @@
 
                             <div x-show="allowsPo(editData.type)" class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                                 <div>
-                                    <label class="lbl" for="edit_po">Qty PO Sebulan</label>
-                                    <input id="edit_po" type="number" step="0.01" min="0" name="qty_po" x-model="editData.qty_po" class="num w-full h-9">
+                                    <label class="lbl" for="edit_po">Qty PO Sebulan <span style="font-weight:400;color:var(--mut)">(Opsional)</span></label>
+                                    <input id="edit_po" type="number" step="0.01" min="0" name="qty_po" x-model="editData.qty_po" placeholder="0" class="num w-full h-9">
                                 </div>
                                 <div>
-                                    <label class="lbl" for="edit_wd">Working Days (WD)</label>
-                                    <input id="edit_wd" type="number" min="0" name="working_days" x-model="editData.working_days" class="num w-full h-9">
+                                    <label class="lbl" for="edit_wd">Working Days (WD) <span style="font-weight:400;color:var(--mut)">(Opsional)</span></label>
+                                    <input id="edit_wd" type="number" min="0" name="working_days" x-model="editData.working_days" placeholder="0" class="num w-full h-9">
                                 </div>
                                 <div>
-                                    <label class="lbl" for="edit_kb">Qty per Kanban</label>
-                                    <input id="edit_kb" type="number" step="0.01" min="0" name="qty_kanban" x-model="editData.qty_kanban" class="num w-full h-9">
+                                    <label class="lbl" for="edit_kb">Qty per Kanban <span style="font-weight:400;color:var(--mut)">(Opsional)</span></label>
+                                    <input id="edit_kb" type="number" step="0.01" min="0" name="qty_kanban" x-model="editData.qty_kanban" placeholder="0" class="num w-full h-9">
                                 </div>
                             </div>
 
@@ -530,9 +536,9 @@
                 addPartNo: '',
                 addPartName: '',
                 addUom: {{ Js::from(collect($uoms)->first() ?? 'PCS') }},
-                addPo: 0,
-                addWd: 20,
-                addKb: 0,
+                addPo: '',
+                addWd: '',
+                addKb: '',
                 addError: '',
                 editOpen: false,
                 editError: '',
@@ -607,19 +613,23 @@
                     }
                 },
                 validatePoParams(po, wd, kb) {
-                    if (po === '' || po === null || isNaN(Number(po)) || Number(po) < 0) {
-                        return 'Qty PO Sebulan wajib diisi dan tidak boleh minus.';
+                    if (po !== '' && po !== null && (isNaN(Number(po)) || Number(po) < 0)) {
+                        return 'Qty PO Sebulan tidak boleh minus.';
                     }
-                    if (wd === '' || wd === null || isNaN(Number(wd)) || Number(wd) < 0 || !Number.isInteger(Number(wd))) {
+                    if (wd !== '' && wd !== null && (isNaN(Number(wd)) || Number(wd) < 0 || !Number.isInteger(Number(wd)))) {
                         return 'Working Days (WD) wajib bilangan bulat minimal 0.';
                     }
-                    if (kb === '' || kb === null || isNaN(Number(kb)) || Number(kb) < 0) {
-                        return 'Qty per Kanban wajib diisi dan tidak boleh minus.';
+                    if (kb !== '' && kb !== null && (isNaN(Number(kb)) || Number(kb) < 0)) {
+                        return 'Qty per Kanban tidak boleh minus.';
                     }
                     return '';
                 },
                 submitAdd(formEl) {
                     this.addError = '';
+                    if (this.addType !== 'RM' && !(this.addPartNo || '').trim()) {
+                        this.addError = 'Part No wajib diisi untuk tipe item ' + this.addType + '.';
+                        return;
+                    }
                     if (!(this.addPartName || '').trim()) {
                         this.addError = 'Part Name wajib diisi.';
                         return;
@@ -662,6 +672,10 @@
                         return;
                     }
 
+                    if (this.editData.type !== 'RM' && !(this.editData.part_no || '').trim()) {
+                        this.editError = 'Part No wajib diisi untuk tipe item ' + this.editData.type + '.';
+                        return;
+                    }
                     if (!(this.editData.part_name || '').trim()) {
                         this.editError = 'Part Name wajib diisi.';
                         return;

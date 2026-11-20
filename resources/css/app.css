@@ -470,30 +470,30 @@
     margin-top: 0 !important;
   }
 
-  /* Indikator Kotak dengan Huruf Kapital (CAPSLOCK) & Jarak Spasi Pasti */
+  /* Indikator Kotak Counter (Opsi A: Flat Tint, Rata Tengah Vertikal Presisi) */
   .count-chip {
+    box-sizing: border-box;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 4px;
     height: 20px;
-    padding: 0 7px;
-    border-radius: 3px;
+    padding: 1px 7px 0;
+    border-radius: var(--pill);
     background: var(--info-bg);
     color: var(--info);
-    border: 1px solid #C5D9EE;
-    font: 600 10.5px var(--font-mono);
+    border: 0;
+    font: 600 10.5px/1 var(--font-mono);
     font-variant-numeric: tabular-nums;
     letter-spacing: 0.03em;
     text-transform: uppercase;
-    line-height: 1;
     white-space: nowrap;
   }
 
   .count-chip-sub {
     background: var(--sunk);
     color: var(--ink2);
-    border-color: var(--line2);
+    border: 1px solid var(--line);
   }
 
   /* ---------- Tombol dengan Simetri Vertikal & Horizontal Presisi ---------- */
@@ -700,15 +700,17 @@
     flex: 0 0 13px;
   }
 
-  /* ===== Tipe Item (Chip Berwarna CAPSLOCK) ===== */
+  /* ===== Tipe Item (Opsi A: Flat Tint, Seragam dengan .pill & .count-chip) ===== */
   .ty {
+    box-sizing: border-box;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     height: 20px;
-    padding: 0 7px;
-    border-radius: 3px;
-    font-size: 11px;
+    padding: 1px 7px 0;
+    border-radius: var(--pill);
+    border: 0;
+    font-size: 10.5px;
     font-weight: 600;
     letter-spacing: 0.03em;
     text-transform: uppercase;
@@ -1076,14 +1078,14 @@
     }
   }
 
-  /* ===== Komponen Informasi Item (BOM & Linimasa) ===== */
+  /* ===== Komponen Informasi Item (Bar Stock 3 Garis Std, BOM & Linimasa) ===== */
   .sbar {
     position: relative;
-    height: 8px;
-    margin: 8px 0 4px;
+    height: 10px;
+    margin: 10px 0 4px;
     border-radius: 4px;
     background: var(--line);
-    overflow: hidden;
+    overflow: visible;
   }
 
   .sbar > i {
@@ -1091,24 +1093,38 @@
     left: 0;
     top: 0;
     bottom: 0;
+    z-index: 1;
     border-radius: 4px;
   }
 
   .sbar > u {
     position: absolute;
-    top: 0;
-    bottom: 0;
-    width: 1.5px;
-    background: var(--ink2);
-    opacity: 0.7;
+    top: -3px;
+    bottom: -3px;
+    z-index: 3;
+    width: 2px;
+    background: var(--ink);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.85);
+    border-radius: 1px;
+    transform: translateX(-50%);
+    pointer-events: none;
   }
 
   .sbar-lbl {
-    display: flex;
-    justify-content: space-between;
-    font-size: 11px;
-    color: var(--mut);
+    position: relative;
+    height: 16px;
+    margin-top: 3px;
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--ink2);
     font-variant-numeric: tabular-nums;
+  }
+
+  .sbar-lbl > span {
+    position: absolute;
+    top: 0;
+    transform: translateX(-50%);
+    white-space: nowrap;
   }
 
   .sec-h {
@@ -1563,14 +1579,16 @@
     font-size: 12.5px;
   }
 
-  /* Warna Indikator Sistem Tetap Dipertahankan & CAPSLOCK */
+  /* Indikator Status & Peran (Opsi A: Flat Tint, Rata Tengah Vertikal Presisi) */
   .pill {
+    box-sizing: border-box;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     height: 20px;
-    padding: 0 8px;
+    padding: 1px 7px 0;
     border-radius: var(--pill);
+    border: 0;
     font-size: 10.5px;
     font-weight: 600;
     letter-spacing: 0.03em;
@@ -1851,15 +1869,17 @@
   }
 }
 
-/* Warna Tipe Item Permanen (Anti-Purge untuk 5 Tipe Item) */
+/* Warna Tipe Item Permanen (Opsi A: Flat Tint Tanpa Border & Rata Tengah Vertikal) */
 .ty {
+  box-sizing: border-box;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   height: 20px;
-  padding: 0 7px;
+  padding: 1px 7px 0;
   border-radius: 3px;
-  font-size: 11px;
+  border: 0 !important;
+  font-size: 10.5px;
   font-weight: 600;
   letter-spacing: 0.03em;
   text-transform: uppercase;
@@ -1870,29 +1890,24 @@
 .ty-RM {
   background-color: #E4EEF8 !important;
   color: #0B5CAD !important;
-  border: 1px solid #BDD4EC;
 }
 
 .ty-FG {
   background-color: #DCF1EE !important;
   color: #0B7A6B !important;
-  border: 1px solid #B2DFD9;
 }
 
 .ty-KOMPONEN {
   background-color: #ECE9F8 !important;
   color: #5B4BB7 !important;
-  border: 1px solid #D0C9F0;
 }
 
 .ty-TRANSIT {
   background-color: #F3E5F1 !important;
   color: #8E3A86 !important;
-  border: 1px solid #E2C4DF;
 }
 
 .ty-FGK {
   background-color: #EAF2D9 !important;
   color: #3F6212 !important;
-  border: 1px solid #CBE0A6;
 }

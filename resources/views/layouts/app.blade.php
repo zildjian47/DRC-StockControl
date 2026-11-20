@@ -136,7 +136,7 @@
         show(detail) {
             this.title = detail?.title || 'Konfirmasi Tindakan';
             this.message = detail?.message || 'Apakah Anda yakin ingin melanjutkan tindakan ini?';
-            this.formEl = detail?.form || null;
+            this.formEl = detail?.form || (detail?.formId ? document.getElementById(detail.formId) : null);
             this.open = true;
         },
         confirm() {
@@ -185,6 +185,7 @@
                @keydown.up.prevent="move(-1)"
                @keydown.enter.prevent="chooseActive()"
                placeholder="Ketik untuk mencari pilihan..."
+               autocomplete="off"
                class="sselect-search">
     </div>
     <div class="sselect-list" x-ref="optList">
@@ -319,6 +320,27 @@
             }
         };
     }
+
+    // Nonaktifkan saran ketikan / riwayat input browser di seluruh form & input
+    (function () {
+        function disableAutocomplete(root) {
+            if (!root || !root.querySelectorAll) return;
+            root.querySelectorAll('form').forEach(f => f.setAttribute('autocomplete', 'off'));
+            root.querySelectorAll('input:not([type="hidden"]):not([type="password"]), textarea').forEach(el => {
+                el.setAttribute('autocomplete', 'off');
+                el.setAttribute('autocorrect', 'off');
+                el.setAttribute('spellcheck', 'false');
+            });
+        }
+        document.addEventListener('DOMContentLoaded', () => disableAutocomplete(document));
+        document.addEventListener('focusin', (e) => {
+            const el = e.target;
+            if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') && el.type !== 'password') {
+                el.setAttribute('autocomplete', 'off');
+                if (el.form) el.form.setAttribute('autocomplete', 'off');
+            }
+        }, true);
+    })();
 
     // Auto-Update Tabel Saat Idle (Setiap 15 Detik)
     (function () {

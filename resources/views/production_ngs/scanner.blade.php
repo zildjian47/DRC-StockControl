@@ -58,11 +58,11 @@
         <div class="scan-stepper mb-3">
             <div class="scan-step" :class="step === 1 ? 'active' : 'done'">
                 <span class="scan-step-num" x-text="step > 1 ? '✓' : '1'"></span>
-                <span class="truncate">Scan Barang Output</span>
+                <span class="truncate">Scan Output</span>
             </div>
             <div class="scan-step" :class="step === 2 ? 'active' : ''">
                 <span class="scan-step-num">2</span>
-                <span class="truncate">Lot, Reason &amp; Qty NG</span>
+                <span class="truncate">Lot &amp; Qty NG</span>
             </div>
         </div>
 
@@ -75,10 +75,10 @@
         <div class="panel">
             <div class="panel-head">
                 <div class="panel-title">
-                    <span x-show="step === 1">Langkah 1 · Scan QR Barang Temuan NG</span>
-                    <span x-show="step === 2" x-cloak>Langkah 2 · Pilih Lot, Alasan &amp; Qty NG</span>
+                    <span x-show="step === 1">Langkah 1 · Scan Output NG</span>
+                    <span x-show="step === 2" x-cloak>Langkah 2 · Lot &amp; Qty NG</span>
                 </div>
-                <span class="pill pill-crit">Reject QC (- Stok)</span>
+                <span class="pill pill-crit">REJECT QC</span>
             </div>
 
             <div class="panel-body space-y-4">
@@ -92,16 +92,16 @@
                                 <x-icon name="scan" class="w-6 h-6" />
                             </div>
                             <div class="text-xs text-slate-300 leading-relaxed">
-                                Aktifkan izin kamera 1 kali untuk perangkat ini, atau gunakan input kode manual di bawah.
+                                Aktifkan kamera untuk scan QR, atau ketik kode di bawah.
                             </div>
                             <button type="button" @click="activateCamera()" class="btn btn-primary">
-                                <x-icon name="scan" /> Aktifkan Kamera Scanner
+                                <x-icon name="scan" /> Aktifkan Kamera
                             </button>
                         </div>
                     </div>
 
                     <div>
-                        <label class="lbl">Ketik Part No / Part Name Barang</label>
+                        <label class="lbl">Part No / Part Name</label>
                         <div class="flex gap-2">
                             <input type="text" x-model="manualCode"
                                    @keydown.enter.prevent="handleScan(manualCode)"
@@ -117,7 +117,7 @@
                 <div x-show="step === 2" x-cloak class="space-y-4">
                     <div class="p-3 rounded bg-slate-50 border border-slate-200 flex items-center justify-between gap-3">
                         <div class="min-w-0 flex-1">
-                            <span class="pill pill-neu" x-text="scannedItem?.type"></span>
+                            <span class="ty" :class="tyClass(scannedItem?.type)" x-text="scannedItem?.type"></span>
                             <div class="num text-xs font-bold text-accent mt-1" x-text="scannedItem?.part_no || '-'"></div>
                             <div class="text-xs font-semibold text-slate-900 break-words" x-text="scannedItem?.part_name"></div>
                         </div>
@@ -140,12 +140,12 @@
                         </div>
 
                         <div>
-                            <label class="lbl">Pilih Nomor Lot Aktif (ON PROGRESS)</label>
+                            <label class="lbl">Nomor Lot Aktif</label>
                             <select name="lot_tracer_id" x-model="selectedLotId" required class="w-full h-11 text-xs font-semibold">
                                 <option value="">-- Pilih Nomor Lot --</option>
                                 <template x-for="lt in itemLots" :key="lt.id">
                                     <option :value="lt.id"
-                                            x-text="lt.lot_number + ' (' + lt.process_name + ') — Saldo Act FG: ' + lt.act_fg + ' ' + lt.uom"></option>
+                                            x-text="lt.lot_number + ' (' + lt.process_name + ') · Act FG: ' + lt.act_fg + ' ' + lt.uom"></option>
                                 </template>
                             </select>
                         </div>
@@ -160,13 +160,13 @@
                                 <div class="num font-bold text-rose-700" x-text="selectedLotObj?.qty_ng"></div>
                             </div>
                             <div>
-                                <div class="text-[11px] text-slate-500">Maks NG (Act FG)</div>
+                                <div class="text-[11px] text-slate-500">Act FG</div>
                                 <div class="num font-bold text-emerald-700" x-text="(selectedLotObj?.act_fg ?? 0) + ' ' + (scannedItem?.uom || '')"></div>
                             </div>
                         </div>
 
                         <div>
-                            <label class="lbl">Pilih Problem Reason (Alasan NG)</label>
+                            <label class="lbl">Problem Reason</label>
                             <select name="problem_reason" x-model="problemReason" required class="w-full h-11 text-xs font-semibold">
                                 @foreach($reasons as $r)
                                     <option value="{{ $r }}">{{ $r }}</option>
@@ -183,8 +183,23 @@
                                    class="num w-full h-14 text-2xl text-center font-bold">
                         </div>
 
+                        <div class="dlg-list" x-show="selectedLotObj && parsedQtyNg > 0" x-cloak>
+                            <div>
+                                <span>Act FG</span>
+                                <b class="num"
+                                   :class="parsedQtyNg > (selectedLotObj?.act_fg || 0) ? 'text-rose-700' : 'text-slate-900'"
+                                   x-text="(selectedLotObj?.act_fg ?? 0) + ' → ' + Math.round(((selectedLotObj?.act_fg || 0) - parsedQtyNg) * 100) / 100 + ' ' + (scannedItem?.uom || '')"></b>
+                            </div>
+                            <div>
+                                <span>Stok</span>
+                                <b class="num"
+                                   :class="parsedQtyNg > (scannedItem?.stock || 0) ? 'text-rose-700' : 'text-slate-900'"
+                                   x-text="(scannedItem?.stock ?? 0) + ' → ' + Math.round(((scannedItem?.stock || 0) - parsedQtyNg) * 100) / 100 + ' ' + (scannedItem?.uom || '')"></b>
+                            </div>
+                        </div>
+
                         <button type="submit" class="btn btn-primary btn-lg w-full">
-                            Simpan Data NG (- Stok)
+                            Simpan Data NG
                         </button>
                     </form>
 
@@ -200,7 +215,7 @@
             <div class="panel-head">
                 <div class="panel-title">
                     <span>Riwayat Pencatatan NG</span>
-                    <span class="count-chip"><span x-text="filteredHistory.length"></span><span>Data</span></span>
+                    <span class="count-chip"><span x-text="filteredHistory.length"></span><span>SCAN</span></span>
                 </div>
             </div>
             <div class="p-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center gap-2">
@@ -216,8 +231,8 @@
                     <div class="p-3 flex items-center justify-between gap-3 text-xs bg-white hover:bg-slate-50">
                         <div class="min-w-0 flex-1">
                             <div class="flex items-center gap-1.5 flex-wrap">
-                                <span class="pill pill-info num text-[10.5px]" x-text="s.lot_number"></span>
-                                <span class="pill pill-crit text-[10px]" x-text="s.reason"></span>
+                                <span class="pill pill-info num" x-text="s.lot_number"></span>
+                                <span class="pill pill-crit" x-text="s.reason"></span>
                                 <span class="num text-[11px] text-slate-500" x-text="s.date_fmt"></span>
                             </div>
                             <div class="num font-bold text-accent mt-1" x-text="s.part_no"></div>
@@ -254,6 +269,9 @@
                 problemReason: defaultReason || 'MATERIAL',
                 qtyNg: '',
 
+                tyClass(t) {
+                    return 'ty-' + (t === 'FG/KOMPONEN' ? 'FGK' : (t || 'FG'));
+                },
                 initScanner() {
                     if (window.DRCScanner && window.DRCScanner.isPermitted()) {
                         this.activateCamera();
@@ -280,12 +298,12 @@
                     if (!c) return;
                     const found = this.items.find(i => i.part_no === c || i.part_name === c);
                     if (!found) {
-                        this.errorMsg = `Ditolak: Kode "${rawCode}" tidak ditemukan pada item produksi aktif.`;
+                        this.errorMsg = `Kode "${rawCode}" tidak ditemukan.`;
                         return;
                     }
                     const lots = this.activeLots.filter(l => String(l.target_item_id) === String(found.id));
                     if (lots.length === 0) {
-                        this.errorMsg = `Ditolak: Item [${found.part_name}] tidak memiliki Lot ON PROGRESS dengan saldo Act FG > 0.`;
+                        this.errorMsg = `Tidak ada Lot aktif dengan saldo Act FG untuk ${found.part_name}.`;
                         return;
                     }
                     this.scannedItem = found;
@@ -302,31 +320,35 @@
                 get selectedLotObj() {
                     return this.itemLots.find(l => String(l.id) === String(this.selectedLotId)) || null;
                 },
+                get parsedQtyNg() {
+                    const q = parseFloat(this.qtyNg);
+                    return (!isNaN(q) && q > 0) ? Math.round(q * 100) / 100 : 0;
+                },
                 submitForm(formEl) {
                     this.formError = '';
                     if (!this.scannedItem) {
-                        this.formError = 'Silakan scan barang temuan NG terlebih dahulu.';
+                        this.formError = 'Scan output terlebih dahulu.';
                         return;
                     }
                     if (!this.selectedLotId || !this.selectedLotObj) {
-                        this.formError = 'Nomor Lot aktif wajib dipilih terlebih dahulu.';
+                        this.formError = 'Pilih Nomor Lot terlebih dahulu.';
                         return;
                     }
                     if (!this.problemReason) {
-                        this.formError = 'Problem Reason wajib dipilih.';
+                        this.formError = 'Pilih Problem Reason terlebih dahulu.';
                         return;
                     }
                     const qty = parseFloat(this.qtyNg);
                     if (this.qtyNg === '' || this.qtyNg === null || isNaN(qty) || qty <= 0) {
-                        this.formError = 'Qty NG wajib diisi dan lebih besar dari 0.';
+                        this.formError = 'Qty NG harus lebih dari 0.';
                         return;
                     }
                     if (qty > this.selectedLotObj.act_fg + 0.0001) {
-                        this.formError = `Ditolak: Qty NG (${qty}) melebihi saldo Act FG pada Lot ${this.selectedLotObj.lot_number} (Maksimal: ${this.selectedLotObj.act_fg} ${this.scannedItem.uom}).`;
+                        this.formError = `Qty NG melebihi saldo Act FG (maksimal ${this.selectedLotObj.act_fg} ${this.scannedItem.uom}).`;
                         return;
                     }
                     if (qty > (this.scannedItem.stock || 0) + 0.0001) {
-                        this.formError = `Ditolak: Qty NG (${qty}) melebihi Current Stock ${this.scannedItem.part_name} di gudang (${this.scannedItem.stock} ${this.scannedItem.uom}).`;
+                        this.formError = `Stok gudang kurang. Tersedia: ${this.scannedItem.stock} ${this.scannedItem.uom}.`;
                         return;
                     }
                     formEl.submit();

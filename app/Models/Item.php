@@ -11,6 +11,8 @@ class Item extends Model
 {
     use HasFactory, SoftDeletes;
 
+    protected ?float $cachedStdDay1 = null;
+
     protected $fillable = [
         'part_no',
         'part_name',
@@ -31,6 +33,13 @@ class Item extends Model
         'std_day_1_po_wd' => 'decimal:2',
         'std_day_1'       => 'decimal:2',
     ];
+
+    protected static function booted(): void
+    {
+        static::saved(function (self $item) {
+            $item->cachedStdDay1 = null;
+        });
+    }
 
     public function company()
     {
@@ -167,7 +176,10 @@ class Item extends Model
 
     public function getCalculatedStdDay1Attribute(): float
     {
-        return $this->computeStdDay1Recursive([]);
+        if ($this->cachedStdDay1 !== null) {
+            return $this->cachedStdDay1;
+        }
+        return $this->cachedStdDay1 = $this->computeStdDay1Recursive([]);
     }
 
     public function computeStdDay1Recursive(array $visited = []): float

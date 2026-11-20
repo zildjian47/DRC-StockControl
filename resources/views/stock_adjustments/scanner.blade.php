@@ -58,8 +58,8 @@
         <div class="panel">
             <div class="panel-head">
                 <div class="panel-title">
-                    <span x-show="step === 1">Langkah 1 · Scan QR Barang Stock Adjustment</span>
-                    <span x-show="step === 2" x-cloak>Langkah 2 · Input Stock Adjustment</span>
+                    <span x-show="step === 1">Langkah 1 · Scan Item Adjustment</span>
+                    <span x-show="step === 2" x-cloak>Langkah 2 · Input Adjustment</span>
                 </div>
                 <span class="pill pill-info">SEMUA TIPE ITEM</span>
             </div>
@@ -76,16 +76,16 @@
                                 <x-icon name="scan" class="w-6 h-6" />
                             </div>
                             <div class="text-xs text-slate-300 leading-relaxed">
-                                Aktifkan izin kamera 1 kali untuk perangkat ini, atau gunakan input kode manual di bawah.
+                                Aktifkan kamera untuk scan QR, atau ketik kode di bawah.
                             </div>
                             <button type="button" @click="activateCamera()" class="btn btn-primary">
-                                <x-icon name="scan" /> Aktifkan Kamera Scanner
+                                <x-icon name="scan" /> Aktifkan Kamera
                             </button>
                         </div>
                     </div>
 
                     <div>
-                        <label class="lbl">Ketik Part No / Part Name Barang</label>
+                        <label class="lbl">Part No / Part Name</label>
                         <div class="flex gap-2">
                             <input type="text" x-model="manualCode"
                                    @keydown.enter.prevent="handleScan(manualCode)"
@@ -102,9 +102,9 @@
                 <div x-show="step === 2" x-cloak class="space-y-4">
                     <div class="p-3 rounded bg-slate-50 border border-slate-200 flex items-center justify-between gap-3">
                         <div class="min-w-0 flex-1">
-                            <div class="flex items-center gap-1.5">
-                                <span class="ty" :class="'ty-' + (selectedItem?.type === 'FG/KOMPONEN' ? 'FGK' : selectedItem?.type)" x-text="selectedItem?.type"></span>
-                                <span class="pill pill-info" x-text="selectedItem?.company_code"></span>
+                            <div class="flex items-center gap-1.5 flex-wrap">
+                                <span class="ty" :class="tyClass(selectedItem?.type)" x-text="selectedItem?.type"></span>
+                                <span class="text-xs font-semibold text-slate-600" x-text="selectedItem?.company_code"></span>
                             </div>
                             <div class="num text-xs font-bold text-accent mt-1" x-text="selectedItem?.part_no || '-'"></div>
                             <div class="text-xs font-semibold text-slate-900 break-words" x-text="selectedItem?.part_name"></div>
@@ -145,7 +145,7 @@
                                 <div class="inp-calc">
                                     <input id="sc_adj_actual" type="text" name="qty_actual" x-model="rawActual" @input="onInputActual()"
                                            placeholder="Contoh: 120 atau 3*40" class="num w-full h-11 font-semibold">
-                                    <span class="inp-calc-ic" title="Mendukung perhitungan kalkulator (+, -, *, /)">
+                                    <span class="inp-calc-ic" title="Mendukung kalkulator (+, -, *, /)">
                                         <x-icon name="calc" />
                                     </span>
                                 </div>
@@ -162,7 +162,7 @@
                                 <div class="inp-calc">
                                     <input id="sc_adj_diff" type="text" name="qty_diff" x-model="rawDiff" @input="onInputDiff()"
                                            placeholder="Contoh: -5 atau +10" class="num w-full h-11 font-semibold">
-                                    <span class="inp-calc-ic" title="Mendukung perhitungan kalkulator (+, -, *, /)">
+                                    <span class="inp-calc-ic" title="Mendukung kalkulator (+, -, *, /)">
                                         <x-icon name="calc" />
                                     </span>
                                 </div>
@@ -178,7 +178,7 @@
 
                         <div class="dlg-list">
                             <div>
-                                <span>Ringkasan Stok</span>
+                                <span>Stok</span>
                                 <b class="num"
                                    :class="resultDiff > 0 ? 'text-emerald-700' : (resultDiff < 0 ? 'text-rose-700' : 'text-slate-800')"
                                    x-text="qtySystem + ' → ' + resultActual + ' ' + (selectedItem?.uom || '') + ' (' + (resultDiff > 0 ? '+' : '') + resultDiff + ')'"></b>
@@ -203,7 +203,7 @@
             <div class="panel-head">
                 <div class="panel-title">
                     <span>Riwayat Scan Stock Adjustment</span>
-                    <span class="count-chip"><span x-text="filteredHistory.length"></span><span>Scan</span></span>
+                    <span class="count-chip"><span x-text="filteredHistory.length"></span><span>SCAN</span></span>
                 </div>
             </div>
             <div class="p-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center gap-2">
@@ -219,7 +219,7 @@
                     <div class="p-3 flex items-center justify-between gap-3 text-xs bg-white hover:bg-slate-50">
                         <div class="min-w-0 flex-1">
                             <div class="flex items-center gap-1.5 flex-wrap">
-                                <span class="pill text-[10px]"
+                                <span class="pill"
                                       :class="s.adj_type === 'LOSS' ? 'pill-crit' : (['SURPLUS', 'FOUND', 'REPAIR'].includes(s.adj_type) ? 'pill-good' : 'pill-info')"
                                       x-text="s.adj_type"></span>
                                 <span class="num text-[11px] text-slate-500" x-text="s.date_fmt"></span>
@@ -262,6 +262,9 @@
                 rawActual: '',
                 rawDiff: '',
 
+                tyClass(t) {
+                    return 'ty-' + (t === 'FG/KOMPONEN' ? 'FGK' : (t || 'RM'));
+                },
                 initScanner() {
                     if (window.DRCScanner && window.DRCScanner.isPermitted()) {
                         this.activateCamera();
@@ -289,7 +292,7 @@
 
                     const found = this.items.find(i => i.part_no === code || i.part_name === code);
                     if (!found) {
-                        this.errorMsg = `Ditolak: Kode "${rawCode}" tidak ditemukan di Master Item aktif.`;
+                        this.errorMsg = `Kode "${rawCode}" tidak ditemukan.`;
                         return;
                     }
 
@@ -338,11 +341,11 @@
                 submitForm(formEl) {
                     this.formError = '';
                     if (!this.selectedItem) {
-                        this.formError = 'Silakan scan item terlebih dahulu.';
+                        this.formError = 'Scan item terlebih dahulu.';
                         return;
                     }
                     if (!this.adjType) {
-                        this.formError = 'Kategori Adjustment wajib dipilih.';
+                        this.formError = 'Pilih kategori adjustment terlebih dahulu.';
                         return;
                     }
 
@@ -375,19 +378,19 @@
                     }
 
                     if (qtyActual < 0) {
-                        this.formError = 'Ditolak: Qty Actual tidak boleh bernilai minus.';
+                        this.formError = 'Qty Actual tidak boleh minus.';
                         return;
                     }
                     if (this.adjType === 'LOSS' && qtyActual >= this.qtySystem) {
-                        this.formError = `Ditolak: Untuk kategori LOSS, Qty Actual (${qtyActual}) wajib lebih kecil dari Qty System (${this.qtySystem}).`;
+                        this.formError = `Kategori LOSS: Qty Actual harus lebih kecil dari Qty System (${this.qtySystem}).`;
                         return;
                     }
                     if (['SURPLUS', 'FOUND', 'REPAIR'].includes(this.adjType) && qtyActual <= this.qtySystem) {
-                        this.formError = `Ditolak: Untuk kategori ${this.adjType}, Qty Actual (${qtyActual}) wajib lebih besar dari Qty System (${this.qtySystem}).`;
+                        this.formError = `Kategori ${this.adjType}: Qty Actual harus lebih besar dari Qty System (${this.qtySystem}).`;
                         return;
                     }
                     if (this.adjType === 'STOCK OPNAME' && Math.abs(qtyDiff) < 0.0001) {
-                        this.formError = 'Ditolak: Tidak ada perubahan kuantitas (Qty Diff = 0).';
+                        this.formError = 'Tidak ada perubahan stok (selisih 0).';
                         return;
                     }
 

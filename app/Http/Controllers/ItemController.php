@@ -75,7 +75,7 @@ class ItemController extends Controller
         $allowsPo = in_array($type, ['FG', 'TRANSIT', 'FG/KOMPONEN'], true);
 
         $rules = [
-            'part_no'    => 'nullable|string|max:100',
+            'part_no'    => ($type === 'RM' ? 'nullable' : 'required') . '|string|max:100',
             'part_name'  => 'required|string|max:255',
             'type'       => 'required|in:RM,FG,FG/KOMPONEN,KOMPONEN,TRANSIT',
             'uom'        => 'required|in:PCS,KG,SHEET,BATANG,MTR,LTR,SET',
@@ -83,12 +83,14 @@ class ItemController extends Controller
         ];
 
         if ($allowsPo) {
-            $rules['qty_po']       = 'required|numeric|min:0';
-            $rules['working_days'] = 'required|integer|min:0';
-            $rules['qty_kanban']   = 'required|numeric|min:0';
+            $rules['qty_po']       = 'nullable|numeric|min:0';
+            $rules['working_days'] = 'nullable|integer|min:0';
+            $rules['qty_kanban']   = 'nullable|numeric|min:0';
         }
 
-        $request->validate($rules);
+        $request->validate($rules, [
+            'part_no.required' => 'Part No wajib diisi untuk tipe item selain RM.',
+        ]);
 
         // Validasi kesesuaian Type Item vs Type Company
         $company      = Company::findOrFail($request->company_id);
@@ -102,9 +104,9 @@ class ItemController extends Controller
         }
 
         DB::transaction(function () use ($request, $allowsPo) {
-            $qtyPo       = $allowsPo ? (float) $request->qty_po : 0;
-            $workingDays = $allowsPo ? (int) $request->working_days : 0;
-            $qtyKanban   = $allowsPo ? (float) $request->qty_kanban : 0;
+            $qtyPo       = ($allowsPo && $request->filled('qty_po')) ? (float) $request->qty_po : 0;
+            $workingDays = ($allowsPo && $request->filled('working_days')) ? (int) $request->working_days : 0;
+            $qtyKanban   = ($allowsPo && $request->filled('qty_kanban')) ? (float) $request->qty_kanban : 0;
 
             $calc = $allowsPo
                 ? Item::calculatePoKanbanStd($qtyPo, $workingDays, $qtyKanban)
@@ -146,7 +148,7 @@ class ItemController extends Controller
             $allowsPo = in_array($type, ['FG', 'TRANSIT', 'FG/KOMPONEN'], true);
 
             $rules = [
-                'part_no'    => 'nullable|string|max:100',
+                'part_no'    => ($type === 'RM' ? 'nullable' : 'required') . '|string|max:100',
                 'part_name'  => 'required|string|max:255',
                 'type'       => 'required|in:RM,FG,FG/KOMPONEN,KOMPONEN,TRANSIT',
                 'uom'        => 'required|in:PCS,KG,SHEET,BATANG,MTR,LTR,SET',
@@ -154,12 +156,14 @@ class ItemController extends Controller
             ];
 
             if ($allowsPo) {
-                $rules['qty_po']       = 'required|numeric|min:0';
-                $rules['working_days'] = 'required|integer|min:0';
-                $rules['qty_kanban']   = 'required|numeric|min:0';
+                $rules['qty_po']       = 'nullable|numeric|min:0';
+                $rules['working_days'] = 'nullable|integer|min:0';
+                $rules['qty_kanban']   = 'nullable|numeric|min:0';
             }
 
-            $request->validate($rules);
+            $request->validate($rules, [
+                'part_no.required' => 'Part No wajib diisi untuk tipe item selain RM.',
+            ]);
 
             $company      = Company::findOrFail($request->company_id);
             $allowedTypes = Item::allowedCompanyTypesForItemType($type);
@@ -171,9 +175,9 @@ class ItemController extends Controller
                 );
             }
 
-            $qtyPo       = $allowsPo ? (float) $request->qty_po : 0;
-            $workingDays = $allowsPo ? (int) $request->working_days : 0;
-            $qtyKanban   = $allowsPo ? (float) $request->qty_kanban : 0;
+            $qtyPo       = ($allowsPo && $request->filled('qty_po')) ? (float) $request->qty_po : 0;
+            $workingDays = ($allowsPo && $request->filled('working_days')) ? (int) $request->working_days : 0;
+            $qtyKanban   = ($allowsPo && $request->filled('qty_kanban')) ? (float) $request->qty_kanban : 0;
 
             $calc = $allowsPo
                 ? Item::calculatePoKanbanStd($qtyPo, $workingDays, $qtyKanban)
@@ -197,17 +201,21 @@ class ItemController extends Controller
             }
 
             $request->validate([
-                'qty_po'       => 'required|numeric|min:0',
-                'working_days' => 'required|integer|min:0',
-                'qty_kanban'   => 'required|numeric|min:0',
+                'qty_po'       => 'nullable|numeric|min:0',
+                'working_days' => 'nullable|integer|min:0',
+                'qty_kanban'   => 'nullable|numeric|min:0',
             ]);
 
-            $calc = Item::calculatePoKanbanStd($request->qty_po, $request->working_days, $request->qty_kanban);
+            $qtyPo       = $request->filled('qty_po') ? (float) $request->qty_po : 0;
+            $workingDays = $request->filled('working_days') ? (int) $request->working_days : 0;
+            $qtyKanban   = $request->filled('qty_kanban') ? (float) $request->qty_kanban : 0;
+
+            $calc = Item::calculatePoKanbanStd($qtyPo, $workingDays, $qtyKanban);
 
             $item->update([
-                'qty_po'          => (float) $request->qty_po,
-                'working_days'    => (int) $request->working_days,
-                'qty_kanban'      => (float) $request->qty_kanban,
+                'qty_po'          => $qtyPo,
+                'working_days'    => $workingDays,
+                'qty_kanban'      => $qtyKanban,
                 'std_day_1_po_wd' => $calc['std_day_1_po_wd'],
                 'std_day_1'       => $calc['std_day_1'],
             ]);

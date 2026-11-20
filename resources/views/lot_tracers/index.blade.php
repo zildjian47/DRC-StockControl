@@ -92,10 +92,10 @@
                             {{-- 2. NO. LOT & TIPE BOM --}}
                             <td>
                                 <div class="num font-bold text-accent text-[13px]">{{ $grp['lot_number'] }}</div>
-                                <div class="mt-1 flex flex-wrap items-center gap-1">
+                                <div class="mt-1 flex flex-wrap items-center gap-1.5">
                                     <span class="pill pill-info">{{ $grp['bom_type'] }}</span>
                                     @if($first->is_coil)
-                                        <span class="pill pill-neu">COIL</span>
+                                        <span class="text-[10.5px] font-semibold uppercase tracking-wide text-slate-500">· COIL</span>
                                     @endif
                                 </div>
                             </td>
@@ -325,20 +325,25 @@
                             <td class="text-center !p-0">
                                 <div class="divide-y divide-slate-200">
                                     @foreach($rows as $r)
+                                        @php
+                                            $closeMsg = "Tutup Lot {$r->lot_number} (" . ($r->targetItem->part_name ?? '-') . ") menjadi FINISH? Sisa WIP akan dianggap 0"
+                                                . ($first->is_coil ? " dan sisa berat Coil akan dicatat sebagai Top/End Coil." : ".");
+                                        @endphp
                                         <div class="subrow justify-center gap-1.5">
                                             @if($r->status_lot === 'ON PROGRESS')
                                                 <span class="pill pill-good">ON PROGRESS</span>
-                                                <form id="fin-lot-{{ $r->id }}" action="{{ route('lot_tracers.finish', $r->id) }}" method="POST" class="inline">
+                                                <form id="fin-lot-{{ $r->id }}"
+                                                      action="{{ route('lot_tracers.set_finish', $r->id) }}"
+                                                      method="POST"
+                                                      class="inline"
+                                                      data-confirm-title="Tutup Lot Produksi"
+                                                      data-confirm-msg="{{ $closeMsg }}"
+                                                      @submit.prevent="$dispatch('open-confirm', { form: $el, title: $el.dataset.confirmTitle, message: $el.dataset.confirmMsg })">
                                                     @csrf
                                                     @method('PATCH')
-                                                    <button type="button"
+                                                    <button type="submit"
                                                             class="act-btn"
-                                                            title="Tutup Lot (Set FINISH)"
-                                                            @click="$dispatch('open-confirm', {
-                                                                title: 'Tutup Lot Produksi',
-                                                                message: 'Tutup Lot {{ $r->lot_number }} ({{ $r->targetItem->part_name ?? '-' }}) menjadi FINISH? Sisa WIP akan dianggap 0' + ({{ $first->is_coil ? 'true' : 'false' }} ? ' dan sisa berat Coil akan dicatat sebagai Top/End Coil.' : '.'),
-                                                                formId: 'fin-lot-{{ $r->id }}'
-                                                            })">
+                                                            title="Tutup Lot (Set FINISH)">
                                                         <x-icon name="check" />
                                                     </button>
                                                 </form>

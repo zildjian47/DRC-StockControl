@@ -51,25 +51,25 @@ class DeliveryController extends Controller
 
         $qty = BomController::evaluateMath($request->qty);
         if ($qty <= 0) {
-            return back()->withInput()->with('error', 'Qty Delivery harus lebih besar dari 0.');
+            return back()->withInput()->with('error', 'Qty harus lebih dari 0.');
         }
 
         $item = Item::with('company')->findOrFail($request->item_id);
 
         if (!in_array($item->type, ['FG', 'FG/KOMPONEN', 'TRANSIT'], true)) {
-            return back()->with('error', "Ditolak: Item {$item->part_name} bertipe {$item->type}. Delivery hanya menerima FG, FG/KOMPONEN, atau TRANSIT.");
+            return back()->with('error', 'Item tidak sesuai untuk Delivery (wajib FG, FG/KOMPONEN, atau TRANSIT).');
         }
 
         $compType = $item->company ? $item->company->type_company : 'INTERNAL';
 
         if ($item->type === 'FG' && $compType !== 'CUSTOMER') {
-            return back()->with('error', "Ditolak: Item FG ({$item->part_name}) wajib memiliki perusahaan bertipe CUSTOMER.");
+            return back()->with('error', 'Item FG wajib ber-perusahaan CUSTOMER.');
         }
         if ($item->type === 'FG/KOMPONEN' && !in_array($compType, ['INTERNAL', 'CUSTOMER'], true)) {
-            return back()->with('error', "Ditolak: Item FG/KOMPONEN ({$item->part_name}) wajib bertipe perusahaan INTERNAL atau CUSTOMER.");
+            return back()->with('error', 'Item FG/KOMPONEN wajib ber-perusahaan INTERNAL atau CUSTOMER.');
         }
         if ($item->type === 'TRANSIT' && !in_array($compType, ['SUPPLIER', 'CUSTOMER'], true)) {
-            return back()->with('error', "Ditolak: Item TRANSIT ({$item->part_name}) wajib bertipe perusahaan SUPPLIER atau CUSTOMER.");
+            return back()->with('error', 'Item TRANSIT wajib ber-perusahaan SUPPLIER atau CUSTOMER.');
         }
 
         $stock = InventoryStock::firstOrCreate(
@@ -78,7 +78,7 @@ class DeliveryController extends Controller
         );
 
         if ($qty > (float) $stock->current_stock) {
-            return back()->with('error', "Ditolak: Qty Delivery ({$qty}) melebihi Current Stock {$item->part_name} ({$stock->current_stock} {$item->uom}).");
+            return back()->with('error', 'Stok kurang. Tersedia: ' . floatval($stock->current_stock) . " {$item->uom}.");
         }
 
         DB::transaction(function () use ($item, $qty, $stock) {
@@ -95,7 +95,7 @@ class DeliveryController extends Controller
             $stock->save();
         });
 
-        $msg = "Delivery {$item->part_name} (-" . floatval($qty) . " {$item->uom}) berhasil dicatat.";
+        $msg = "Delivery {$item->part_name} (-" . floatval($qty) . " {$item->uom}) tersimpan.";
 
         if ($request->input('mode') === 'scanner') {
             return redirect()->route('deliveries.index', ['mode' => 'scanner'])->with('success', $msg);
@@ -115,7 +115,7 @@ class DeliveryController extends Controller
                     $rawActual = $data['actual_qty'] ?? null;
                     $newQty = StockAdjustmentController::parseSignedCalculatorValue($rawActual);
                     if ($newQty === null || $newQty <= 0) {
-                        throw new \RuntimeException("Format Qty koreksi Delivery tidak valid (wajib > 0).");
+                        throw new \RuntimeException('Format Qty koreksi tidak valid (wajib > 0).');
                     }
 
                     $delivery = Delivery::with('item')->findOrFail($id);
@@ -128,7 +128,7 @@ class DeliveryController extends Controller
                     );
 
                     if ($diff > 0 && $diff > (float) $stock->current_stock) {
-                        throw new \RuntimeException("Stok {$delivery->item->part_name} tidak mencukupi untuk penambahan koreksi Delivery.");
+                        throw new \RuntimeException("Stok {$delivery->item->part_name} tidak cukup untuk koreksi.");
                     }
 
                     $stock->current_stock = (float) $stock->current_stock - $diff;
@@ -147,10 +147,10 @@ class DeliveryController extends Controller
         }
 
         if ($processed === 0) {
-            return back()->with('error', 'Tidak ada koreksi Delivery yang disimpan.');
+            return back()->with('error', 'Tidak ada koreksi yang disimpan.');
         }
 
         return redirect()->route('deliveries.index')
-            ->with('success', "Qty Delivery berhasil dikoreksi dan stok gudang telah diperbarui.");
+            ->with('success', 'Koreksi Delivery tersimpan.');
     }
 }

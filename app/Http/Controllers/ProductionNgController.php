@@ -97,14 +97,14 @@ class ProductionNgController extends Controller
         $lot = LotTracer::with('targetItem')->findOrFail($request->lot_tracer_id);
 
         if ($lot->status_lot !== 'ON PROGRESS') {
-            return back()->with('error', "Ditolak: Nomor Lot {$lot->lot_number} sudah berstatus FINISH.");
+            return back()->with('error', "Lot {$lot->lot_number} sudah berstatus FINISH.");
         }
 
         $qtyNg    = (float) $request->qty_ng;
         $maxAllow = max(0, (float) $lot->actual_qty_prod - (float) $lot->qty_ng);
 
         if ($qtyNg > $maxAllow) {
-            return back()->with('error', "Ditolak: Qty NG ({$qtyNg}) melebihi saldo Act FG yang sudah diproduksi pada Lot {$lot->lot_number} (Maksimal: {$maxAllow} {$lot->targetItem->uom}).");
+            return back()->with('error', 'Qty NG melebihi saldo Act FG (maksimal ' . floatval($maxAllow) . " {$lot->targetItem->uom}).");
         }
 
         $stock = InventoryStock::firstOrCreate(
@@ -113,7 +113,7 @@ class ProductionNgController extends Controller
         );
 
         if ($qtyNg > (float) $stock->current_stock) {
-            return back()->with('error', "Ditolak: Qty NG ({$qtyNg}) melebihi Current Stock {$lot->targetItem->part_name} di gudang ({$stock->current_stock}).");
+            return back()->with('error', 'Stok gudang kurang. Tersedia: ' . floatval($stock->current_stock) . " {$lot->targetItem->uom}.");
         }
 
         DB::transaction(function () use ($lot, $stock, $qtyNg, $request) {
@@ -134,7 +134,7 @@ class ProductionNgController extends Controller
             $stock->save();
         });
 
-        $msg = "Data NG Lot {$lot->lot_number} ({$lot->targetItem->part_name}) sebanyak -" . floatval($qtyNg) . " {$lot->targetItem->uom} berhasil disimpan.";
+        $msg = "Data NG Lot {$lot->lot_number} (-" . floatval($qtyNg) . " {$lot->targetItem->uom}) tersimpan.";
 
         if ($request->input('mode') === 'scanner') {
             return redirect()->route('production_ngs.index', ['mode' => 'scanner'])->with('success', $msg);

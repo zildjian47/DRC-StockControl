@@ -51,17 +51,17 @@ class InboundController extends Controller
 
         $qty = BomController::evaluateMath($request->qty);
         if ($qty <= 0) {
-            return back()->withInput()->with('error', 'Qty Inbound harus lebih besar dari 0.');
+            return back()->withInput()->with('error', 'Qty harus lebih dari 0.');
         }
 
         $item = Item::with('company')->findOrFail($request->item_id);
 
         if (!in_array($item->type, ['RM', 'KOMPONEN', 'TRANSIT'], true)) {
-            return back()->with('error', "Ditolak: Item {$item->part_name} bertipe {$item->type}. Inbound hanya menerima tipe RM, KOMPONEN, atau TRANSIT.");
+            return back()->with('error', 'Item tidak sesuai untuk Inbound (wajib RM, KOMPONEN, atau TRANSIT).');
         }
 
         if (!$item->company || $item->company->type_company !== 'SUPPLIER') {
-            return back()->with('error', "Ditolak: Perusahaan {$item->part_name} bukan bertipe SUPPLIER.");
+            return back()->with('error', 'Perusahaan item ini wajib bertipe SUPPLIER.');
         }
 
         DB::transaction(function () use ($item, $qty) {
@@ -82,7 +82,7 @@ class InboundController extends Controller
             $stock->save();
         });
 
-        $msg = "Inbound {$item->part_name} (+" . floatval($qty) . " {$item->uom}) berhasil dicatat.";
+        $msg = "Inbound {$item->part_name} (+" . floatval($qty) . " {$item->uom}) tersimpan.";
 
         if ($request->input('mode') === 'scanner') {
             return redirect()->route('inbounds.index', ['mode' => 'scanner'])->with('success', $msg);
@@ -102,7 +102,7 @@ class InboundController extends Controller
                     $rawActual = $data['actual_qty'] ?? null;
                     $newQty = StockAdjustmentController::parseSignedCalculatorValue($rawActual);
                     if ($newQty === null || $newQty <= 0) {
-                        throw new \RuntimeException("Format Qty koreksi tidak valid (wajib lebih dari 0).");
+                        throw new \RuntimeException('Format Qty koreksi tidak valid (wajib > 0).');
                     }
 
                     $inbound = Inbound::with('item')->findOrFail($id);
@@ -115,7 +115,7 @@ class InboundController extends Controller
                     );
 
                     if ((float) $stock->current_stock + $diff < 0) {
-                        throw new \RuntimeException("Koreksi Inbound untuk {$inbound->item->part_name} ditolak karena membuat Current Stock minus.");
+                        throw new \RuntimeException("Stok {$inbound->item->part_name} tidak boleh minus akibat koreksi.");
                     }
 
                     $stock->current_stock = (float) $stock->current_stock + $diff;
@@ -134,10 +134,10 @@ class InboundController extends Controller
         }
 
         if ($processed === 0) {
-            return back()->with('error', 'Tidak ada perubahan Qty Inbound yang disimpan.');
+            return back()->with('error', 'Tidak ada koreksi yang disimpan.');
         }
 
         return redirect()->route('inbounds.index')
-            ->with('success', "Qty Inbound berhasil dikoreksi dan stok gudang telah diperbarui.");
+            ->with('success', 'Koreksi Inbound tersimpan.');
     }
 }

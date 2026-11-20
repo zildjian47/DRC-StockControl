@@ -185,24 +185,27 @@ class MaterialReturnController extends Controller
 
         $qtyReturn = BomController::evaluateMath($request->qty);
         if ($qtyReturn <= 0) {
-            return back()->withInput()->with('error', 'Qty Material Return harus lebih besar dari 0.');
+            return back()->withInput()->with('error', 'Qty harus lebih dari 0.');
         }
 
         if (MaterialReturn::where('lot_number', $request->lot_number)->exists()) {
-            return back()->withInput()->with('error', "Nomor Lot {$request->lot_number} sudah pernah melakukan Material Return.");
+            return back()->withInput()->with('error', "Lot {$request->lot_number} sudah pernah melakukan Material Return.");
         }
 
-        $lotRows = LotTracer::where('lot_number', $request->lot_number)
+        $lotRows = LotTracer::with('materialItem')
+            ->where('lot_number', $request->lot_number)
             ->where('material_item_id', $request->material_item_id)
             ->get();
 
         if ($lotRows->isEmpty()) {
-            return back()->withInput()->with('error', 'Ditolak: Nomor Lot dan pasangan Material tersebut tidak ditemukan di Lot Tracer.');
+            return back()->withInput()->with('error', 'Lot dan pasangan Material tidak ditemukan di Lot Tracer.');
         }
 
+        $matUom = $lotRows->first()?->materialItem?->uom ?? '';
         $maxReturnable = $lotRows->min(fn ($lt) => (float) $lt->material_saat_ini);
         if ($qtyReturn > $maxReturnable) {
-            return back()->withInput()->with('error', "Ditolak: Qty Return ({$qtyReturn}) melebihi sisa Material Saat Ini di mesin ({$maxReturnable}).");
+            $availTxt = trim(floatval($maxReturnable) . ' ' . $matUom);
+            return back()->withInput()->with('error', "Qty melebihi sisa material di mesin (tersedia {$availTxt}).");
         }
 
         $allBoms = Bom::with('inputItem')->get();
@@ -247,16 +250,17 @@ class MaterialReturnController extends Controller
             }
         });
 
+        $qtyTxt = trim('+' . floatval($qtyReturn) . ' ' . $matUom);
         $redirectParams = $request->input('mode') === 'scanner' ? ['mode' => 'scanner'] : [];
         return redirect()->route('material_returns.index', $redirectParams)
-            ->with('success', "Material Return Lot {$request->lot_number} berhasil dicatat.");
+            ->with('success', "Material Return Lot {$request->lot_number} ({$qtyTxt}) tersimpan.");
     }
 
     public function verifyBatch(Request $request)
     {
         $items = $request->input('items', []);
         if (empty($items)) {
-            return back()->with('error', 'Tidak ada data perubahan yang dikirim.');
+            return back()->with('error', 'Tidak ada koreksi yang disimpan.');
         }
 
         $allBoms = Bom::all();
@@ -289,14 +293,14 @@ class MaterialReturnController extends Controller
                             $usedByProd = (float) $lt->actual_qty_prod * $meta['qty_usage'];
                             $maxAllowed = max(0, (float) $lt->qty_material_out - $usedByProd);
                             if ($newQty > $maxAllowed) {
-                                throw new \Exception("Qty Return koreksi ({$newQty}) melebihi sisa material yang belum diproduksi ({$maxAllowed}).");
+                                throw new \Exception('Qty koreksi melebihi sisa material belum diproduksi (maksimal ' . floatval($maxAllowed) . ').');
                             }
                         }
 
                         if ($diffTrigger != 0) {
                             $matStock = InventoryStock::firstOrCreate(['item_id' => $matRet->material_item_id], ['current_stock' => 0]);
                             if ($diffTrigger < 0 && (float) $matStock->current_stock < abs($diffTrigger)) {
-                                throw new \Exception('Stok gudang tidak cukup untuk mengurangi selisih koreksi return.');
+                                throw new \Exception('Stok gudang tidak cukup untuk koreksi return.');
                             }
 
                             $siblingRets = MaterialReturn::where('lot_number', $matRet->lot_number)
@@ -356,6 +360,6 @@ class MaterialReturnController extends Controller
             return back()->with('error', $e->getMessage());
         }
 
-        return redirect()->route('material_returns.index')->with('success', 'Koreksi Material Return berhasil disimpan.');
+        return redirect()->route('material_returns.index')->with('success', 'Koreksi Material Return tersimpan.');
     }
 }

@@ -56,11 +56,11 @@
         <div class="scan-stepper mb-3">
             <div class="scan-step" :class="step === 1 ? 'active' : (step > 1 ? 'done' : '')">
                 <span class="scan-step-num" x-text="step > 1 ? '✓' : '1'"></span>
-                <span class="truncate">Scan Material</span>
+                <span class="truncate">Material</span>
             </div>
             <div class="scan-step" :class="step === 2 ? 'active' : (step > 2 ? 'done' : '')">
                 <span class="scan-step-num" x-text="step > 2 ? '✓' : '2'"></span>
-                <span class="truncate">Scan Output</span>
+                <span class="truncate">Output</span>
             </div>
             <div class="scan-step" :class="step === 3 ? 'active' : ''">
                 <span class="scan-step-num">3</span>
@@ -79,9 +79,9 @@
         <div class="panel">
             <div class="panel-head">
                 <div class="panel-title">
-                    <span x-show="step === 1">Langkah 1 · Scan Material Trigger</span>
-                    <span x-show="step === 2" x-cloak>Langkah 2 · Scan Target Output</span>
-                    <span x-show="step === 3" x-cloak>Langkah 3 · Input Nomor Lot &amp; Qty Out</span>
+                    <span x-show="step === 1">Langkah 1 · Scan Material</span>
+                    <span x-show="step === 2" x-cloak>Langkah 2 · Scan Output</span>
+                    <span x-show="step === 3" x-cloak>Langkah 3 · Lot &amp; Qty</span>
                 </div>
                 <span class="pill pill-info" x-show="step === 1">RM · KOMPONEN · FG/KOMPONEN</span>
                 <span class="pill pill-info" x-show="step === 2" x-cloak>FG · FG/KOMPONEN · KOMPONEN</span>
@@ -100,32 +100,34 @@
                                 <x-icon name="scan" class="w-6 h-6" />
                             </div>
                             <div class="text-xs text-slate-300 leading-relaxed">
-                                Aktifkan izin kamera 1 kali untuk perangkat ini, atau gunakan input kode manual di bawah.
+                                Aktifkan kamera untuk scan QR, atau ketik kode di bawah.
                             </div>
                             <button type="button" @click="activateCamera()" class="btn btn-primary">
-                                <x-icon name="scan" /> Aktifkan Kamera Scanner
+                                <x-icon name="scan" /> Aktifkan Kamera
                             </button>
                         </div>
                     </div>
 
                     {{-- RINGKASAN MATERIAL TERPILIH SAAT DI LANGKAH 2 --}}
-                    <div x-show="step === 2 && materialItem" x-cloak class="p-3 rounded bg-slate-50 border border-slate-200 mb-3 flex items-center justify-between gap-2">
+                    <div x-show="step === 2 && materialItem" x-cloak class="p-3 rounded bg-slate-50 border border-slate-200 mb-3 flex items-center justify-between gap-3">
                         <div class="min-w-0 flex-1">
-                            <div class="text-[11px] font-semibold uppercase text-slate-500">Material Trigger Terpilih</div>
-                            <div class="num text-xs font-bold text-accent mt-0.5" x-text="materialItem?.part_no || materialItem?.type"></div>
+                            <div class="flex items-center gap-1.5 flex-wrap">
+                                <span class="ty" :class="tyClass(materialItem?.type)" x-text="materialItem?.type"></span>
+                                <span class="text-[11px] font-semibold uppercase text-slate-500">Material Trigger</span>
+                            </div>
+                            <div class="num text-xs font-bold text-accent mt-1" x-text="materialItem?.part_no || '-'"></div>
                             <div class="text-xs font-semibold text-slate-900 break-words" x-text="materialItem?.part_name"></div>
                         </div>
                         <div class="text-right whitespace-nowrap flex-none">
-                            <span class="pill pill-good num" x-text="'Stok: ' + (materialItem?.stock ?? 0) + ' ' + (materialItem?.uom ?? '')"></span>
-                            <div class="mt-1">
-                                <button type="button" @click="resetAll()" class="text-[11px] font-semibold text-rose-600 hover:underline">Ganti Material</button>
-                            </div>
+                            <div class="text-[11px] text-slate-500">Stok Tersedia</div>
+                            <div class="num text-sm font-bold text-emerald-700" x-text="(materialItem?.stock ?? 0) + ' ' + (materialItem?.uom ?? '')"></div>
+                            <button type="button" @click="resetAll()" class="text-[11px] font-semibold text-rose-600 hover:underline mt-0.5">Ganti</button>
                         </div>
                     </div>
 
                     {{-- INPUT MANUAL STEP 1 / STEP 2 --}}
                     <div>
-                        <label class="lbl" x-text="step === 1 ? 'Ketik Part No / Part Name Material Trigger' : 'Ketik Part No / Part Name Target Output'"></label>
+                        <label class="lbl" x-text="step === 1 ? 'Part No / Part Name Material' : 'Part No / Part Name Output'"></label>
                         <div class="flex gap-2">
                             <input type="text" x-model="manualCode"
                                    @keydown.enter.prevent="handleScan(manualCode)"
@@ -143,8 +145,9 @@
                     {{-- 1. Kartu Material Trigger --}}
                     <div class="p-3 rounded bg-slate-50 border border-slate-200 flex items-center justify-between gap-3">
                         <div class="min-w-0 flex-1">
-                            <div class="flex items-center gap-1.5">
-                                <span class="pill pill-good text-[10px] h-4 px-1.5">Material Trigger</span>
+                            <div class="flex items-center gap-1.5 flex-wrap">
+                                <span class="ty" :class="tyClass(materialItem?.type)" x-text="materialItem?.type"></span>
+                                <span class="pill pill-good">TRIGGER</span>
                                 <span class="text-[11px] font-semibold text-slate-500" x-text="activeProcessName"></span>
                             </div>
                             <div class="num text-xs font-bold text-accent mt-1" x-text="materialItem?.part_no || '-'"></div>
@@ -158,7 +161,7 @@
 
                     {{-- Pilihan Kelompok Cetakan jika ada >1 Grup BOM untuk pasangan Material + Target yang sama --}}
                     <div x-show="candidateGroups.length > 1" class="p-3 rounded bg-amber-50/70 border border-amber-200 space-y-2">
-                        <label class="lbl text-amber-900">Pilih Kelompok Cetakan BOM</label>
+                        <label class="lbl text-amber-900">Kelompok BOM</label>
                         <select x-model="selectedBomGroup" class="w-full h-10 text-xs font-semibold">
                             <template x-for="cg in candidateGroups" :key="cg.bom_group">
                                 <option :value="cg.bom_group" x-text="cg.bom_group + ' (' + cg.group_type + '): ' + cg.outputs_label"></option>
@@ -166,11 +169,11 @@
                         </select>
                     </div>
 
-                    {{-- 2. Daftar Target Output & Estimasi Hasil (2-Tier Anti-Terpotong) --}}
+                    {{-- 2. Daftar Target Output & Estimasi Hasil --}}
                     <div class="border border-slate-200 rounded overflow-hidden">
                         <div class="px-3 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-                            <span class="text-xs font-bold text-slate-700 uppercase">Target Output &amp; Estimasi Hasil</span>
-                            <span class="count-chip"><span x-text="groupTargetOutputs.length"></span><span>Output</span></span>
+                            <span class="text-xs font-bold text-slate-700 uppercase">Target Output &amp; Estimasi</span>
+                            <span class="count-chip"><span x-text="groupTargetOutputs.length"></span><span>OUTPUT</span></span>
                         </div>
                         <div class="divide-y divide-slate-200">
                             <template x-for="out in groupTargetOutputs" :key="out.output_item_id">
@@ -178,10 +181,10 @@
                                     <div class="min-w-0 flex-1">
                                         <div class="num text-xs font-bold text-accent" x-text="out.part_no || '-'"></div>
                                         <div class="text-xs font-semibold text-slate-900 break-words" x-text="out.part_name"></div>
-                                        <div class="text-[11px] text-slate-500 mt-0.5 num" x-text="'Rasio Trigger: ' + out.qty_usage + ' ' + (materialItem?.uom || '') + ' / 1 ' + out.uom"></div>
+                                        <div class="text-[11px] text-slate-500 mt-0.5 num" x-text="'Rasio: ' + out.qty_usage + ' ' + (materialItem?.uom || '') + ' / 1 ' + out.uom"></div>
                                     </div>
                                     <div class="text-right whitespace-nowrap flex-none">
-                                        <span class="pill pill-info num text-xs" x-text="'Est: ' + out.est_qty + ' ' + out.uom"></span>
+                                        <span class="pill pill-info num" x-text="'EST: ' + out.est_qty + ' ' + out.uom"></span>
                                     </div>
                                 </div>
                             </template>
@@ -191,8 +194,8 @@
                     {{-- 3. Daftar Komponen Pendamping (Jika Multi-Input / Kombinasi) --}}
                     <div x-show="groupCompanions.length > 0" class="border border-slate-200 rounded overflow-hidden">
                         <div class="px-3 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-                            <span class="text-xs font-bold text-slate-700 uppercase">Komponen Pendamping (Otomatis Terpotong)</span>
-                            <span class="count-chip count-chip-sub"><span x-text="groupCompanions.length"></span><span>Komponen</span></span>
+                            <span class="text-xs font-bold text-slate-700 uppercase">Komponen Pendamping</span>
+                            <span class="count-chip count-chip-sub"><span x-text="groupCompanions.length"></span><span>ITEM</span></span>
                         </div>
                         <div class="divide-y divide-slate-200">
                             <template x-for="comp in groupCompanions" :key="comp.input_item_id">
@@ -200,12 +203,12 @@
                                     <div class="min-w-0 flex-1">
                                         <div class="num text-xs font-bold text-slate-600" x-text="comp.part_no || '-'"></div>
                                         <div class="text-xs font-semibold text-slate-900 break-words" x-text="comp.part_name"></div>
-                                        <div class="text-[11px] text-slate-500 mt-0.5 num" x-text="'Stok Gudang: ' + comp.stock + ' ' + comp.uom"></div>
+                                        <div class="text-[11px] text-slate-500 mt-0.5 num" x-text="'Stok: ' + comp.stock + ' ' + comp.uom"></div>
                                     </div>
                                     <div class="text-right whitespace-nowrap flex-none">
-                                        <span class="pill num text-xs"
+                                        <span class="pill num"
                                               :class="comp.needed > comp.stock ? 'pill-crit' : 'pill-warn'"
-                                              x-text="'Butuh: -' + comp.needed + ' ' + comp.uom"></span>
+                                              x-text="'-' + comp.needed + ' ' + comp.uom"></span>
                                     </div>
                                 </div>
                             </template>
@@ -228,7 +231,7 @@
                         </div>
 
                         <div>
-                            <label class="lbl">Nomor Lot Produksi (1 Huruf Kapital + 6 Angka)</label>
+                            <label class="lbl">Nomor Lot</label>
                             <input type="text" name="lot_number" x-model="lotNumber"
                                    @input="lotNumber = lotNumber.toUpperCase()"
                                    maxlength="7" required placeholder="Contoh: J260178"
@@ -241,7 +244,7 @@
                                 <input type="text" name="qty" x-model="rawQty" required
                                        placeholder="Contoh: 20 atau 10*2"
                                        class="num w-full h-14 text-2xl text-center font-bold pl-[30px]">
-                                <span class="inp-calc-ic" title="Mendukung perhitungan kalkulator (+, -, *, /)">
+                                <span class="inp-calc-ic" title="Mendukung kalkulator (+, -, *, /)">
                                     <x-icon name="calc" />
                                 </span>
                             </div>
@@ -254,8 +257,17 @@
                             </div>
                         </div>
 
+                        <div class="dlg-list" x-show="parsedQty > 0" x-cloak>
+                            <div>
+                                <span>Stok</span>
+                                <b class="num"
+                                   :class="parsedQty > (materialItem?.stock || 0) ? 'text-rose-700' : 'text-slate-900'"
+                                   x-text="(materialItem?.stock ?? 0) + ' → ' + Math.round(((materialItem?.stock || 0) - parsedQty) * 100) / 100 + ' ' + (materialItem?.uom || '')"></b>
+                            </div>
+                        </div>
+
                         <button type="submit" class="btn btn-primary btn-lg w-full">
-                            Simpan Material Out (- Stok)
+                            Simpan Material Out
                         </button>
                     </form>
 
@@ -271,7 +283,7 @@
             <div class="panel-head">
                 <div class="panel-title">
                     <span>Riwayat Scan Material Out</span>
-                    <span class="count-chip"><span x-text="filteredHistory.length"></span><span>Scan</span></span>
+                    <span class="count-chip"><span x-text="filteredHistory.length"></span><span>SCAN</span></span>
                 </div>
             </div>
             <div class="p-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center gap-2">
@@ -287,7 +299,7 @@
                     <div class="p-3 flex items-center justify-between gap-3 text-xs bg-white hover:bg-slate-50">
                         <div class="min-w-0 flex-1">
                             <div class="flex items-center gap-1.5 flex-wrap">
-                                <span class="pill pill-info num text-[10.5px]" x-text="s.lot_number"></span>
+                                <span class="pill pill-info num" x-text="s.lot_number"></span>
                                 <span class="num text-[11px] text-slate-500" x-text="s.date_fmt"></span>
                                 <span class="text-[11px] text-slate-500" x-text="'· ' + s.user_name"></span>
                             </div>
@@ -329,6 +341,9 @@
                 lotNumber: '',
                 rawQty: '',
 
+                tyClass(t) {
+                    return 'ty-' + (t === 'FG/KOMPONEN' ? 'FGK' : (t || 'RM'));
+                },
                 initScanner() {
                     if (window.DRCScanner && window.DRCScanner.isPermitted()) {
                         this.activateCamera();
@@ -358,22 +373,22 @@
                     this.formError = '';
                     const found = this.findItem(rawCode);
                     if (!found) {
-                        this.errorMsg = `Ditolak: Kode "${rawCode}" tidak ditemukan di Master Item aktif.`;
+                        this.errorMsg = `Kode "${rawCode}" tidak ditemukan.`;
                         return;
                     }
 
                     if (this.step === 1) {
                         if (!['RM', 'KOMPONEN', 'FG/KOMPONEN'].includes(found.type) || !['SUPPLIER', 'INTERNAL'].includes(found.company_type)) {
-                            this.errorMsg = `Ditolak: ${found.part_name} (${found.type} - ${found.company_type}) tidak diizinkan sebagai Material Input.`;
+                            this.errorMsg = `${found.part_name} tidak sesuai sebagai Material Input.`;
                             return;
                         }
                         const isTrig = this.boms.some(b => String(b.input_item_id) === String(found.id) && b.is_trigger);
                         if (!isTrig) {
-                            this.errorMsg = `Ditolak: ${found.part_name} tidak terdaftar sebagai Material Trigger Utama di BOM.`;
+                            this.errorMsg = `${found.part_name} belum terdaftar sebagai Trigger di BOM.`;
                             return;
                         }
                         if (found.stock <= 0) {
-                            this.errorMsg = `Ditolak: Stok ${found.part_name} saat ini kosong (0 ${found.uom}).`;
+                            this.errorMsg = `Stok ${found.part_name} kosong (0 ${found.uom}).`;
                             return;
                         }
                         this.materialItem = found;
@@ -381,7 +396,7 @@
                         this.step = 2;
                     } else if (this.step === 2) {
                         if (!['FG', 'KOMPONEN', 'FG/KOMPONEN'].includes(found.type) || !['INTERNAL', 'CUSTOMER'].includes(found.company_type)) {
-                            this.errorMsg = `Ditolak: ${found.part_name} (${found.type}) tidak sah sebagai Target Output.`;
+                            this.errorMsg = `${found.part_name} tidak sesuai sebagai Target Output.`;
                             return;
                         }
                         const matchedTriggers = this.boms.filter(b =>
@@ -390,7 +405,7 @@
                             b.is_trigger
                         );
                         if (matchedTriggers.length === 0) {
-                            this.errorMsg = `Ditolak: Pasangan Material [${this.materialItem.part_name}] dan Output [${found.part_name}] tidak terdaftar di BOM.`;
+                            this.errorMsg = `Pasangan ${this.materialItem.part_name} → ${found.part_name} tidak ada di BOM.`;
                             return;
                         }
 
@@ -417,7 +432,7 @@
                 },
                 evalCalc(raw) {
                     if (raw === null || raw === undefined) return null;
-                    const expr = String(raw).replace(/,/g, '.').replace(/\s+/g, '');
+                    const expr = String(raw).replace(/,/g, '.').replace(/[xX]/g, '*').replace(/:/g, '/').replace(/\s+/g, '');
                     if (!expr || !/^[0-9\.\+\-\*\/\(\)]+$/.test(expr) || /[\+\-\*\/]{2,}/.test(expr)) return null;
                     try {
                         const r = Function('return (' + expr + ')')();
@@ -498,43 +513,43 @@
                 submitForm(formEl) {
                     this.formError = '';
                     if (!this.materialItem || !this.targetItem) {
-                        this.formError = 'Silakan scan Material Trigger dan Target Output terlebih dahulu.';
+                        this.formError = 'Scan Material dan Target Output terlebih dahulu.';
                         return;
                     }
                     const lot = String(this.lotNumber || '').trim().toUpperCase();
                     this.lotNumber = lot;
                     if (!lot) {
-                        this.formError = 'Nomor Lot Produksi wajib diisi.';
+                        this.formError = 'Nomor Lot wajib diisi.';
                         return;
                     }
                     if (!this.isValidLotFormat) {
-                        this.formError = 'Format Nomor Lot wajib 1 Huruf Kapital diikuti 6 Angka (contoh: J260178).';
+                        this.formError = 'Format Lot wajib 1 huruf kapital + 6 angka (contoh: J260178).';
                         return;
                     }
                     if (this.isLotDuplicate) {
-                        this.formError = `Ditolak: Nomor Lot ${lot} sudah digunakan pada Material Out sebelumnya.`;
+                        this.formError = `Nomor Lot ${lot} sudah terdaftar.`;
                         return;
                     }
                     if (String(this.rawQty || '').trim() === '') {
-                        this.formError = 'Qty Material Out wajib diisi.';
+                        this.formError = 'Qty wajib diisi.';
                         return;
                     }
                     const val = this.evalCalc(this.rawQty);
                     if (val === null) {
-                        this.formError = 'Format perhitungan Qty Material Out tidak valid.';
+                        this.formError = 'Format perhitungan tidak valid.';
                         return;
                     }
                     if (val <= 0) {
-                        this.formError = 'Qty Material Out harus lebih besar dari 0.';
+                        this.formError = 'Qty harus lebih dari 0.';
                         return;
                     }
                     if (val > (this.materialItem.stock || 0) + 0.0001) {
-                        this.formError = `Ditolak: Qty Material Out (${val}) melebihi stok ${this.materialItem.part_name} yang tersedia (${this.materialItem.stock} ${this.materialItem.uom}).`;
+                        this.formError = `Stok kurang. Tersedia: ${this.materialItem.stock} ${this.materialItem.uom}.`;
                         return;
                     }
                     const lacking = this.groupCompanions.find(c => c.needed > c.stock + 0.0001);
                     if (lacking) {
-                        this.formError = `Ditolak: Stok komponen pendamping [${lacking.part_name}] tidak mencukupi (Butuh: ${lacking.needed} ${lacking.uom}, Tersedia: ${lacking.stock} ${lacking.uom}).`;
+                        this.formError = `Stok pendamping ${lacking.part_name} kurang (butuh ${lacking.needed}, tersedia ${lacking.stock} ${lacking.uom}).`;
                         return;
                     }
                     formEl.submit();

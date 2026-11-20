@@ -36,11 +36,11 @@
         <div class="scan-stepper mb-3">
             <div class="scan-step" :class="step === 1 ? 'active' : 'done'">
                 <span class="scan-step-num" x-text="step > 1 ? '✓' : '1'"></span>
-                <span class="truncate">Scan Barang Kirim</span>
+                <span class="truncate">Scan Item</span>
             </div>
             <div class="scan-step" :class="step === 2 ? 'active' : ''">
                 <span class="scan-step-num">2</span>
-                <span class="truncate">Input Qty Delivery</span>
+                <span class="truncate">Input Qty</span>
             </div>
         </div>
 
@@ -53,8 +53,8 @@
         <div class="panel">
             <div class="panel-head">
                 <div class="panel-title">
-                    <span x-show="step === 1">Langkah 1 · Scan QR Barang Delivery</span>
-                    <span x-show="step === 2" x-cloak>Langkah 2 · Input Qty Delivery</span>
+                    <span x-show="step === 1">Langkah 1 · Scan Item Delivery</span>
+                    <span x-show="step === 2" x-cloak>Langkah 2 · Input Qty</span>
                 </div>
                 <span class="pill pill-info">FG · FG/KOMPONEN · TRANSIT</span>
             </div>
@@ -70,16 +70,16 @@
                                 <x-icon name="scan" class="w-6 h-6" />
                             </div>
                             <div class="text-xs text-slate-300 leading-relaxed">
-                                Aktifkan izin kamera 1 kali untuk perangkat ini, atau gunakan input kode manual di bawah.
+                                Aktifkan kamera untuk scan QR, atau ketik kode di bawah.
                             </div>
                             <button type="button" @click="activateCamera()" class="btn btn-primary">
-                                <x-icon name="scan" /> Aktifkan Kamera Scanner
+                                <x-icon name="scan" /> Aktifkan Kamera
                             </button>
                         </div>
                     </div>
 
                     <div>
-                        <label class="lbl">Ketik Part No / Part Name Barang</label>
+                        <label class="lbl">Part No / Part Name</label>
                         <div class="flex gap-2">
                             <input type="text" x-model="manualCode"
                                    @keydown.enter.prevent="handleScan(manualCode)"
@@ -95,9 +95,9 @@
                 <div x-show="step === 2" x-cloak class="space-y-4">
                     <div class="p-3 rounded bg-slate-50 border border-slate-200 flex items-center justify-between gap-3">
                         <div class="min-w-0 flex-1">
-                            <div class="flex items-center gap-1.5">
-                                <span class="pill pill-neu" x-text="scannedItem?.type"></span>
-                                <span class="pill pill-info" x-text="scannedItem?.company_code"></span>
+                            <div class="flex items-center gap-1.5 flex-wrap">
+                                <span class="ty" :class="tyClass(scannedItem?.type)" x-text="scannedItem?.type"></span>
+                                <span class="text-xs font-semibold text-slate-600" x-text="scannedItem?.company_code"></span>
                             </div>
                             <div class="num text-xs font-bold text-accent mt-1" x-text="scannedItem?.part_no || '-'"></div>
                             <div class="text-xs font-semibold text-slate-900 break-words" x-text="scannedItem?.part_name"></div>
@@ -126,7 +126,7 @@
                                 <input type="text" name="qty" x-model="rawQty" required
                                        placeholder="Contoh: 30 atau 2*15"
                                        class="num w-full h-14 text-2xl text-center font-bold pl-[30px]">
-                                <span class="inp-calc-ic" title="Mendukung perhitungan kalkulator (+, -, *, /)">
+                                <span class="inp-calc-ic" title="Mendukung kalkulator (+, -, *, /)">
                                     <x-icon name="calc" />
                                 </span>
                             </div>
@@ -139,8 +139,17 @@
                             </div>
                         </div>
 
+                        <div class="dlg-list" x-show="parsedQty > 0" x-cloak>
+                            <div>
+                                <span>Stok</span>
+                                <b class="num"
+                                   :class="parsedQty > (scannedItem?.stock || 0) ? 'text-rose-700' : 'text-slate-900'"
+                                   x-text="(scannedItem?.stock ?? 0) + ' → ' + Math.round(((scannedItem?.stock || 0) - parsedQty) * 100) / 100 + ' ' + (scannedItem?.uom || '')"></b>
+                            </div>
+                        </div>
+
                         <button type="submit" class="btn btn-primary btn-lg w-full">
-                            Simpan Delivery (- Stok)
+                            Simpan Delivery
                         </button>
                     </form>
 
@@ -156,7 +165,7 @@
             <div class="panel-head">
                 <div class="panel-title">
                     <span>Riwayat Scan Delivery</span>
-                    <span class="count-chip"><span x-text="filteredHistory.length"></span><span>Scan</span></span>
+                    <span class="count-chip"><span x-text="filteredHistory.length"></span><span>SCAN</span></span>
                 </div>
             </div>
             <div class="p-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center gap-2">
@@ -172,8 +181,8 @@
                     <div class="p-3 flex items-center justify-between gap-3 text-xs bg-white hover:bg-slate-50">
                         <div class="min-w-0 flex-1">
                             <div class="flex items-center gap-1.5 flex-wrap">
-                                <span class="pill pill-neu text-[10px]" x-text="s.company"></span>
-                                <span class="num text-[11px] text-slate-500" x-text="s.date_fmt"></span>
+                                <span class="text-[11px] font-bold text-slate-700" x-text="s.company"></span>
+                                <span class="num text-[11px] text-slate-500" x-text="'· ' + s.date_fmt"></span>
                                 <span class="text-[11px] text-slate-500" x-text="'· ' + s.user_name"></span>
                             </div>
                             <div class="num font-bold text-accent mt-1" x-text="s.part_no"></div>
@@ -207,6 +216,9 @@
                 scannedItem: null,
                 rawQty: '',
 
+                tyClass(t) {
+                    return 'ty-' + (t === 'FG/KOMPONEN' ? 'FGK' : (t || 'FG'));
+                },
                 initScanner() {
                     if (window.DRCScanner && window.DRCScanner.isPermitted()) {
                         this.activateCamera();
@@ -233,27 +245,27 @@
                     if (!c) return;
                     const found = this.items.find(i => i.part_no === c || i.part_name === c);
                     if (!found) {
-                        this.errorMsg = `Ditolak: Kode "${rawCode}" tidak ditemukan di Master Item aktif.`;
+                        this.errorMsg = `Kode "${rawCode}" tidak ditemukan.`;
                         return;
                     }
                     if (!['FG', 'FG/KOMPONEN', 'TRANSIT'].includes(found.type)) {
-                        this.errorMsg = `Ditolak: ${found.part_name} bertipe ${found.type}. Delivery hanya menerima FG, FG/KOMPONEN, atau TRANSIT.`;
+                        this.errorMsg = `${found.part_name} tidak sesuai untuk Delivery (wajib FG, FG/KOMPONEN, atau TRANSIT).`;
                         return;
                     }
                     if (found.type === 'FG' && found.company_type !== 'CUSTOMER') {
-                        this.errorMsg = `Ditolak: Item FG wajib ber-perusahaan CUSTOMER.`;
+                        this.errorMsg = 'Item FG wajib ber-perusahaan CUSTOMER.';
                         return;
                     }
                     if (found.type === 'FG/KOMPONEN' && !['INTERNAL', 'CUSTOMER'].includes(found.company_type)) {
-                        this.errorMsg = `Ditolak: Item FG/KOMPONEN wajib ber-perusahaan INTERNAL atau CUSTOMER.`;
+                        this.errorMsg = 'Item FG/KOMPONEN wajib ber-perusahaan INTERNAL atau CUSTOMER.';
                         return;
                     }
                     if (found.type === 'TRANSIT' && !['SUPPLIER', 'CUSTOMER'].includes(found.company_type)) {
-                        this.errorMsg = `Ditolak: Item TRANSIT wajib ber-perusahaan SUPPLIER atau CUSTOMER.`;
+                        this.errorMsg = 'Item TRANSIT wajib ber-perusahaan SUPPLIER atau CUSTOMER.';
                         return;
                     }
                     if (found.stock <= 0) {
-                        this.errorMsg = `Ditolak: Stok ${found.part_name} saat ini kosong (0 ${found.uom}).`;
+                        this.errorMsg = `Stok ${found.part_name} kosong (0 ${found.uom}).`;
                         return;
                     }
                     this.scannedItem = found;
@@ -280,24 +292,24 @@
                 submitForm(formEl) {
                     this.formError = '';
                     if (!this.scannedItem) {
-                        this.formError = 'Silakan scan barang kirim terlebih dahulu.';
+                        this.formError = 'Scan item terlebih dahulu.';
                         return;
                     }
                     if (String(this.rawQty || '').trim() === '') {
-                        this.formError = 'Qty Delivery wajib diisi.';
+                        this.formError = 'Qty wajib diisi.';
                         return;
                     }
                     const val = this.evalCalc(this.rawQty);
                     if (val === null) {
-                        this.formError = 'Format perhitungan Qty Delivery tidak valid.';
+                        this.formError = 'Format perhitungan tidak valid.';
                         return;
                     }
                     if (val <= 0) {
-                        this.formError = 'Qty Delivery harus lebih besar dari 0.';
+                        this.formError = 'Qty harus lebih dari 0.';
                         return;
                     }
                     if (val > (this.scannedItem.stock || 0) + 0.0001) {
-                        this.formError = `Ditolak: Qty Delivery (${val}) melebihi Current Stock ${this.scannedItem.part_name} (${this.scannedItem.stock} ${this.scannedItem.uom}).`;
+                        this.formError = `Stok kurang. Tersedia: ${this.scannedItem.stock} ${this.scannedItem.uom}.`;
                         return;
                     }
                     formEl.submit();

@@ -36,11 +36,11 @@
         <div class="scan-stepper mb-3">
             <div class="scan-step" :class="step === 1 ? 'active' : 'done'">
                 <span class="scan-step-num" x-text="step > 1 ? '✓' : '1'"></span>
-                <span class="truncate">Scan Barang Masuk</span>
+                <span class="truncate">Scan Item</span>
             </div>
             <div class="scan-step" :class="step === 2 ? 'active' : ''">
                 <span class="scan-step-num">2</span>
-                <span class="truncate">Input Qty Inbound</span>
+                <span class="truncate">Input Qty</span>
             </div>
         </div>
 
@@ -53,10 +53,10 @@
         <div class="panel">
             <div class="panel-head">
                 <div class="panel-title">
-                    <span x-show="step === 1">Langkah 1 · Scan QR Barang Inbound</span>
-                    <span x-show="step === 2" x-cloak>Langkah 2 · Input Qty Inbound</span>
+                    <span x-show="step === 1">Langkah 1 · Scan Item Inbound</span>
+                    <span x-show="step === 2" x-cloak>Langkah 2 · Input Qty</span>
                 </div>
-                <span class="pill pill-info">RM · KOMPONEN · TRANSIT (SUPPLIER)</span>
+                <span class="pill pill-info">RM · KOMPONEN · TRANSIT</span>
             </div>
 
             <div class="panel-body space-y-4">
@@ -70,16 +70,16 @@
                                 <x-icon name="scan" class="w-6 h-6" />
                             </div>
                             <div class="text-xs text-slate-300 leading-relaxed">
-                                Aktifkan izin kamera 1 kali untuk perangkat ini, atau gunakan input kode manual di bawah.
+                                Aktifkan kamera untuk scan QR, atau ketik kode di bawah.
                             </div>
                             <button type="button" @click="activateCamera()" class="btn btn-primary">
-                                <x-icon name="scan" /> Aktifkan Kamera Scanner
+                                <x-icon name="scan" /> Aktifkan Kamera
                             </button>
                         </div>
                     </div>
 
                     <div>
-                        <label class="lbl">Ketik Part No / Part Name Barang</label>
+                        <label class="lbl">Part No / Part Name</label>
                         <div class="flex gap-2">
                             <input type="text" x-model="manualCode"
                                    @keydown.enter.prevent="handleScan(manualCode)"
@@ -95,9 +95,9 @@
                 <div x-show="step === 2" x-cloak class="space-y-4">
                     <div class="p-3 rounded bg-slate-50 border border-slate-200 flex items-center justify-between gap-3">
                         <div class="min-w-0 flex-1">
-                            <div class="flex items-center gap-1.5">
-                                <span class="pill pill-neu" x-text="scannedItem?.type"></span>
-                                <span class="pill pill-info" x-text="scannedItem?.company_code"></span>
+                            <div class="flex items-center gap-1.5 flex-wrap">
+                                <span class="ty" :class="tyClass(scannedItem?.type)" x-text="scannedItem?.type"></span>
+                                <span class="text-xs font-semibold text-slate-600" x-text="scannedItem?.company_code"></span>
                             </div>
                             <div class="num text-xs font-bold text-accent mt-1" x-text="scannedItem?.part_no || '-'"></div>
                             <div class="text-xs font-semibold text-slate-900 break-words" x-text="scannedItem?.part_name"></div>
@@ -126,7 +126,7 @@
                                 <input type="text" name="qty" x-model="rawQty" required
                                        placeholder="Contoh: 100 atau 4*25"
                                        class="num w-full h-14 text-2xl text-center font-bold pl-[30px]">
-                                <span class="inp-calc-ic" title="Mendukung perhitungan kalkulator (+, -, *, /)">
+                                <span class="inp-calc-ic" title="Mendukung kalkulator (+, -, *, /)">
                                     <x-icon name="calc" />
                                 </span>
                             </div>
@@ -137,13 +137,18 @@
                                 <x-icon name="alert" />
                                 <span>Format perhitungan tidak valid</span>
                             </div>
-                            <div x-show="parsedQty > 0" x-cloak class="text-xs text-emerald-700 font-semibold mt-1 text-center num">
-                                Stok: <span x-text="scannedItem?.stock ?? 0"></span> → <span x-text="Math.round(((scannedItem?.stock || 0) + parsedQty) * 100) / 100"></span> <span x-text="scannedItem?.uom"></span>
+                        </div>
+
+                        <div class="dlg-list" x-show="parsedQty > 0" x-cloak>
+                            <div>
+                                <span>Stok</span>
+                                <b class="num text-emerald-700"
+                                   x-text="(scannedItem?.stock ?? 0) + ' → ' + Math.round(((scannedItem?.stock || 0) + parsedQty) * 100) / 100 + ' ' + (scannedItem?.uom || '')"></b>
                             </div>
                         </div>
 
                         <button type="submit" class="btn btn-primary btn-lg w-full">
-                            Simpan Inbound (+ Stok)
+                            Simpan Inbound
                         </button>
                     </form>
 
@@ -159,7 +164,7 @@
             <div class="panel-head">
                 <div class="panel-title">
                     <span>Riwayat Scan Inbound</span>
-                    <span class="count-chip"><span x-text="filteredHistory.length"></span><span>Scan</span></span>
+                    <span class="count-chip"><span x-text="filteredHistory.length"></span><span>SCAN</span></span>
                 </div>
             </div>
             <div class="p-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center gap-2">
@@ -175,8 +180,8 @@
                     <div class="p-3 flex items-center justify-between gap-3 text-xs bg-white hover:bg-slate-50">
                         <div class="min-w-0 flex-1">
                             <div class="flex items-center gap-1.5 flex-wrap">
-                                <span class="pill pill-neu text-[10px]" x-text="s.supplier"></span>
-                                <span class="num text-[11px] text-slate-500" x-text="s.date_fmt"></span>
+                                <span class="text-[11px] font-bold text-slate-700" x-text="s.supplier"></span>
+                                <span class="num text-[11px] text-slate-500" x-text="'· ' + s.date_fmt"></span>
                                 <span class="text-[11px] text-slate-500" x-text="'· ' + s.user_name"></span>
                             </div>
                             <div class="num font-bold text-accent mt-1" x-text="s.part_no"></div>
@@ -210,6 +215,9 @@
                 scannedItem: null,
                 rawQty: '',
 
+                tyClass(t) {
+                    return 'ty-' + (t === 'FG/KOMPONEN' ? 'FGK' : (t || 'RM'));
+                },
                 initScanner() {
                     if (window.DRCScanner && window.DRCScanner.isPermitted()) {
                         this.activateCamera();
@@ -236,11 +244,11 @@
                     if (!c) return;
                     const found = this.items.find(i => i.part_no === c || i.part_name === c);
                     if (!found) {
-                        this.errorMsg = `Ditolak: Kode "${rawCode}" tidak ditemukan di Master Item aktif.`;
+                        this.errorMsg = `Kode "${rawCode}" tidak ditemukan.`;
                         return;
                     }
                     if (!['RM', 'KOMPONEN', 'TRANSIT'].includes(found.type) || found.company_type !== 'SUPPLIER') {
-                        this.errorMsg = `Ditolak: ${found.part_name} (${found.type} - ${found.company_type}) tidak diizinkan di Inbound (Wajib RM/KOMPONEN/TRANSIT dari SUPPLIER).`;
+                        this.errorMsg = `${found.part_name} tidak sesuai untuk Inbound (wajib RM, KOMPONEN, atau TRANSIT dari SUPPLIER).`;
                         return;
                     }
                     this.scannedItem = found;
@@ -251,7 +259,7 @@
                 },
                 evalCalc(raw) {
                     if (raw === null || raw === undefined) return null;
-                    const expr = String(raw).replace(/,/g, '.').replace(/\s+/g, '');
+                    const expr = String(raw).replace(/,/g, '.').replace(/[xX]/g, '*').replace(/:/g, '/').replace(/\s+/g, '');
                     if (!expr || !/^[0-9\.\+\-\*\/\(\)]+$/.test(expr) || /[\+\-\*\/]{2,}/.test(expr)) return null;
                     try {
                         const r = Function('return (' + expr + ')')();
@@ -267,20 +275,20 @@
                 submitForm(formEl) {
                     this.formError = '';
                     if (!this.scannedItem) {
-                        this.formError = 'Silakan scan barang terlebih dahulu.';
+                        this.formError = 'Scan item terlebih dahulu.';
                         return;
                     }
                     if (String(this.rawQty || '').trim() === '') {
-                        this.formError = 'Qty Inbound wajib diisi.';
+                        this.formError = 'Qty wajib diisi.';
                         return;
                     }
                     const val = this.evalCalc(this.rawQty);
                     if (val === null) {
-                        this.formError = 'Format perhitungan Qty Inbound tidak valid.';
+                        this.formError = 'Format perhitungan tidak valid.';
                         return;
                     }
                     if (val <= 0) {
-                        this.formError = 'Qty Inbound harus lebih besar dari 0.';
+                        this.formError = 'Qty harus lebih dari 0.';
                         return;
                     }
                     formEl.submit();
