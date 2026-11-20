@@ -44,12 +44,6 @@
             </div>
         </div>
 
-        <div x-show="errorMsg" x-cloak class="alert alert-crit mb-3" role="alert">
-            <x-icon name="alert" />
-            <span class="flex-1 min-w-0" x-text="errorMsg"></span>
-            <button type="button" @click="errorMsg = ''" class="act-btn flex-none -my-1 -mr-1"><x-icon name="x" /></button>
-        </div>
-
         <div class="panel">
             <div class="panel-head">
                 <div class="panel-title">
@@ -114,11 +108,6 @@
                         @csrf
                         <input type="hidden" name="mode" value="scanner">
                         <input type="hidden" name="item_id" :value="scannedItem?.id">
-
-                        <div x-show="formError" x-cloak class="alert alert-crit text-xs" role="alert">
-                            <x-icon name="alert" />
-                            <span class="flex-1 min-w-0" x-text="formError"></span>
-                        </div>
 
                         <div>
                             <label class="lbl">Qty Return to Supplier (<span x-text="scannedItem?.uom"></span>)</label>
@@ -206,8 +195,8 @@
                 step: 1,
                 cameraActive: false,
                 manualCode: '',
-                errorMsg: '',
-                formError: '',
+                lastCamCode: '',
+                lastCamAt: 0,
                 items: items,
                 allScans: allScans,
                 todayStr: todayStr,
@@ -219,45 +208,57 @@
                 tyClass(t) {
                     return 'ty-' + (t === 'FG/KOMPONEN' ? 'FGK' : (t || 'RM'));
                 },
+                notifyError(msg) {
+                    if (window.DRCToast) window.DRCToast.show(msg, 'crit');
+                },
+                clearToast() {
+                    if (window.DRCToast) window.DRCToast.hide();
+                },
                 initScanner() {
                     if (window.DRCScanner && window.DRCScanner.isPermitted()) {
                         this.activateCamera();
                     }
                 },
                 async activateCamera() {
-                    this.errorMsg = '';
                     this.cameraActive = true;
                     await this.$nextTick();
                     const ok = await window.DRCScanner.start(
                         'qr-reader',
-                        (decoded) => this.handleScan(decoded),
+                        (decoded) => this.handleScan(decoded, true),
                         (err) => {
                             this.cameraActive = false;
-                            this.errorMsg = err;
+                            this.notifyError(err);
                         }
                     );
                     if (!ok) this.cameraActive = false;
                 },
-                handleScan(rawCode) {
-                    this.errorMsg = '';
-                    this.formError = '';
+                handleScan(rawCode, fromCamera = false) {
                     const c = String(rawCode || '').trim().toUpperCase();
                     if (!c) return;
+                    if (fromCamera) {
+                        const now = Date.now();
+                        if (this.lastCamCode === c && (now - this.lastCamAt) < 900) return;
+                        this.lastCamCode = c;
+                        this.lastCamAt = now;
+                    }
                     const found = this.items.find(i => i.part_no === c || i.part_name === c);
                     if (!found) {
-                        this.errorMsg = `Kode "${rawCode}" tidak ditemukan.`;
+                        this.notifyError(`Kode "${rawCode}" tidak ditemukan.`);
                         return;
                     }
                     if (!['RM', 'KOMPONEN', 'TRANSIT'].includes(found.type) || found.company_type !== 'SUPPLIER') {
-                        this.errorMsg = `${found.part_name} tidak sesuai untuk Return to Supplier (wajib RM, KOMPONEN, atau TRANSIT dari SUPPLIER).`;
+                        this.notifyError(`${found.part_name} tidak sesuai untuk Return to Supplier (wajib RM, KOMPONEN, atau TRANSIT dari SUPPLIER).`);
                         return;
                     }
                     if (found.stock <= 0) {
-                        this.errorMsg = `Stok ${found.part_name} kosong (0 ${found.uom}).`;
+                        this.notifyError(`Stok ${found.part_name} kosong (0 ${found.uom}).`);
                         return;
                     }
+                    this.clearToast();
                     this.scannedItem = found;
                     this.manualCode = '';
+                    this.lastCamCode = '';
+                    this.lastCamAt = 0;
                     this.step = 2;
                     window.DRCScanner.stop();
                     this.cameraActive = false;
@@ -278,26 +279,25 @@
                     return (r !== null && r > 0) ? r : 0;
                 },
                 submitForm(formEl) {
-                    this.formError = '';
                     if (!this.scannedItem) {
-                        this.formError = 'Scan item terlebih dahulu.';
+                        this.notifyError('Scan item terlebih dahulu.');
                         return;
                     }
                     if (String(this.rawQty || '').trim() === '') {
-                        this.formError = 'Qty wajib diisi.';
+                        this.notifyError('Qty wajib diisi.');
                         return;
                     }
                     const val = this.evalCalc(this.rawQty);
                     if (val === null) {
-                        this.formError = 'Format perhitungan tidak valid.';
+                        this.notifyError('Format perhitungan tidak valid.');
                         return;
                     }
                     if (val <= 0) {
-                        this.formError = 'Qty harus lebih dari 0.';
+                        this.notifyError('Qty harus lebih dari 0.');
                         return;
                     }
                     if (val > (this.scannedItem.stock || 0) + 0.0001) {
-                        this.formError = `Stok kurang. Tersedia: ${this.scannedItem.stock} ${this.scannedItem.uom}.`;
+                        this.notifyError(`Stok kurang. Tersedia: ${this.scannedItem.stock} ${this.scannedItem.uom}.`);
                         return;
                     }
                     formEl.submit();
@@ -317,8 +317,9 @@
                     this.scannedItem = null;
                     this.rawQty = '';
                     this.manualCode = '';
-                    this.errorMsg = '';
-                    this.formError = '';
+                    this.lastCamCode = '';
+                    this.lastCamAt = 0;
+                    this.clearToast();
                     this.step = 1;
                     if (window.DRCScanner && window.DRCScanner.isPermitted()) {
                         this.activateCamera();
@@ -327,4 +328,4 @@
             };
         }
     </script>
-</x-scanner-layout> 
+</x-scanner-layout>

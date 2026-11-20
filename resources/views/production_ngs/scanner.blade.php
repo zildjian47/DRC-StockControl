@@ -66,12 +66,6 @@
             </div>
         </div>
 
-        <div x-show="errorMsg" x-cloak class="alert alert-crit mb-3" role="alert">
-            <x-icon name="alert" />
-            <span class="flex-1 min-w-0" x-text="errorMsg"></span>
-            <button type="button" @click="errorMsg = ''" class="act-btn flex-none -my-1 -mr-1"><x-icon name="x" /></button>
-        </div>
-
         <div class="panel">
             <div class="panel-head">
                 <div class="panel-title">
@@ -133,11 +127,6 @@
                         @csrf
                         <input type="hidden" name="mode" value="scanner">
                         <input type="hidden" name="item_id" :value="scannedItem?.id">
-
-                        <div x-show="formError" x-cloak class="alert alert-crit text-xs" role="alert">
-                            <x-icon name="alert" />
-                            <span class="flex-1 min-w-0" x-text="formError"></span>
-                        </div>
 
                         <div>
                             <label class="lbl">Nomor Lot Aktif</label>
@@ -256,8 +245,8 @@
                 step: 1,
                 cameraActive: false,
                 manualCode: '',
-                errorMsg: '',
-                formError: '',
+                lastCamCode: '',
+                lastCamAt: 0,
                 items: items,
                 activeLots: activeLots,
                 allScans: allScans,
@@ -272,43 +261,55 @@
                 tyClass(t) {
                     return 'ty-' + (t === 'FG/KOMPONEN' ? 'FGK' : (t || 'FG'));
                 },
+                notifyError(msg) {
+                    if (window.DRCToast) window.DRCToast.show(msg, 'crit');
+                },
+                clearToast() {
+                    if (window.DRCToast) window.DRCToast.hide();
+                },
                 initScanner() {
                     if (window.DRCScanner && window.DRCScanner.isPermitted()) {
                         this.activateCamera();
                     }
                 },
                 async activateCamera() {
-                    this.errorMsg = '';
                     this.cameraActive = true;
                     await this.$nextTick();
                     const ok = await window.DRCScanner.start(
                         'qr-reader',
-                        (decoded) => this.handleScan(decoded),
+                        (decoded) => this.handleScan(decoded, true),
                         (err) => {
                             this.cameraActive = false;
-                            this.errorMsg = err;
+                            this.notifyError(err);
                         }
                     );
                     if (!ok) this.cameraActive = false;
                 },
-                handleScan(rawCode) {
-                    this.errorMsg = '';
-                    this.formError = '';
+                handleScan(rawCode, fromCamera = false) {
                     const c = String(rawCode || '').trim().toUpperCase();
                     if (!c) return;
+                    if (fromCamera) {
+                        const now = Date.now();
+                        if (this.lastCamCode === c && (now - this.lastCamAt) < 900) return;
+                        this.lastCamCode = c;
+                        this.lastCamAt = now;
+                    }
                     const found = this.items.find(i => i.part_no === c || i.part_name === c);
                     if (!found) {
-                        this.errorMsg = `Kode "${rawCode}" tidak ditemukan.`;
+                        this.notifyError(`Kode "${rawCode}" tidak ditemukan.`);
                         return;
                     }
                     const lots = this.activeLots.filter(l => String(l.target_item_id) === String(found.id));
                     if (lots.length === 0) {
-                        this.errorMsg = `Tidak ada Lot aktif dengan saldo Act FG untuk ${found.part_name}.`;
+                        this.notifyError(`Tidak ada Lot aktif dengan saldo Act FG untuk ${found.part_name}.`);
                         return;
                     }
+                    this.clearToast();
                     this.scannedItem = found;
                     this.selectedLotId = lots.length === 1 ? String(lots[0].id) : '';
                     this.manualCode = '';
+                    this.lastCamCode = '';
+                    this.lastCamAt = 0;
                     this.step = 2;
                     window.DRCScanner.stop();
                     this.cameraActive = false;
@@ -325,30 +326,29 @@
                     return (!isNaN(q) && q > 0) ? Math.round(q * 100) / 100 : 0;
                 },
                 submitForm(formEl) {
-                    this.formError = '';
                     if (!this.scannedItem) {
-                        this.formError = 'Scan output terlebih dahulu.';
+                        this.notifyError('Scan output terlebih dahulu.');
                         return;
                     }
                     if (!this.selectedLotId || !this.selectedLotObj) {
-                        this.formError = 'Pilih Nomor Lot terlebih dahulu.';
+                        this.notifyError('Pilih Nomor Lot terlebih dahulu.');
                         return;
                     }
                     if (!this.problemReason) {
-                        this.formError = 'Pilih Problem Reason terlebih dahulu.';
+                        this.notifyError('Pilih Problem Reason terlebih dahulu.');
                         return;
                     }
                     const qty = parseFloat(this.qtyNg);
                     if (this.qtyNg === '' || this.qtyNg === null || isNaN(qty) || qty <= 0) {
-                        this.formError = 'Qty NG harus lebih dari 0.';
+                        this.notifyError('Qty NG harus lebih dari 0.');
                         return;
                     }
                     if (qty > this.selectedLotObj.act_fg + 0.0001) {
-                        this.formError = `Qty NG melebihi saldo Act FG (maksimal ${this.selectedLotObj.act_fg} ${this.scannedItem.uom}).`;
+                        this.notifyError(`Qty NG melebihi saldo Act FG (maksimal ${this.selectedLotObj.act_fg} ${this.scannedItem.uom}).`);
                         return;
                     }
                     if (qty > (this.scannedItem.stock || 0) + 0.0001) {
-                        this.formError = `Stok gudang kurang. Tersedia: ${this.scannedItem.stock} ${this.scannedItem.uom}.`;
+                        this.notifyError(`Stok gudang kurang. Tersedia: ${this.scannedItem.stock} ${this.scannedItem.uom}.`);
                         return;
                     }
                     formEl.submit();
@@ -369,8 +369,9 @@
                     this.selectedLotId = '';
                     this.qtyNg = '';
                     this.manualCode = '';
-                    this.errorMsg = '';
-                    this.formError = '';
+                    this.lastCamCode = '';
+                    this.lastCamAt = 0;
+                    this.clearToast();
                     this.step = 1;
                     if (window.DRCScanner && window.DRCScanner.isPermitted()) {
                         this.activateCamera();

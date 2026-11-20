@@ -15,6 +15,7 @@ class Bom extends Model
         'output_item_id',
         'input_item_id',
         'qty_usage',
+        'qty_usage_display',
         'is_trigger',
     ];
 
@@ -123,25 +124,47 @@ class Bom extends Model
         return $res > 0 ? round($res, 8) : null;
     }
 
+    public static function formatDisplayInput($raw, float $numericVal): string
+    {
+        if ($numericVal <= 0) {
+            return '0';
+        }
+
+        $cleanDec = rtrim(rtrim(number_format($numericVal, 8, '.', ''), '0'), '.');
+        if ($cleanDec === '' || $cleanDec === '-0') {
+            $cleanDec = '0';
+        }
+
+        $expr = str_replace([',', ':'], ['.', '/'], trim((string) $raw));
+        $expr = preg_replace('/\s+/', '', $expr);
+
+        if (preg_match('/^(\d+)\/(\d+)$/', $expr, $m)) {
+            $num = (int) $m[1];
+            $den = (int) $m[2];
+            if ($num > 0 && $den > 0) {
+                if ($num % $den === 0) {
+                    return (string) intdiv($num, $den);
+                }
+                return "{$num}/{$den}";
+            }
+        }
+
+        return $cleanDec;
+    }
+
     public function getFormattedQtyUsageAttribute(): string
     {
+        if (!empty($this->qty_usage_display)) {
+            return (string) $this->qty_usage_display;
+        }
+
         $val = (float) $this->qty_usage;
         if ($val <= 0) {
             return '0';
         }
 
         $cleanDec = rtrim(rtrim(number_format($val, 8, '.', ''), '0'), '.');
-
-        if ($val < 1) {
-            for ($den = 2; $den <= 100; $den++) {
-                $num = (int) round($val * $den);
-                if ($num > 0 && $num < $den && ($den <= 24 || $num === 1) && abs(($num / $den) - $val) < 0.000001) {
-                    return "{$num}/{$den}";
-                }
-            }
-        }
-
-        return $cleanDec;
+        return ($cleanDec === '' || $cleanDec === '-0') ? '0' : $cleanDec;
     }
 
     public function getGroupTypeAttribute(): string

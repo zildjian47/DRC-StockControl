@@ -49,12 +49,6 @@
             </div>
         </div>
 
-        <div x-show="errorMsg" x-cloak class="alert alert-crit mb-3" role="alert">
-            <x-icon name="alert" />
-            <span class="flex-1 min-w-0" x-text="errorMsg"></span>
-            <button type="button" @click="errorMsg = ''" class="act-btn flex-none -my-1 -mr-1"><x-icon name="x" /></button>
-        </div>
-
         <div class="panel">
             <div class="panel-head">
                 <div class="panel-title">
@@ -121,11 +115,6 @@
                         @csrf
                         <input type="hidden" name="mode" value="scanner">
                         <input type="hidden" name="item_id" :value="selectedItem?.id">
-
-                        <div x-show="formError" x-cloak class="alert alert-crit text-xs" role="alert">
-                            <x-icon name="alert" />
-                            <span class="flex-1 min-w-0" x-text="formError"></span>
-                        </div>
 
                         <div>
                             <span class="lbl">Kategori Adjustment</span>
@@ -249,8 +238,8 @@
                 step: 1,
                 cameraActive: false,
                 manualCode: '',
-                errorMsg: '',
-                formError: '',
+                lastCamCode: '',
+                lastCamAt: 0,
                 items: items,
                 allScans: allScans,
                 todayStr: todayStr,
@@ -265,42 +254,54 @@
                 tyClass(t) {
                     return 'ty-' + (t === 'FG/KOMPONEN' ? 'FGK' : (t || 'RM'));
                 },
+                notifyError(msg) {
+                    if (window.DRCToast) window.DRCToast.show(msg, 'crit');
+                },
+                clearToast() {
+                    if (window.DRCToast) window.DRCToast.hide();
+                },
                 initScanner() {
                     if (window.DRCScanner && window.DRCScanner.isPermitted()) {
                         this.activateCamera();
                     }
                 },
                 async activateCamera() {
-                    this.errorMsg = '';
                     this.cameraActive = true;
                     await this.$nextTick();
                     const ok = await window.DRCScanner.start(
                         'qr-reader',
-                        (decoded) => this.handleScan(decoded),
+                        (decoded) => this.handleScan(decoded, true),
                         (err) => {
                             this.cameraActive = false;
-                            this.errorMsg = err;
+                            this.notifyError(err);
                         }
                     );
                     if (!ok) this.cameraActive = false;
                 },
-                handleScan(rawCode) {
-                    this.errorMsg = '';
-                    this.formError = '';
+                handleScan(rawCode, fromCamera = false) {
                     const code = String(rawCode || '').trim().toUpperCase();
                     if (!code) return;
+                    if (fromCamera) {
+                        const now = Date.now();
+                        if (this.lastCamCode === code && (now - this.lastCamAt) < 900) return;
+                        this.lastCamCode = code;
+                        this.lastCamAt = now;
+                    }
 
                     const found = this.items.find(i => i.part_no === code || i.part_name === code);
                     if (!found) {
-                        this.errorMsg = `Kode "${rawCode}" tidak ditemukan.`;
+                        this.notifyError(`Kode "${rawCode}" tidak ditemukan.`);
                         return;
                     }
 
+                    this.clearToast();
                     this.selectedItem = found;
                     this.qtySystem = found.stock;
                     this.rawActual = String(found.stock);
                     this.rawDiff = '0';
                     this.manualCode = '';
+                    this.lastCamCode = '';
+                    this.lastCamAt = 0;
                     this.step = 2;
                     window.DRCScanner.stop();
                     this.cameraActive = false;
@@ -339,20 +340,19 @@
                     }
                 },
                 submitForm(formEl) {
-                    this.formError = '';
                     if (!this.selectedItem) {
-                        this.formError = 'Scan item terlebih dahulu.';
+                        this.notifyError('Scan item terlebih dahulu.');
                         return;
                     }
                     if (!this.adjType) {
-                        this.formError = 'Pilih kategori adjustment terlebih dahulu.';
+                        this.notifyError('Pilih kategori adjustment terlebih dahulu.');
                         return;
                     }
 
                     const hasActual = String(this.rawActual || '').trim() !== '';
                     const hasDiff = String(this.rawDiff || '').trim() !== '';
                     if (!hasActual && !hasDiff) {
-                        this.formError = 'Qty Actual atau Qty Diff wajib diisi.';
+                        this.notifyError('Qty Actual atau Qty Diff wajib diisi.');
                         return;
                     }
 
@@ -360,11 +360,11 @@
                     const parsedDiff = hasDiff ? this.evalCalc(this.rawDiff) : null;
 
                     if (hasActual && parsedActual === null) {
-                        this.formError = 'Format perhitungan Qty Actual tidak valid.';
+                        this.notifyError('Format perhitungan Qty Actual tidak valid.');
                         return;
                     }
                     if (hasDiff && parsedDiff === null) {
-                        this.formError = 'Format perhitungan Qty Diff tidak valid.';
+                        this.notifyError('Format perhitungan Qty Diff tidak valid.');
                         return;
                     }
 
@@ -378,19 +378,19 @@
                     }
 
                     if (qtyActual < 0) {
-                        this.formError = 'Qty Actual tidak boleh minus.';
+                        this.notifyError('Qty Actual tidak boleh minus.');
                         return;
                     }
                     if (this.adjType === 'LOSS' && qtyActual >= this.qtySystem) {
-                        this.formError = `Kategori LOSS: Qty Actual harus lebih kecil dari Qty System (${this.qtySystem}).`;
+                        this.notifyError(`Kategori LOSS: Qty Actual harus lebih kecil dari Qty System (${this.qtySystem}).`);
                         return;
                     }
                     if (['SURPLUS', 'FOUND', 'REPAIR'].includes(this.adjType) && qtyActual <= this.qtySystem) {
-                        this.formError = `Kategori ${this.adjType}: Qty Actual harus lebih besar dari Qty System (${this.qtySystem}).`;
+                        this.notifyError(`Kategori ${this.adjType}: Qty Actual harus lebih besar dari Qty System (${this.qtySystem}).`);
                         return;
                     }
                     if (this.adjType === 'STOCK OPNAME' && Math.abs(qtyDiff) < 0.0001) {
-                        this.formError = 'Tidak ada perubahan stok (selisih 0).';
+                        this.notifyError('Tidak ada perubahan stok (selisih 0).');
                         return;
                     }
 
@@ -414,8 +414,9 @@
                     this.rawActual = '';
                     this.rawDiff = '';
                     this.manualCode = '';
-                    this.errorMsg = '';
-                    this.formError = '';
+                    this.lastCamCode = '';
+                    this.lastCamAt = 0;
+                    this.clearToast();
                     this.step = 1;
                     if (window.DRCScanner && window.DRCScanner.isPermitted()) {
                         this.activateCamera();

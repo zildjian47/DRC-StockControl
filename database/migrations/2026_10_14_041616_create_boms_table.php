@@ -15,6 +15,7 @@ return new class extends Migration
             $table->foreignId('output_item_id')->constrained('items')->onDelete('cascade');
             $table->foreignId('input_item_id')->constrained('items')->onDelete('cascade');
             $table->decimal('qty_usage', 16, 8);
+            $table->string('qty_usage_display', 50)->nullable();
             $table->boolean('is_trigger')->default(false);
             $table->timestamps();
         });

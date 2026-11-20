@@ -18,7 +18,7 @@ class BomController extends Controller
             return round((float) $expr, 8);
         }
 
-        $clean = str_replace(',', '.', trim((string) $expr));
+        $clean = str_replace([',', 'x', 'X', ':'], ['.', '*', '*', '/'], trim((string) $expr));
         $clean = preg_replace('/\s+/', '', $clean);
 
         if ($clean === '' || !preg_match('/^[0-9\.\+\-\*\/\(\)]+$/', $clean)) {
@@ -85,10 +85,11 @@ class BomController extends Controller
                     'item'       => $f->inputItem,
                     'is_trigger' => (bool) $inRows->contains('is_trigger', true),
                     'usages'     => $inRows->map(fn ($r) => [
-                        'output_part_no'   => $r->outputItem->part_no ?: '-',
-                        'output_part_name' => $r->outputItem->part_name ?? '-',
-                        'output_uom'       => $r->outputItem->uom ?? 'PCS',
-                        'qty_usage'        => (float) $r->qty_usage,
+                        'output_part_no'    => $r->outputItem->part_no ?: '-',
+                        'output_part_name'  => $r->outputItem->part_name ?? '-',
+                        'output_uom'        => $r->outputItem->uom ?? 'PCS',
+                        'qty_usage'         => (float) $r->qty_usage,
+                        'qty_usage_display' => $r->formatted_qty_usage,
                     ])->values(),
                 ];
             })->sortByDesc('is_trigger')->values();
@@ -98,11 +99,12 @@ class BomController extends Controller
                 return [
                     'item'   => $f->outputItem,
                     'inputs' => $outRows->map(fn ($r) => [
-                        'input_part_no'   => $r->inputItem->part_no ?: '-',
-                        'input_part_name' => $r->inputItem->part_name ?? '-',
-                        'input_uom'       => $r->inputItem->uom ?? '',
-                        'is_trigger'      => (bool) $r->is_trigger,
-                        'qty_usage'       => (float) $r->qty_usage,
+                        'input_part_no'     => $r->inputItem->part_no ?: '-',
+                        'input_part_name'   => $r->inputItem->part_name ?? '-',
+                        'input_uom'         => $r->inputItem->uom ?? '',
+                        'is_trigger'        => (bool) $r->is_trigger,
+                        'qty_usage'         => (float) $r->qty_usage,
+                        'qty_usage_display' => $r->formatted_qty_usage,
                     ])->sortByDesc('is_trigger')->values(),
                 ];
             })->values();
@@ -190,20 +192,22 @@ class BomController extends Controller
                     return back()->withInput()->with('error', 'Material Input dan Target Output tidak boleh item yang sama.');
                 }
 
-                $qtyVal = self::evaluateMath($inData['qty_usage'] ?? 0);
+                $rawExpr = $inData['qty_usage'] ?? 0;
+                $qtyVal = self::evaluateMath($rawExpr);
                 if ($qtyVal <= 0) {
                     return back()->withInput()->with('error', 'Qty Usage pada setiap Material Input wajib lebih besar dari 0.');
                 }
 
                 $rowsToInsert[] = [
-                    'bom_group'      => $bomGroup,
-                    'process_id'     => $processId,
-                    'output_item_id' => $outItemId,
-                    'input_item_id'  => $inItemId,
-                    'qty_usage'      => $qtyVal,
-                    'is_trigger'     => ($idx === $triggerIndex),
-                    'created_at'     => now(),
-                    'updated_at'     => now(),
+                    'bom_group'         => $bomGroup,
+                    'process_id'        => $processId,
+                    'output_item_id'    => $outItemId,
+                    'input_item_id'     => $inItemId,
+                    'qty_usage'         => $qtyVal,
+                    'qty_usage_display' => Bom::formatDisplayInput($rawExpr, $qtyVal),
+                    'is_trigger'        => ($idx === $triggerIndex),
+                    'created_at'        => now(),
+                    'updated_at'        => now(),
                 ];
             }
         } else {
@@ -227,14 +231,15 @@ class BomController extends Controller
 
                     if ($qtyVal > 0) {
                         $rowsToInsert[] = [
-                            'bom_group'      => $bomGroup,
-                            'process_id'     => $processId,
-                            'output_item_id' => $outItemId,
-                            'input_item_id'  => $inItemId,
-                            'qty_usage'      => $qtyVal,
-                            'is_trigger'     => $isTrigger,
-                            'created_at'     => now(),
-                            'updated_at'     => now(),
+                            'bom_group'         => $bomGroup,
+                            'process_id'        => $processId,
+                            'output_item_id'    => $outItemId,
+                            'input_item_id'     => $inItemId,
+                            'qty_usage'         => $qtyVal,
+                            'qty_usage_display' => Bom::formatDisplayInput($rawExpr, $qtyVal),
+                            'is_trigger'        => $isTrigger,
+                            'created_at'        => now(),
+                            'updated_at'        => now(),
                         ];
                     }
                 }

@@ -132,7 +132,7 @@
                                                     <div class="text-xs font-semibold text-slate-900 truncate mt-0.5">{{ $inIt->part_name ?? '-' }}</div>
                                                 </div>
                                             </div>
-                                            <span class="pill pill-neu flex-none">{{ $inIt->uom ?? '' }}</span>
+                                            <span class="num text-[11px] font-semibold text-slate-500 flex-none">{{ $inIt->uom ?? '' }}</span>
                                         </div>
                                     @endforeach
                                 </div>
@@ -160,7 +160,7 @@
                                                 @foreach($outRow['inputs'] as $u)
                                                     <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] border {{ $u['is_trigger'] ? 'bg-blue-50/70 border-blue-200 text-blue-900 font-semibold' : 'bg-slate-50 border-slate-200 text-slate-700' }}">
                                                         <span>{{ $u['input_part_name'] }}:</span>
-                                                        <b class="num">{{ floatval($u['qty_usage']) }} {{ $u['input_uom'] }}</b>
+                                                        <b class="num">{{ $u['qty_usage_display'] }} {{ $u['input_uom'] }}</b>
                                                     </span>
                                                 @endforeach
                                             </div>
@@ -255,7 +255,7 @@
                                                        x-model="inp.qty_usage"
                                                        :required="formOutputs.length === 1"
                                                        aria-label="Qty Usage"
-                                                       placeholder="Qty Usage (contoh: 1/3, 0.5, 2)"
+                                                       placeholder="Qty Usage (contoh: 1/3, 0.7, 2)"
                                                        class="num w-full h-9 text-xs font-semibold">
                                                 <span class="inp-calc-ic" title="Mendukung perhitungan kalkulator (+, -, *, /)">
                                                     <x-icon name="calc" />
@@ -330,7 +330,7 @@
                                                                x-model="out.usages[iIdx]"
                                                                :required="formOutputs.length > 1 && triggerIndex === iIdx"
                                                                aria-label="Rasio pemakaian"
-                                                               placeholder="Contoh: 1, 1/2, atau 4"
+                                                               placeholder="Contoh: 1/2, 0.7, atau 4"
                                                                class="num w-full h-8 text-xs font-semibold">
                                                         <span class="inp-calc-ic" title="Mendukung perhitungan kalkulator (+, -, *, /)">
                                                             <x-icon name="calc" />
@@ -475,7 +475,7 @@
                 },
                 evalFormula(val) {
                     if (val === undefined || val === null || String(val).trim() === '') return null;
-                    const expr = String(val).replace(/,/g, '.').replace(/\s+/g, '');
+                    const expr = String(val).replace(/,/g, '.').replace(/[xX]/g, '*').replace(/:/g, '/').replace(/\s+/g, '');
                     if (!/^[0-9\.\+\-\*\/\(\)]+$/.test(expr)) return null;
                     if (/[\+\-\*\/]{2,}/.test(expr)) return null;
                     try {
