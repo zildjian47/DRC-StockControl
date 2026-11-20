@@ -71,15 +71,16 @@
                 <thead>
                     <tr>
                         <th class="w-[4%] text-center">No</th>
-                        <th class="w-[24%]">Part No &amp; Part Name</th>
-                        <th class="w-[10%] text-center">Tipe &amp; UOM</th>
-                        <th class="w-[12%]">Perusahaan</th>
-                        <th class="num w-[9%]">Qty PO</th>
-                        <th class="num w-[6%]">WD</th>
-                        <th class="num w-[8%]">Kanban</th>
+                        <th class="w-[22%]">Part No &amp; Part Name</th>
+                        <th class="w-[9%] text-center">Tipe &amp; UOM</th>
+                        <th class="w-[11%]">Perusahaan</th>
+                        <th class="num w-[8%]">Qty PO</th>
+                        <th class="num w-[5%]">WD</th>
+                        <th class="num w-[7%]">Kanban</th>
                         <th class="num w-[8%]">Std Day 1</th>
-                        <th class="num w-[10%]">Std 2 / Std 3</th>
-                        <th class="w-[9%] text-center">Aksi</th>
+                        <th class="num w-[8%]">Std Day 2</th>
+                        <th class="num w-[8%]">Std Day 3</th>
+                        <th class="w-[10%] text-center">Aksi</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -150,7 +151,8 @@
                             <td class="num text-slate-700">{{ $item->working_days }}</td>
                             <td class="num text-slate-700">{{ floatval($item->qty_kanban) }}</td>
                             <td class="num font-bold text-slate-900">{{ floatval($std1) }}</td>
-                            <td class="num text-xs text-slate-600">{{ floatval($std2) }} / {{ floatval($std3) }}</td>
+                            <td class="num text-slate-700">{{ floatval($std2) }}</td>
+                            <td class="num text-slate-700">{{ floatval($std3) }}</td>
                             <td class="text-center">
                                 <div class="inline-flex items-center justify-center gap-1">
                                     <button type="button" class="act-btn" title="Informasi Material & BOM"
@@ -170,7 +172,7 @@
                             </td>
                         </tr>
                     @empty
-                        <tr><td colspan="10"><div class="empty">Belum ada data Master Item.</div></td></tr>
+                        <tr><td colspan="11"><div class="empty">Belum ada data Master Item.</div></td></tr>
                     @endforelse
                 </tbody>
             </table>

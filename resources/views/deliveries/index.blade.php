@@ -90,7 +90,7 @@
                     @forelse($deliveries as $idx => $del)
                         @php
                             $dt         = \Carbon\Carbon::parse($del->date_time);
-                            $statusText = $del->qty_check === 'TIDAK SESUAI' ? 'DIKOREKSI' : 'TERCATAT';
+                            $statusText = $del->qty_check === 'DIKOREKSI' ? 'DIKOREKSI' : 'TERCATAT';
                             $uName      = $del->user->name ?? 'Operator';
                             $partNo     = $del->item->part_no ?: '-';
                             $partName   = $del->item->part_name ?? '-';
@@ -195,7 +195,7 @@
                                 <span x-text="editError"></span>
                             </div>
 
-                            <input type="hidden" :name="'items[' + editId + '][qty_check]'" value="TIDAK SESUAI">
+                            <input type="hidden" :name="'items[' + editId + '][qty_check]'" value="DIKOREKSI">
                             <div>
                                 <label class="lbl" for="del_actual_qty">Qty Delivery Sebenarnya</label>
                                 <div class="inp-calc">
@@ -204,7 +204,7 @@
                                            x-model="editNewQty" required
                                            placeholder="Contoh: 30 atau 2*15"
                                            class="num w-full h-9 font-semibold">
-                                    <span class="inp-calc-ic" title="Mendukung perhitungan kalkulator (+, -, *, /)">
+                                    <span class="inp-calc-ic" title="Mendukung kalkulator (+, -, *, /)">
                                         <x-icon name="calc" />
                                     </span>
                                 </div>
@@ -280,21 +280,21 @@
                 submitEdit(formEl) {
                     this.editError = '';
                     if (String(this.editNewQty || '').trim() === '') {
-                        this.editError = 'Qty Delivery koreksi wajib diisi.';
+                        this.editError = 'Qty koreksi wajib diisi.';
                         return;
                     }
                     const val = this.evalCalc(this.editNewQty);
                     if (val === null) {
-                        this.editError = 'Format perhitungan Qty koreksi tidak valid.';
+                        this.editError = 'Format perhitungan tidak valid.';
                         return;
                     }
                     if (val <= 0) {
-                        this.editError = 'Qty koreksi harus lebih besar dari 0.';
+                        this.editError = 'Qty koreksi harus lebih dari 0.';
                         return;
                     }
                     const diff = Math.round((val - this.editOldQty) * 100) / 100;
                     if (diff > 0 && diff > this.editStock + 0.0001) {
-                        this.editError = 'Ditolak: Stok ' + this.editPartName + ' tidak mencukupi untuk penambahan koreksi Delivery (Stok tersedia: ' + this.editStock + ' ' + this.editUom + ').';
+                        this.editError = 'Stok ' + this.editPartName + ' tidak cukup untuk koreksi (tersedia ' + this.editStock + ' ' + this.editUom + ').';
                         return;
                     }
                     formEl.submit();

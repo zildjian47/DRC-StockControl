@@ -18,23 +18,17 @@
     @endphp
 
     <div class="panel"
-         x-data="matOutPage({{ $groupedOuts->count() }}, {{ $materialOuts->count() }})"
+         x-data="matOutPage({{ $groupedOuts->count() }})"
          x-init="recalc()"
          @table-refreshed.window="recalc()">
 
         <div class="panel-head">
             <div class="panel-title">
                 <span>Daftar Transaksi Material Out</span>
-                <span class="count-chip" x-show="viewMode === 'grouped'"><span x-text="visibleGrouped"></span><span>KELOMPOK</span></span>
-                <span class="count-chip" x-show="viewMode === 'flat'" x-cloak><span x-text="visibleFlat"></span><span>BARIS</span></span>
+                <span class="count-chip"><span x-text="visibleCount"></span><span>DATA</span></span>
             </div>
 
             <div class="flex flex-wrap items-center gap-2">
-                <div class="seg" role="radiogroup" aria-label="Mode Tampilan">
-                    <label><input type="radio" value="grouped" x-model="viewMode" @change="recalc()"><span>Kelompok</span></label>
-                    <label><input type="radio" value="flat" x-model="viewMode" @change="recalc()"><span>Per Baris</span></label>
-                </div>
-
                 <input type="text" x-model="q" @input="recalc()"
                        placeholder="Cari Lot / Material / Output / Petugas..."
                        class="h-8 text-xs px-2.5 w-48">
@@ -94,8 +88,7 @@
                     </tr>
                 </thead>
 
-                {{-- MODE 1: TAMPILAN KELOMPOK (TERMASUK PENDAMPING) --}}
-                <tbody x-show="viewMode === 'grouped'">
+                <tbody>
                     @forelse($groupedOuts as $idx => $grp)
                         @php
                             $first     = $grp['first'];
@@ -105,14 +98,14 @@
                             $uName     = $first->user->name ?? 'Operator';
                             $currStock = floatval($stockMap[$first->material_item_id] ?? 0);
                         @endphp
-                        <tr data-grp-row
+                        <tr data-row
                             data-search="{{ $grp['search_index'] }}"
                             data-date="{{ $grp['date_only'] }}"
                             data-time="{{ $grp['time_only'] }}"
                             data-bomtype="{{ $bType }}"
                             data-status="{{ $grp['status_label'] }}"
                             x-show="matchRow($el)">
-                            <td class="text-center num font-semibold text-slate-500">{{ $idx + 1 }}</td>
+                            <td class="text-center num font-semibold text-slate-500" data-col-no>{{ $idx + 1 }}</td>
                             <td class="num col-time text-left whitespace-nowrap">
                                 <div class="font-semibold text-slate-900">{{ $dt->format('d M Y') }}</div>
                                 <div class="text-xs text-slate-500">{{ $dt->format('H:i') }} WIB</div>
@@ -147,7 +140,7 @@
                                                 <div class="text-xs font-semibold text-slate-900 truncate">{{ $matItem->part_name ?? '-' }}</div>
                                             </div>
                                         </div>
-                                        <span class="pill pill-neu flex-none">{{ $matItem->uom ?? '' }}</span>
+                                        <span class="num text-[11px] font-semibold text-slate-500 flex-none">{{ $matItem->uom ?? '' }}</span>
                                     </div>
 
                                     @foreach($grp['companions'] as $comp)
@@ -159,7 +152,7 @@
                                                     <div class="text-xs font-medium text-slate-700 truncate">{{ $comp['part_name'] }}</div>
                                                 </div>
                                             </div>
-                                            <span class="pill pill-neu flex-none">{{ $comp['uom'] }}</span>
+                                            <span class="num text-[11px] font-semibold text-slate-500 flex-none">{{ $comp['uom'] }}</span>
                                         </div>
                                     @endforeach
                                 </div>
@@ -211,88 +204,6 @@
                         <tr><td colspan="9"><div class="empty">Belum ada data transaksi Material Out.</div></td></tr>
                     @endforelse
                 </tbody>
-
-                {{-- MODE 2: TAMPILAN PER BARIS (HANYA TRIGGER) --}}
-                <tbody x-show="viewMode === 'flat'" x-cloak>
-                    @forelse($materialOuts as $idx => $row)
-                        @php
-                            $dt        = \Carbon\Carbon::parse($row->date_time);
-                            $bType     = $row->bom_type ?: 'SINGLE';
-                            $statLbl   = $row->qty_check === 'TIDAK SESUAI' ? 'DIKOREKSI' : 'TERCATAT';
-                            $matItem   = $row->materialItem;
-                            $tgtItem   = $row->targetItem;
-                            $uName     = $row->user->name ?? 'Operator';
-                            $currStock = floatval($stockMap[$row->material_item_id] ?? 0);
-                            $sIndex    = strtolower($row->lot_number . ' ' . $bType . ' ' . $uName . ' ' . ($matItem->part_no ?? '') . ' ' . ($matItem->part_name ?? '') . ' ' . ($tgtItem->part_no ?? '') . ' ' . ($tgtItem->part_name ?? ''));
-                        @endphp
-                        <tr data-flat-row
-                            data-search="{{ $sIndex }}"
-                            data-date="{{ $dt->format('Y-m-d') }}"
-                            data-time="{{ $dt->format('H:i') }}"
-                            data-bomtype="{{ $bType }}"
-                            data-status="{{ $statLbl }}"
-                            x-show="matchRow($el)">
-                            <td class="text-center num font-semibold text-slate-500">{{ $idx + 1 }}</td>
-                            <td class="num col-time text-left whitespace-nowrap">
-                                <div class="font-semibold text-slate-900">{{ $dt->format('d M Y') }}</div>
-                                <div class="text-xs text-slate-500">{{ $dt->format('H:i') }} WIB</div>
-                            </td>
-                            <td>
-                                <div class="font-semibold text-slate-900">{{ $uName }}</div>
-                                <div class="text-[11px] text-slate-500">{{ $row->user->role ?? 'STAFF' }}</div>
-                            </td>
-                            <td>
-                                <div class="num font-bold text-accent">{{ $row->lot_number }}</div>
-                                <div class="mt-1">
-                                    @if($bType === 'SINGLE')
-                                        <span class="pill pill-neu">SINGLE</span>
-                                    @elseif($bType === 'MULTI-INPUT')
-                                        <span class="pill pill-info">MULTI-INPUT</span>
-                                    @elseif($bType === 'MULTI-OUTPUT')
-                                        <span class="pill pill-warn">MULTI-OUTPUT</span>
-                                    @else
-                                        <span class="pill pill-good">KOMBINASI</span>
-                                    @endif
-                                </div>
-                            </td>
-                            <td>
-                                <div class="flex items-center justify-between gap-2">
-                                    <div class="flex items-center gap-2 min-w-0">
-                                        <span class="pill pill-good w-[88px] justify-center flex-none">TRIGGER</span>
-                                        <div class="min-w-0 leading-tight">
-                                            <div class="num text-[11px] font-bold text-accent truncate">{{ $matItem->part_no ?: '-' }}</div>
-                                            <div class="text-xs font-semibold text-slate-900 truncate">{{ $matItem->part_name ?? '-' }}</div>
-                                        </div>
-                                    </div>
-                                    <span class="pill pill-neu flex-none">{{ $matItem->uom ?? '' }}</span>
-                                </div>
-                            </td>
-                            <td class="num whitespace-nowrap">
-                                <span class="text-[13.5px] font-bold text-rose-700">-{{ floatval($row->qty) }}</span>
-                                <span class="text-[11px] text-slate-500">{{ $matItem->uom ?? '' }}</span>
-                            </td>
-                            <td>
-                                <div class="num text-[11px] font-bold text-accent">{{ $tgtItem->part_no ?: '-' }}</div>
-                                <div class="text-xs font-semibold text-slate-900">{{ $tgtItem->part_name ?? '-' }}</div>
-                            </td>
-                            <td class="text-center">
-                                @if($statLbl === 'DIKOREKSI')
-                                    <span class="pill pill-info">DIKOREKSI</span>
-                                @else
-                                    <span class="pill pill-good">TERCATAT</span>
-                                @endif
-                            </td>
-                            <td class="text-center">
-                                <button type="button" class="act-btn" title="Koreksi Qty Material Out"
-                                        @click="openEdit({{ $row->id }}, '{{ $row->lot_number }}', '{{ addslashes($matItem->part_no ?: '-') }}', '{{ addslashes($matItem->part_name ?? '-') }}', {{ floatval($row->qty) }}, '{{ $matItem->uom ?? '' }}', {{ $currStock }})">
-                                    <x-icon name="edit" />
-                                </button>
-                            </td>
-                        </tr>
-                    @empty
-                        <tr><td colspan="9"><div class="empty">Belum ada data transaksi Material Out.</div></td></tr>
-                    @endforelse
-                </tbody>
             </table>
         </div>
 
@@ -330,7 +241,7 @@
                                 <span x-text="editError"></span>
                             </div>
 
-                            <input type="hidden" :name="'items[' + editId + '][qty_check]'" value="TIDAK SESUAI">
+                            <input type="hidden" :name="'items[' + editId + '][qty_check]'" value="DIKOREKSI">
                             <div>
                                 <label class="lbl" for="mo_actual_qty">Qty Material Out (Trigger) Sebenarnya</label>
                                 <div class="inp-calc">
@@ -339,7 +250,7 @@
                                            x-model="editNewQty" required
                                            placeholder="Contoh: 25 atau 5*5"
                                            class="num w-full h-9 font-semibold">
-                                    <span class="inp-calc-ic" title="Mendukung perhitungan kalkulator (+, -, *, /)">
+                                    <span class="inp-calc-ic" title="Mendukung kalkulator (+, -, *, /)">
                                         <x-icon name="calc" />
                                     </span>
                                 </div>
@@ -368,9 +279,8 @@
     </div>
 
     <script>
-        function matOutPage(initialGrouped, initialFlat) {
+        function matOutPage(initialCount) {
             return {
-                viewMode: 'grouped',
                 q: '',
                 startDate: '',
                 endDate: '',
@@ -378,8 +288,7 @@
                 endTime: '',
                 fBomType: '',
                 fStatus: '',
-                visibleGrouped: initialGrouped,
-                visibleFlat: initialFlat,
+                visibleCount: initialCount,
                 editOpen: false,
                 editError: '',
                 editId: null,
@@ -417,21 +326,21 @@
                 submitEdit(formEl) {
                     this.editError = '';
                     if (String(this.editNewQty || '').trim() === '') {
-                        this.editError = 'Qty Material Out koreksi wajib diisi.';
+                        this.editError = 'Qty koreksi wajib diisi.';
                         return;
                     }
                     const val = this.evalCalc(this.editNewQty);
                     if (val === null) {
-                        this.editError = 'Format perhitungan Qty koreksi tidak valid.';
+                        this.editError = 'Format perhitungan tidak valid.';
                         return;
                     }
                     if (val <= 0) {
-                        this.editError = 'Qty koreksi harus lebih besar dari 0.';
+                        this.editError = 'Qty koreksi harus lebih dari 0.';
                         return;
                     }
                     const diff = Math.round((val - this.editOldQty) * 100) / 100;
                     if (diff > 0 && diff > this.editStock + 0.0001) {
-                        this.editError = 'Ditolak: Stok Material Trigger (' + this.editPartName + ') tidak mencukupi untuk selisih koreksi (Tersedia: ' + this.editStock + ' ' + this.editUom + ').';
+                        this.editError = 'Stok Material Trigger (' + this.editPartName + ') tidak cukup untuk koreksi (tersedia ' + this.editStock + ' ' + this.editUom + ').';
                         return;
                     }
                     formEl.submit();
@@ -464,15 +373,15 @@
                 },
                 recalc() {
                     this.$nextTick(() => {
-                        let g = 0, f = 0;
-                        this.$el.querySelectorAll('tr[data-grp-row]').forEach(tr => {
-                            if (this.matchRow(tr)) g++;
+                        let c = 0;
+                        this.$el.querySelectorAll('tbody tr[data-row]').forEach(tr => {
+                            if (this.matchRow(tr)) {
+                                c++;
+                                const noCell = tr.querySelector('[data-col-no]');
+                                if (noCell) noCell.textContent = c;
+                            }
                         });
-                        this.$el.querySelectorAll('tr[data-flat-row]').forEach(tr => {
-                            if (this.matchRow(tr)) f++;
-                        });
-                        this.visibleGrouped = g;
-                        this.visibleFlat = f;
+                        this.visibleCount = c;
                     });
                 }
             };

@@ -15,8 +15,9 @@ return new class extends Migration
             $table->foreignId('target_item_id')->constrained('items')->onDelete('restrict');
             $table->foreignId('user_id')->nullable()->constrained('users')->nullOnDelete();
             $table->string('lot_number')->index();
+            $table->string('bom_group')->nullable()->index();
             $table->decimal('qty', 10, 2);
-            $table->string('qty_check')->default('PENDING');
+            $table->string('qty_check')->default('TERCATAT');
             $table->timestamps();
         });
     }

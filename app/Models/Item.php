@@ -264,51 +264,60 @@ class Item extends Model
                 'user_name'    => $inb->user->name ?? 'Operator',
                 'qty_change'   => +(float) $inb->qty,
                 'uom'          => $this->uom,
-                'status'       => $inb->qty_check,
+                'status'       => $inb->qty_check === 'DIKOREKSI' ? 'DIKOREKSI' : 'TERCATAT',
             ];
         }
 
-        // 2. Material Out Trigger (-)
-        foreach ($this->materialOutsAsMaterial()->with(['targetItem', 'user'])->get() as $mo) {
-            $dt = Carbon::parse($mo->date_time);
+        // 2. Material Out Trigger (-) — dikelompokkan per Lot agar Multi-Output tampil 1 baris sesuai pemotongan stok fisik
+        foreach ($this->materialOutsAsMaterial()->with(['targetItem', 'user'])->get()->groupBy('lot_number') as $lotNo => $moRows) {
+            $first = $moRows->first();
+            $dt = Carbon::parse($first->date_time);
+            $targets = $moRows->map(fn ($r) => $r->targetItem->part_name ?? '-')->unique()->values()->implode(', ');
+            $isCorrected = $moRows->contains('qty_check', 'DIKOREKSI');
             $events[] = [
                 'timestamp'    => $dt->timestamp,
                 'date'         => $dt->format('Y-m-d'),
                 'time'         => $dt->format('H:i'),
                 'datetime_fmt' => $dt->format('d M Y, H:i'),
                 'type_label'   => 'Material Out (Trigger)',
-                'reference'    => 'Lot: ' . $mo->lot_number . ' → ' . ($mo->targetItem->part_name ?? '-'),
-                'user_name'    => $mo->user->name ?? 'Operator',
-                'qty_change'   => -(float) $mo->qty,
+                'reference'    => 'Lot: ' . $lotNo . ' → ' . $targets,
+                'user_name'    => $first->user->name ?? 'Operator',
+                'qty_change'   => -(float) $first->qty,
                 'uom'          => $this->uom,
-                'status'       => $mo->qty_check,
+                'status'       => $isCorrected ? 'DIKOREKSI' : 'TERCATAT',
             ];
         }
 
-        // 3. Material Return Trigger (+)
-        foreach ($this->materialReturnsAsMaterial()->with(['targetItem', 'user'])->get() as $mr) {
-            $dt = Carbon::parse($mr->date_time);
+        // 3. Material Return Trigger (+) — dikelompokkan per Lot agar Multi-Output tampil 1 baris sesuai penambahan stok fisik
+        foreach ($this->materialReturnsAsMaterial()->with(['targetItem', 'user'])->get()->groupBy('lot_number') as $lotNo => $mrRows) {
+            $first = $mrRows->first();
+            $dt = Carbon::parse($first->date_time);
+            $targets = $mrRows->map(fn ($r) => $r->targetItem->part_name ?? '-')->unique()->values()->implode(', ');
+            $isCorrected = $mrRows->contains('qty_check', 'DIKOREKSI');
             $events[] = [
                 'timestamp'    => $dt->timestamp,
                 'date'         => $dt->format('Y-m-d'),
                 'time'         => $dt->format('H:i'),
                 'datetime_fmt' => $dt->format('d M Y, H:i'),
                 'type_label'   => 'Material Return (Trigger)',
-                'reference'    => 'Lot: ' . $mr->lot_number . ' → ' . ($mr->targetItem->part_name ?? '-'),
-                'user_name'    => $mr->user->name ?? 'Operator',
-                'qty_change'   => +(float) $mr->qty,
+                'reference'    => 'Lot: ' . $lotNo . ' → ' . $targets,
+                'user_name'    => $first->user->name ?? 'Operator',
+                'qty_change'   => +(float) $first->qty,
                 'uom'          => $this->uom,
-                'status'       => $mr->qty_check,
+                'status'       => $isCorrected ? 'DIKOREKSI' : 'TERCATAT',
             ];
         }
 
-        // 4. Material Out & Return Pendamping
+        // 4. Material Out & Return Pendamping — dikelompokkan per Lot & disaring berdasarkan bom_group
         $companionBoms = Bom::with('outputItem')
             ->where('input_item_id', $this->id)
             ->where('is_trigger', false)
             ->get();
 
         if ($companionBoms->isNotEmpty()) {
+            $compMoByLot = [];
+            $compMrByLot = [];
+
             foreach ($companionBoms as $cb) {
                 $triggerQuery = Bom::where('process_id', $cb->process_id)
                     ->where('output_item_id', $cb->output_item_id)
@@ -326,6 +335,12 @@ class Item extends Model
                 $relatedMos = MaterialOut::with('user')
                     ->where('material_item_id', $triggerBom->input_item_id)
                     ->where('target_item_id', $cb->output_item_id)
+                    ->when($cb->bom_group, function ($q) use ($cb) {
+                        $q->where(function ($sub) use ($cb) {
+                            $sub->where('bom_group', $cb->bom_group)
+                                ->orWhereNull('bom_group');
+                        });
+                    })
                     ->get();
 
                 foreach ($relatedMos as $mo) {
@@ -337,24 +352,43 @@ class Item extends Model
                     if ($deducted <= 0) {
                         continue;
                     }
-                    $dt = Carbon::parse($mo->date_time);
-                    $events[] = [
-                        'timestamp'    => $dt->timestamp,
-                        'date'         => $dt->format('Y-m-d'),
-                        'time'         => $dt->format('H:i'),
-                        'datetime_fmt' => $dt->format('d M Y, H:i'),
-                        'type_label'   => 'Material Out (Pendamping)',
-                        'reference'    => 'Lot: ' . $mo->lot_number . ' → ' . ($cb->outputItem->part_name ?? '-'),
-                        'user_name'    => $mo->user->name ?? 'Operator',
-                        'qty_change'   => -$deducted,
-                        'uom'          => $this->uom,
-                        'status'       => $mo->qty_check,
-                    ];
+                    $lotKey = $mo->lot_number;
+                    $tgtName = $cb->outputItem->part_name ?? '-';
+                    $isCorrected = $mo->qty_check === 'DIKOREKSI';
+                    if (!isset($compMoByLot[$lotKey])) {
+                        $dt = Carbon::parse($mo->date_time);
+                        $compMoByLot[$lotKey] = [
+                            'timestamp'    => $dt->timestamp,
+                            'date'         => $dt->format('Y-m-d'),
+                            'time'         => $dt->format('H:i'),
+                            'datetime_fmt' => $dt->format('d M Y, H:i'),
+                            'type_label'   => 'Material Out (Pendamping)',
+                            'targets'      => [$tgtName],
+                            'user_name'    => $mo->user->name ?? 'Operator',
+                            'qty_change'   => -$deducted,
+                            'uom'          => $this->uom,
+                            'status'       => $isCorrected ? 'DIKOREKSI' : 'TERCATAT',
+                        ];
+                    } else {
+                        $compMoByLot[$lotKey]['qty_change'] = round($compMoByLot[$lotKey]['qty_change'] - $deducted, 2);
+                        if (!in_array($tgtName, $compMoByLot[$lotKey]['targets'], true)) {
+                            $compMoByLot[$lotKey]['targets'][] = $tgtName;
+                        }
+                        if ($isCorrected) {
+                            $compMoByLot[$lotKey]['status'] = 'DIKOREKSI';
+                        }
+                    }
                 }
 
                 $relatedMrs = MaterialReturn::with('user')
                     ->where('material_item_id', $triggerBom->input_item_id)
                     ->where('target_item_id', $cb->output_item_id)
+                    ->when($cb->bom_group, function ($q) use ($cb) {
+                        $q->where(function ($sub) use ($cb) {
+                            $sub->where('bom_group', $cb->bom_group)
+                                ->orWhereNull('bom_group');
+                        });
+                    })
                     ->get();
 
                 foreach ($relatedMrs as $mr) {
@@ -366,20 +400,44 @@ class Item extends Model
                     if ($restored <= 0) {
                         continue;
                     }
-                    $dt = Carbon::parse($mr->date_time);
-                    $events[] = [
-                        'timestamp'    => $dt->timestamp,
-                        'date'         => $dt->format('Y-m-d'),
-                        'time'         => $dt->format('H:i'),
-                        'datetime_fmt' => $dt->format('d M Y, H:i'),
-                        'type_label'   => 'Material Return (Pendamping)',
-                        'reference'    => 'Lot: ' . $mr->lot_number . ' → ' . ($cb->outputItem->part_name ?? '-'),
-                        'user_name'    => $mr->user->name ?? 'Operator',
-                        'qty_change'   => +$restored,
-                        'uom'          => $this->uom,
-                        'status'       => $mr->qty_check,
-                    ];
+                    $lotKey = $mr->lot_number;
+                    $tgtName = $cb->outputItem->part_name ?? '-';
+                    $isCorrected = $mr->qty_check === 'DIKOREKSI';
+                    if (!isset($compMrByLot[$lotKey])) {
+                        $dt = Carbon::parse($mr->date_time);
+                        $compMrByLot[$lotKey] = [
+                            'timestamp'    => $dt->timestamp,
+                            'date'         => $dt->format('Y-m-d'),
+                            'time'         => $dt->format('H:i'),
+                            'datetime_fmt' => $dt->format('d M Y, H:i'),
+                            'type_label'   => 'Material Return (Pendamping)',
+                            'targets'      => [$tgtName],
+                            'user_name'    => $mr->user->name ?? 'Operator',
+                            'qty_change'   => +$restored,
+                            'uom'          => $this->uom,
+                            'status'       => $isCorrected ? 'DIKOREKSI' : 'TERCATAT',
+                        ];
+                    } else {
+                        $compMrByLot[$lotKey]['qty_change'] = round($compMrByLot[$lotKey]['qty_change'] + $restored, 2);
+                        if (!in_array($tgtName, $compMrByLot[$lotKey]['targets'], true)) {
+                            $compMrByLot[$lotKey]['targets'][] = $tgtName;
+                        }
+                        if ($isCorrected) {
+                            $compMrByLot[$lotKey]['status'] = 'DIKOREKSI';
+                        }
+                    }
                 }
+            }
+
+            foreach ($compMoByLot as $lotKey => $ev) {
+                $ev['reference'] = 'Lot: ' . $lotKey . ' → ' . implode(', ', $ev['targets']);
+                unset($ev['targets']);
+                $events[] = $ev;
+            }
+            foreach ($compMrByLot as $lotKey => $ev) {
+                $ev['reference'] = 'Lot: ' . $lotKey . ' → ' . implode(', ', $ev['targets']);
+                unset($ev['targets']);
+                $events[] = $ev;
             }
         }
 
@@ -396,7 +454,7 @@ class Item extends Model
                 'user_name'    => $prod->user->name ?? 'Operator',
                 'qty_change'   => +(float) $prod->qty,
                 'uom'          => $this->uom,
-                'status'       => $prod->qty_check,
+                'status'       => $prod->qty_check === 'DIKOREKSI' ? 'DIKOREKSI' : 'TERCATAT',
             ];
         }
 
@@ -430,7 +488,7 @@ class Item extends Model
                 'user_name'    => $del->user->name ?? 'Operator',
                 'qty_change'   => -(float) $del->qty,
                 'uom'          => $this->uom,
-                'status'       => $del->qty_check,
+                'status'       => $del->qty_check === 'DIKOREKSI' ? 'DIKOREKSI' : 'TERCATAT',
             ];
         }
 
@@ -447,7 +505,7 @@ class Item extends Model
                 'user_name'    => $ret->user->name ?? 'Operator',
                 'qty_change'   => -(float) $ret->qty,
                 'uom'          => $this->uom,
-                'status'       => $ret->qty_check,
+                'status'       => $ret->qty_check === 'DIKOREKSI' ? 'DIKOREKSI' : 'TERCATAT',
             ];
         }
 

@@ -13,27 +13,44 @@ use Illuminate\Support\Facades\DB;
 
 class MaterialReturnController extends Controller
 {
-    private function resolveBomMeta(int $materialItemId, int $targetItemId, $allBoms): array
+    private function resolveBomMeta(int $materialItemId, int $targetItemId, $allBoms, ?string $bomGroup = null): array
     {
-        $triggerBom = $allBoms->first(function ($b) use ($materialItemId, $targetItemId) {
-            return (int) $b->input_item_id === $materialItemId
-                && (int) $b->output_item_id === $targetItemId
-                && (bool) $b->is_trigger === true;
-        }) ?? $allBoms->first(function ($b) use ($materialItemId, $targetItemId) {
-            return (int) $b->input_item_id === $materialItemId
-                && (int) $b->output_item_id === $targetItemId;
-        });
+        $triggerBom = null;
+
+        if (!empty($bomGroup)) {
+            $triggerBom = $allBoms->first(function ($b) use ($materialItemId, $targetItemId, $bomGroup) {
+                return (string) $b->bom_group === $bomGroup
+                    && (int) $b->input_item_id === $materialItemId
+                    && (int) $b->output_item_id === $targetItemId
+                    && (bool) $b->is_trigger === true;
+            }) ?? $allBoms->first(function ($b) use ($materialItemId, $targetItemId, $bomGroup) {
+                return (string) $b->bom_group === $bomGroup
+                    && (int) $b->input_item_id === $materialItemId
+                    && (int) $b->output_item_id === $targetItemId;
+            });
+        }
+
+        if (!$triggerBom) {
+            $triggerBom = $allBoms->first(function ($b) use ($materialItemId, $targetItemId) {
+                return (int) $b->input_item_id === $materialItemId
+                    && (int) $b->output_item_id === $targetItemId
+                    && (bool) $b->is_trigger === true;
+            }) ?? $allBoms->first(function ($b) use ($materialItemId, $targetItemId) {
+                return (int) $b->input_item_id === $materialItemId
+                    && (int) $b->output_item_id === $targetItemId;
+            });
+        }
 
         if (!$triggerBom) {
             return [
                 'bom_type'   => 'SINGLE',
-                'bom_group'  => null,
+                'bom_group'  => $bomGroup,
                 'qty_usage'  => 1,
                 'companions' => collect(),
             ];
         }
 
-        $groupKey = $triggerBom->bom_group;
+        $groupKey = $bomGroup ?: $triggerBom->bom_group;
         if (!empty($groupKey)) {
             $groupRows = $allBoms->where('bom_group', $groupKey);
         } else {
@@ -96,7 +113,7 @@ class MaterialReturnController extends Controller
             ->get();
 
         foreach ($materialReturns as $row) {
-            $meta = $this->resolveBomMeta((int) $row->material_item_id, (int) $row->target_item_id, $allBoms);
+            $meta = $this->resolveBomMeta((int) $row->material_item_id, (int) $row->target_item_id, $allBoms, $row->bom_group);
             $row->bom_type = $meta['bom_type'];
             $estRet = $meta['qty_usage'] > 0 ? ((float) $row->qty / $meta['qty_usage']) : 0;
 
@@ -150,6 +167,8 @@ class MaterialReturnController extends Controller
                 $outputs->pluck('part_name')->implode(' ')
             );
 
+            $isCorrected = $rows->contains('qty_check', 'DIKOREKSI');
+
             return [
                 'lot_number'   => $lotNo,
                 'bom_type'     => $bomType,
@@ -158,7 +177,7 @@ class MaterialReturnController extends Controller
                 'qty_trigger'  => (float) $first->qty,
                 'companions'   => array_values($companionsMerged),
                 'outputs'      => $outputs,
-                'status_label' => $first->qty_check === 'TIDAK SESUAI' ? 'DIKOREKSI' : 'TERCATAT',
+                'status_label' => $isCorrected ? 'DIKOREKSI' : 'TERCATAT',
                 'search_index' => $searchStr,
                 'date_only'    => \Carbon\Carbon::parse($first->date_time)->format('Y-m-d'),
                 'time_only'    => \Carbon\Carbon::parse($first->date_time)->format('H:i'),
@@ -216,7 +235,7 @@ class MaterialReturnController extends Controller
             $matStock->refresh()->updateDynamicStatus();
 
             foreach ($lotRows as $lot) {
-                $meta = $this->resolveBomMeta((int) $lot->material_item_id, (int) $lot->target_item_id, $allBoms);
+                $meta = $this->resolveBomMeta((int) $lot->material_item_id, (int) $lot->target_item_id, $allBoms, $lot->bom_group);
                 $estReturnedTarget = $meta['qty_usage'] > 0 ? ($qtyReturn / $meta['qty_usage']) : 0;
 
                 foreach ($meta['companions'] as $compBom) {
@@ -234,13 +253,15 @@ class MaterialReturnController extends Controller
                     'material_item_id' => $lot->material_item_id,
                     'target_item_id'   => $lot->target_item_id,
                     'lot_number'       => $lot->lot_number,
+                    'bom_group'        => $lot->bom_group ?: $meta['bom_group'],
                     'qty'              => $qtyReturn,
-                    'qty_check'        => 'SESUAI',
+                    'qty_check'        => 'TERCATAT',
                 ]);
 
                 $newNetMat = max(0, (float) $lot->qty_material_out - $qtyReturn);
-                $newEst = $meta['qty_usage'] > 0 ? round($newNetMat / $meta['qty_usage'], 2) : 0;
-                $newWip = $lot->status_lot === 'FINISH' ? 0 : max(0, $newEst - (float) $lot->actual_qty_prod);
+                $rawEst = $meta['qty_usage'] > 0 ? ($newNetMat / $meta['qty_usage']) : 0;
+                $newEst = abs($rawEst - round($rawEst)) < 0.001 ? round($rawEst) : round($rawEst, 2);
+                $newWip = $lot->status_lot === 'FINISH' ? 0 : round(max(0, $newEst - (float) $lot->actual_qty_prod), 2);
 
                 $lot->update([
                     'qty_material_return' => $qtyReturn,
@@ -269,13 +290,13 @@ class MaterialReturnController extends Controller
             DB::transaction(function () use ($items, $allBoms) {
                 foreach ($items as $id => $data) {
                     $status = $data['qty_check'] ?? null;
-                    if (!$status || $status === 'PENDING') {
+                    if (!$status) {
                         continue;
                     }
 
                     $matRet = MaterialReturn::findOrFail($id);
 
-                    if ($status === 'TIDAK SESUAI') {
+                    if ($status === 'DIKOREKSI') {
                         $newQty = BomController::evaluateMath($data['actual_qty'] ?? 0);
                         if ($newQty <= 0) {
                             throw new \Exception('Qty koreksi harus lebih dari 0.');
@@ -289,7 +310,7 @@ class MaterialReturnController extends Controller
                             ->get();
 
                         foreach ($lotRows as $lt) {
-                            $meta = $this->resolveBomMeta((int) $lt->material_item_id, (int) $lt->target_item_id, $allBoms);
+                            $meta = $this->resolveBomMeta((int) $lt->material_item_id, (int) $lt->target_item_id, $allBoms, $lt->bom_group);
                             $usedByProd = (float) $lt->actual_qty_prod * $meta['qty_usage'];
                             $maxAllowed = max(0, (float) $lt->qty_material_out - $usedByProd);
                             if ($newQty > $maxAllowed) {
@@ -297,18 +318,18 @@ class MaterialReturnController extends Controller
                             }
                         }
 
+                        $siblingRets = MaterialReturn::where('lot_number', $matRet->lot_number)
+                            ->where('material_item_id', $matRet->material_item_id)
+                            ->get();
+
                         if ($diffTrigger != 0) {
                             $matStock = InventoryStock::firstOrCreate(['item_id' => $matRet->material_item_id], ['current_stock' => 0]);
                             if ($diffTrigger < 0 && (float) $matStock->current_stock < abs($diffTrigger)) {
                                 throw new \Exception('Stok gudang tidak cukup untuk koreksi return.');
                             }
 
-                            $siblingRets = MaterialReturn::where('lot_number', $matRet->lot_number)
-                                ->where('material_item_id', $matRet->material_item_id)
-                                ->get();
-
                             foreach ($siblingRets as $sib) {
-                                $meta = $this->resolveBomMeta((int) $sib->material_item_id, (int) $sib->target_item_id, $allBoms);
+                                $meta = $this->resolveBomMeta((int) $sib->material_item_id, (int) $sib->target_item_id, $allBoms, $sib->bom_group);
                                 $oldEst = $meta['qty_usage'] > 0 ? ($oldQty / $meta['qty_usage']) : 0;
                                 $newEst = $meta['qty_usage'] > 0 ? ($newQty / $meta['qty_usage']) : 0;
 
@@ -326,7 +347,7 @@ class MaterialReturnController extends Controller
 
                                 $sib->update([
                                     'qty'       => $newQty,
-                                    'qty_check' => 'TIDAK SESUAI',
+                                    'qty_check' => 'DIKOREKSI',
                                 ]);
 
                                 $lot = LotTracer::where('lot_number', $sib->lot_number)
@@ -335,8 +356,9 @@ class MaterialReturnController extends Controller
 
                                 if ($lot) {
                                     $netMat = max(0, (float) $lot->qty_material_out - $newQty);
-                                    $estTarget = $meta['qty_usage'] > 0 ? round($netMat / $meta['qty_usage'], 2) : 0;
-                                    $wip = $lot->status_lot === 'FINISH' ? 0 : max(0, $estTarget - (float) $lot->actual_qty_prod);
+                                    $rawEst = $meta['qty_usage'] > 0 ? ($netMat / $meta['qty_usage']) : 0;
+                                    $estTarget = abs($rawEst - round($rawEst)) < 0.001 ? round($rawEst) : round($rawEst, 2);
+                                    $wip = $lot->status_lot === 'FINISH' ? 0 : round(max(0, $estTarget - (float) $lot->actual_qty_prod), 2);
 
                                     $lot->update([
                                         'qty_material_return' => $newQty,
@@ -349,10 +371,12 @@ class MaterialReturnController extends Controller
                             $matStock->increment('current_stock', $diffTrigger);
                             $matStock->refresh()->updateDynamicStatus();
                         } else {
-                            $matRet->update(['qty_check' => 'TIDAK SESUAI']);
+                            foreach ($siblingRets as $sib) {
+                                $sib->update(['qty_check' => 'DIKOREKSI']);
+                            }
                         }
                     } else {
-                        $matRet->update(['qty_check' => 'SESUAI']);
+                        $matRet->update(['qty_check' => 'TERCATAT']);
                     }
                 }
             });

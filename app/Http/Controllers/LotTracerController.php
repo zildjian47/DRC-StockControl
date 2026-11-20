@@ -21,25 +21,30 @@ class LotTracerController extends Controller
 
         $groupedLots = $lotTracers->groupBy('lot_number')->map(function ($rows, $lotNo) use ($allBoms) {
             $first = $rows->first();
+            $groupKey = $first->bom_group;
 
-            $triggerBom = $allBoms->first(function ($b) use ($first) {
-                return (int) $b->process_id === (int) $first->process_id
-                    && (int) $b->input_item_id === (int) $first->material_item_id
-                    && (int) $b->output_item_id === (int) $first->target_item_id
-                    && (bool) $b->is_trigger === true;
-            }) ?? $allBoms->first(function ($b) use ($first) {
-                return (int) $b->input_item_id === (int) $first->material_item_id
-                    && (int) $b->output_item_id === (int) $first->target_item_id;
-            });
-
-            $groupKey = $triggerBom->bom_group ?? null;
             if (!empty($groupKey)) {
                 $groupBoms = $allBoms->where('bom_group', $groupKey);
-            } elseif ($triggerBom) {
-                $groupBoms = $allBoms->where('process_id', $triggerBom->process_id)
-                                     ->where('output_item_id', $triggerBom->output_item_id);
             } else {
-                $groupBoms = collect();
+                $triggerBom = $allBoms->first(function ($b) use ($first) {
+                    return (int) $b->process_id === (int) $first->process_id
+                        && (int) $b->input_item_id === (int) $first->material_item_id
+                        && (int) $b->output_item_id === (int) $first->target_item_id
+                        && (bool) $b->is_trigger === true;
+                }) ?? $allBoms->first(function ($b) use ($first) {
+                    return (int) $b->input_item_id === (int) $first->material_item_id
+                        && (int) $b->output_item_id === (int) $first->target_item_id;
+                });
+
+                $groupKey = $triggerBom->bom_group ?? null;
+                if (!empty($groupKey)) {
+                    $groupBoms = $allBoms->where('bom_group', $groupKey);
+                } elseif ($triggerBom) {
+                    $groupBoms = $allBoms->where('process_id', $triggerBom->process_id)
+                                         ->where('output_item_id', $triggerBom->output_item_id);
+                } else {
+                    $groupBoms = collect();
+                }
             }
 
             $uIn = $groupBoms->pluck('input_item_id')->unique()->count();

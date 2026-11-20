@@ -11,6 +11,7 @@ class LotTracer extends Model
 
     protected $fillable = [
         'lot_number',
+        'bom_group',
         'process_id',
         'material_item_id',
         'target_item_id',
@@ -54,6 +55,17 @@ class LotTracer extends Model
 
     public function resolveTriggerBom(): ?Bom
     {
+        if (!empty($this->bom_group)) {
+            $byGroup = Bom::where('bom_group', $this->bom_group)
+                ->where('output_item_id', $this->target_item_id)
+                ->where('input_item_id', $this->material_item_id)
+                ->where('is_trigger', true)
+                ->first();
+            if ($byGroup) {
+                return $byGroup;
+            }
+        }
+
         return Bom::where('process_id', $this->process_id)
             ->where('output_item_id', $this->target_item_id)
             ->where('input_item_id', $this->material_item_id)
@@ -144,11 +156,12 @@ class LotTracer extends Model
                 continue;
             }
 
+            $groupKey = $row->bom_group ?: $tb->bom_group;
             $compBoms = Bom::with('inputItem')
                 ->where('process_id', $row->process_id)
                 ->where('output_item_id', $row->target_item_id)
                 ->where('is_trigger', false)
-                ->when($tb->bom_group, fn($q) => $q->where('bom_group', $tb->bom_group))
+                ->when($groupKey, fn($q) => $q->where('bom_group', $groupKey))
                 ->get();
 
             $estInit = (float) $row->qty_material_out / (float) $tb->qty_usage;

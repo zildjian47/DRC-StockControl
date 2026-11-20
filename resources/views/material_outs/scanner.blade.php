@@ -5,21 +5,28 @@
         $allScansData = \App\Models\MaterialOut::with(['materialItem', 'targetItem', 'user'])
             ->orderBy('date_time', 'desc')
             ->orderBy('id', 'desc')
-            ->limit(300)
+            ->limit(500)
             ->get()
-            ->map(function ($s) {
+            ->groupBy('lot_number')
+            ->map(function ($rows, $lotNo) {
+                $s = $rows->first();
                 $dt = \Carbon\Carbon::parse($s->date_time);
+                $targets = $rows->map(function ($r) {
+                    $no = $r->targetItem->part_no ?? '';
+                    $nm = $r->targetItem->part_name ?? '-';
+                    return $no ? "{$no} — {$nm}" : $nm;
+                })->unique()->values()->implode(', ');
+
                 return [
                     'id'         => $s->id,
                     'date'       => $dt->format('Y-m-d'),
                     'time'       => $dt->format('H:i'),
                     'date_fmt'   => $dt->format('d M Y, H:i'),
-                    'lot_number' => $s->lot_number,
+                    'lot_number' => $lotNo,
                     'mat_no'     => $s->materialItem->part_no ?: '-',
                     'mat_name'   => $s->materialItem->part_name ?? '-',
                     'mat_uom'    => $s->materialItem->uom ?? '',
-                    'tgt_no'     => $s->targetItem->part_no ?: '-',
-                    'tgt_name'   => $s->targetItem->part_name ?? '-',
+                    'targets'    => $targets,
                     'qty'        => (float) $s->qty,
                     'user_name'  => $s->user->name ?? 'Operator',
                 ];
@@ -37,15 +44,16 @@
         ])->values();
 
         $bomsPayload = $allBoms->map(fn ($b) => [
-            'id'             => $b->id,
-            'bom_group'      => $b->bom_group ?: ('LEGACY-' . $b->process_id . '-' . $b->output_item_id),
-            'group_type'     => $b->group_type,
-            'process_id'     => $b->process_id,
-            'process_name'   => $b->process->process_name ?? '-',
-            'input_item_id'  => $b->input_item_id,
-            'output_item_id' => $b->output_item_id,
-            'qty_usage'      => (float) $b->qty_usage,
-            'is_trigger'     => (bool) $b->is_trigger,
+            'id'                => $b->id,
+            'bom_group'         => $b->bom_group ?: ('LEGACY-' . $b->process_id . '-' . $b->output_item_id),
+            'group_type'        => $b->group_type,
+            'process_id'        => $b->process_id,
+            'process_name'      => $b->process->process_name ?? '-',
+            'input_item_id'     => $b->input_item_id,
+            'output_item_id'    => $b->output_item_id,
+            'qty_usage'         => (float) $b->qty_usage,
+            'qty_usage_display' => $b->formatted_qty_usage,
+            'is_trigger'        => (bool) $b->is_trigger,
         ])->values();
     @endphp
 
@@ -66,13 +74,6 @@
                 <span class="scan-step-num">3</span>
                 <span class="truncate">Lot &amp; Qty</span>
             </div>
-        </div>
-
-        {{-- NOTIFIKASI ERROR VALIDASI SCANNER --}}
-        <div x-show="errorMsg" x-cloak class="alert alert-crit mb-3" role="alert">
-            <x-icon name="alert" />
-            <span class="flex-1 min-w-0" x-text="errorMsg"></span>
-            <button type="button" @click="errorMsg = ''" class="act-btn flex-none -my-1 -mr-1"><x-icon name="x" /></button>
         </div>
 
         {{-- KARTU UTAMA SCANNER --}}
@@ -181,7 +182,7 @@
                                     <div class="min-w-0 flex-1">
                                         <div class="num text-xs font-bold text-accent" x-text="out.part_no || '-'"></div>
                                         <div class="text-xs font-semibold text-slate-900 break-words" x-text="out.part_name"></div>
-                                        <div class="text-[11px] text-slate-500 mt-0.5 num" x-text="'Rasio: ' + out.qty_usage + ' ' + (materialItem?.uom || '') + ' / 1 ' + out.uom"></div>
+                                        <div class="text-[11px] text-slate-500 mt-0.5 num" x-text="'Rasio: ' + out.qty_usage_display + ' ' + (materialItem?.uom || '') + ' / 1 ' + out.uom"></div>
                                     </div>
                                     <div class="text-right whitespace-nowrap flex-none">
                                         <span class="pill pill-info num" x-text="'EST: ' + out.est_qty + ' ' + out.uom"></span>
@@ -224,11 +225,6 @@
                         <input type="hidden" name="material_item_id" :value="materialItem?.id">
                         <input type="hidden" name="target_item_id" :value="targetItem?.id">
                         <input type="hidden" name="bom_group" :value="selectedBomGroup">
-
-                        <div x-show="formError" x-cloak class="alert alert-crit text-xs" role="alert">
-                            <x-icon name="alert" />
-                            <span class="flex-1 min-w-0" x-text="formError"></span>
-                        </div>
 
                         <div>
                             <label class="lbl">Nomor Lot</label>
@@ -295,7 +291,7 @@
                 </button>
             </div>
             <div class="divide-y divide-slate-200 max-h-80 overflow-y-auto">
-                <template x-for="s in filteredHistory" :key="s.id">
+                <template x-for="s in filteredHistory" :key="s.lot_number">
                     <div class="p-3 flex items-center justify-between gap-3 text-xs bg-white hover:bg-slate-50">
                         <div class="min-w-0 flex-1">
                             <div class="flex items-center gap-1.5 flex-wrap">
@@ -304,7 +300,7 @@
                                 <span class="text-[11px] text-slate-500" x-text="'· ' + s.user_name"></span>
                             </div>
                             <div class="font-semibold text-slate-900 mt-1 break-words" x-text="(s.mat_no !== '-' ? s.mat_no + ' — ' : '') + s.mat_name"></div>
-                            <div class="text-[11px] text-slate-500 break-words" x-text="'Target: ' + (s.tgt_no !== '-' ? s.tgt_no + ' — ' : '') + s.tgt_name"></div>
+                            <div class="text-[11px] text-slate-500 break-words" x-text="'Target: ' + s.targets"></div>
                         </div>
                         <div class="text-right whitespace-nowrap flex-none">
                             <span class="num text-sm font-bold text-rose-700" x-text="'-' + s.qty + ' ' + s.mat_uom"></span>
@@ -324,8 +320,8 @@
                 step: 1,
                 cameraActive: false,
                 manualCode: '',
-                errorMsg: '',
-                formError: '',
+                lastCamCode: '',
+                lastCamAt: 0,
                 items: items,
                 boms: boms,
                 existingLots: existingLots,
@@ -344,21 +340,26 @@
                 tyClass(t) {
                     return 'ty-' + (t === 'FG/KOMPONEN' ? 'FGK' : (t || 'RM'));
                 },
+                notifyError(msg) {
+                    if (window.DRCToast) window.DRCToast.show(msg, 'crit');
+                },
+                clearToast() {
+                    if (window.DRCToast) window.DRCToast.hide();
+                },
                 initScanner() {
                     if (window.DRCScanner && window.DRCScanner.isPermitted()) {
                         this.activateCamera();
                     }
                 },
                 async activateCamera() {
-                    this.errorMsg = '';
                     this.cameraActive = true;
                     await this.$nextTick();
                     const ok = await window.DRCScanner.start(
                         'qr-reader',
-                        (decoded) => this.handleScan(decoded),
+                        (decoded) => this.handleScan(decoded, true),
                         (err) => {
                             this.cameraActive = false;
-                            this.errorMsg = err;
+                            this.notifyError(err);
                         }
                     );
                     if (!ok) this.cameraActive = false;
@@ -368,35 +369,46 @@
                     if (!c) return null;
                     return this.items.find(i => i.part_no === c || i.part_name === c) || null;
                 },
-                handleScan(rawCode) {
-                    this.errorMsg = '';
-                    this.formError = '';
-                    const found = this.findItem(rawCode);
+                handleScan(rawCode, fromCamera = false) {
+                    const c = String(rawCode || '').trim().toUpperCase();
+                    if (!c) return;
+                    if (fromCamera) {
+                        const now = Date.now();
+                        if (this.lastCamCode === c && (now - this.lastCamAt) < 900) return;
+                        this.lastCamCode = c;
+                        this.lastCamAt = now;
+                    }
+                    const found = this.findItem(c);
                     if (!found) {
-                        this.errorMsg = `Kode "${rawCode}" tidak ditemukan.`;
+                        this.notifyError(`Kode "${rawCode}" tidak ditemukan.`);
                         return;
                     }
 
                     if (this.step === 1) {
                         if (!['RM', 'KOMPONEN', 'FG/KOMPONEN'].includes(found.type) || !['SUPPLIER', 'INTERNAL'].includes(found.company_type)) {
-                            this.errorMsg = `${found.part_name} tidak sesuai sebagai Material Input.`;
+                            this.notifyError(`${found.part_name} tidak sesuai sebagai Material Input.`);
                             return;
                         }
                         const isTrig = this.boms.some(b => String(b.input_item_id) === String(found.id) && b.is_trigger);
                         if (!isTrig) {
-                            this.errorMsg = `${found.part_name} belum terdaftar sebagai Trigger di BOM.`;
+                            this.notifyError(`${found.part_name} belum terdaftar sebagai Trigger di BOM.`);
                             return;
                         }
                         if (found.stock <= 0) {
-                            this.errorMsg = `Stok ${found.part_name} kosong (0 ${found.uom}).`;
+                            this.notifyError(`Stok ${found.part_name} kosong (0 ${found.uom}).`);
                             return;
                         }
+                        this.clearToast();
                         this.materialItem = found;
                         this.manualCode = '';
+                        if (fromCamera) {
+                            this.lastCamCode = c;
+                            this.lastCamAt = Date.now() + 600;
+                        }
                         this.step = 2;
                     } else if (this.step === 2) {
                         if (!['FG', 'KOMPONEN', 'FG/KOMPONEN'].includes(found.type) || !['INTERNAL', 'CUSTOMER'].includes(found.company_type)) {
-                            this.errorMsg = `${found.part_name} tidak sesuai sebagai Target Output.`;
+                            this.notifyError(`${found.part_name} tidak sesuai sebagai Target Output.`);
                             return;
                         }
                         const matchedTriggers = this.boms.filter(b =>
@@ -405,10 +417,11 @@
                             b.is_trigger
                         );
                         if (matchedTriggers.length === 0) {
-                            this.errorMsg = `Pasangan ${this.materialItem.part_name} → ${found.part_name} tidak ada di BOM.`;
+                            this.notifyError(`Pasangan ${this.materialItem.part_name} → ${found.part_name} tidak ada di BOM.`);
                             return;
                         }
 
+                        this.clearToast();
                         this.targetItem = found;
                         this.candidateGroups = matchedTriggers.map(mt => {
                             const grpRows = this.boms.filter(b => b.bom_group === mt.bom_group && b.is_trigger);
@@ -425,6 +438,8 @@
                         });
                         this.selectedBomGroup = this.candidateGroups[0].bom_group;
                         this.manualCode = '';
+                        this.lastCamCode = '';
+                        this.lastCamAt = 0;
                         this.step = 3;
                         window.DRCScanner.stop();
                         this.cameraActive = false;
@@ -470,6 +485,7 @@
                             part_name: outIt?.part_name || '-',
                             uom: outIt?.uom || 'PCS',
                             qty_usage: r.qty_usage,
+                            qty_usage_display: r.qty_usage_display || r.qty_usage,
                             est_qty: est
                         };
                     });
@@ -511,45 +527,44 @@
                     return this.existingLots.includes(this.lotNumber.toUpperCase());
                 },
                 submitForm(formEl) {
-                    this.formError = '';
                     if (!this.materialItem || !this.targetItem) {
-                        this.formError = 'Scan Material dan Target Output terlebih dahulu.';
+                        this.notifyError('Scan Material dan Target Output terlebih dahulu.');
                         return;
                     }
                     const lot = String(this.lotNumber || '').trim().toUpperCase();
                     this.lotNumber = lot;
                     if (!lot) {
-                        this.formError = 'Nomor Lot wajib diisi.';
+                        this.notifyError('Nomor Lot wajib diisi.');
                         return;
                     }
                     if (!this.isValidLotFormat) {
-                        this.formError = 'Format Lot wajib 1 huruf kapital + 6 angka (contoh: J260178).';
+                        this.notifyError('Format Lot wajib 1 huruf kapital + 6 angka (contoh: J260178).');
                         return;
                     }
                     if (this.isLotDuplicate) {
-                        this.formError = `Nomor Lot ${lot} sudah terdaftar.`;
+                        this.notifyError(`Nomor Lot ${lot} sudah terdaftar.`);
                         return;
                     }
                     if (String(this.rawQty || '').trim() === '') {
-                        this.formError = 'Qty wajib diisi.';
+                        this.notifyError('Qty wajib diisi.');
                         return;
                     }
                     const val = this.evalCalc(this.rawQty);
                     if (val === null) {
-                        this.formError = 'Format perhitungan tidak valid.';
+                        this.notifyError('Format perhitungan tidak valid.');
                         return;
                     }
                     if (val <= 0) {
-                        this.formError = 'Qty harus lebih dari 0.';
+                        this.notifyError('Qty harus lebih dari 0.');
                         return;
                     }
                     if (val > (this.materialItem.stock || 0) + 0.0001) {
-                        this.formError = `Stok kurang. Tersedia: ${this.materialItem.stock} ${this.materialItem.uom}.`;
+                        this.notifyError(`Stok kurang. Tersedia: ${this.materialItem.stock} ${this.materialItem.uom}.`);
                         return;
                     }
                     const lacking = this.groupCompanions.find(c => c.needed > c.stock + 0.0001);
                     if (lacking) {
-                        this.formError = `Stok pendamping ${lacking.part_name} kurang (butuh ${lacking.needed}, tersedia ${lacking.stock} ${lacking.uom}).`;
+                        this.notifyError(`Stok pendamping ${lacking.part_name} kurang (butuh ${lacking.needed}, tersedia ${lacking.stock} ${lacking.uom}).`);
                         return;
                     }
                     formEl.submit();
@@ -559,7 +574,7 @@
                         if (this.histDate && s.date !== this.histDate) return false;
                         if (this.histSearch) {
                             const q = this.histSearch.toLowerCase();
-                            const hay = `${s.lot_number} ${s.mat_no} ${s.mat_name} ${s.tgt_no} ${s.tgt_name} ${s.qty} ${s.user_name}`.toLowerCase();
+                            const hay = `${s.lot_number} ${s.mat_no} ${s.mat_name} ${s.targets} ${s.qty} ${s.user_name}`.toLowerCase();
                             if (!hay.includes(q)) return false;
                         }
                         return true;
@@ -573,8 +588,9 @@
                     this.lotNumber = '';
                     this.rawQty = '';
                     this.manualCode = '';
-                    this.errorMsg = '';
-                    this.formError = '';
+                    this.lastCamCode = '';
+                    this.lastCamAt = 0;
+                    this.clearToast();
                     this.step = 1;
                     if (window.DRCScanner && window.DRCScanner.isPermitted()) {
                         this.activateCamera();

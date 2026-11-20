@@ -5,21 +5,28 @@
         $allScansData = \App\Models\MaterialReturn::with(['materialItem', 'targetItem', 'user'])
             ->orderBy('date_time', 'desc')
             ->orderBy('id', 'desc')
-            ->limit(300)
+            ->limit(500)
             ->get()
-            ->map(function ($s) {
+            ->groupBy('lot_number')
+            ->map(function ($rows, $lotNo) {
+                $s = $rows->first();
                 $dt = \Carbon\Carbon::parse($s->date_time);
+                $targets = $rows->map(function ($r) {
+                    $no = $r->targetItem->part_no ?? '';
+                    $nm = $r->targetItem->part_name ?? '-';
+                    return $no ? "{$no} — {$nm}" : $nm;
+                })->unique()->values()->implode(', ');
+
                 return [
                     'id'         => $s->id,
                     'date'       => $dt->format('Y-m-d'),
                     'time'       => $dt->format('H:i'),
                     'date_fmt'   => $dt->format('d M Y, H:i'),
-                    'lot_number' => $s->lot_number,
+                    'lot_number' => $lotNo,
                     'mat_no'     => $s->materialItem->part_no ?: '-',
                     'mat_name'   => $s->materialItem->part_name ?? '-',
                     'mat_uom'    => $s->materialItem->uom ?? '',
-                    'tgt_no'     => $s->targetItem->part_no ?: '-',
-                    'tgt_name'   => $s->targetItem->part_name ?? '-',
+                    'targets'    => $targets,
                     'qty'        => (float) $s->qty,
                     'user_name'  => $s->user->name ?? 'Operator',
                 ];
@@ -64,12 +71,6 @@
                 <span class="scan-step-num">3</span>
                 <span class="truncate">Lot &amp; Qty</span>
             </div>
-        </div>
-
-        <div x-show="errorMsg" x-cloak class="alert alert-crit mb-3" role="alert">
-            <x-icon name="alert" />
-            <span class="flex-1 min-w-0" x-text="errorMsg"></span>
-            <button type="button" @click="errorMsg = ''" class="act-btn flex-none -my-1 -mr-1"><x-icon name="x" /></button>
         </div>
 
         <div class="panel">
@@ -157,11 +158,6 @@
                         <input type="hidden" name="material_item_id" :value="materialItem?.id">
                         <input type="hidden" name="target_item_id" :value="targetItem?.id">
 
-                        <div x-show="formError" x-cloak class="alert alert-crit text-xs" role="alert">
-                            <x-icon name="alert" />
-                            <span class="flex-1 min-w-0" x-text="formError"></span>
-                        </div>
-
                         <div>
                             <label class="lbl">Nomor Lot Aktif</label>
                             <select name="lot_number" x-model="lotNumber" required class="w-full h-11 text-xs font-semibold">
@@ -235,7 +231,7 @@
                 </button>
             </div>
             <div class="divide-y divide-slate-200 max-h-80 overflow-y-auto">
-                <template x-for="s in filteredHistory" :key="s.id">
+                <template x-for="s in filteredHistory" :key="s.lot_number">
                     <div class="p-3 flex items-center justify-between gap-3 text-xs bg-white hover:bg-slate-50">
                         <div class="min-w-0 flex-1">
                             <div class="flex items-center gap-1.5 flex-wrap">
@@ -244,7 +240,7 @@
                                 <span class="text-[11px] text-slate-500" x-text="'· ' + s.user_name"></span>
                             </div>
                             <div class="font-semibold text-slate-900 mt-1 break-words" x-text="(s.mat_no !== '-' ? s.mat_no + ' — ' : '') + s.mat_name"></div>
-                            <div class="text-[11px] text-slate-500 break-words" x-text="'Target: ' + (s.tgt_no !== '-' ? s.tgt_no + ' — ' : '') + s.tgt_name"></div>
+                            <div class="text-[11px] text-slate-500 break-words" x-text="'Target: ' + s.targets"></div>
                         </div>
                         <div class="text-right whitespace-nowrap flex-none">
                             <span class="num text-sm font-bold text-emerald-700" x-text="'+' + s.qty + ' ' + s.mat_uom"></span>
@@ -264,8 +260,8 @@
                 step: 1,
                 cameraActive: false,
                 manualCode: '',
-                errorMsg: '',
-                formError: '',
+                lastCamCode: '',
+                lastCamAt: 0,
                 items: items,
                 activeLots: activeLots,
                 allScans: allScans,
@@ -281,21 +277,26 @@
                 tyClass(t) {
                     return 'ty-' + (t === 'FG/KOMPONEN' ? 'FGK' : (t || 'RM'));
                 },
+                notifyError(msg) {
+                    if (window.DRCToast) window.DRCToast.show(msg, 'crit');
+                },
+                clearToast() {
+                    if (window.DRCToast) window.DRCToast.hide();
+                },
                 initScanner() {
                     if (window.DRCScanner && window.DRCScanner.isPermitted()) {
                         this.activateCamera();
                     }
                 },
                 async activateCamera() {
-                    this.errorMsg = '';
                     this.cameraActive = true;
                     await this.$nextTick();
                     const ok = await window.DRCScanner.start(
                         'qr-reader',
-                        (decoded) => this.handleScan(decoded),
+                        (decoded) => this.handleScan(decoded, true),
                         (err) => {
                             this.cameraActive = false;
-                            this.errorMsg = err;
+                            this.notifyError(err);
                         }
                     );
                     if (!ok) this.cameraActive = false;
@@ -305,23 +306,34 @@
                     if (!c) return null;
                     return this.items.find(i => i.part_no === c || i.part_name === c) || null;
                 },
-                handleScan(rawCode) {
-                    this.errorMsg = '';
-                    this.formError = '';
-                    const found = this.findItem(rawCode);
+                handleScan(rawCode, fromCamera = false) {
+                    const c = String(rawCode || '').trim().toUpperCase();
+                    if (!c) return;
+                    if (fromCamera) {
+                        const now = Date.now();
+                        if (this.lastCamCode === c && (now - this.lastCamAt) < 900) return;
+                        this.lastCamCode = c;
+                        this.lastCamAt = now;
+                    }
+                    const found = this.findItem(c);
                     if (!found) {
-                        this.errorMsg = `Kode "${rawCode}" tidak ditemukan.`;
+                        this.notifyError(`Kode "${rawCode}" tidak ditemukan.`);
                         return;
                     }
 
                     if (this.step === 1) {
                         const hasLot = this.activeLots.some(l => String(l.material_item_id) === String(found.id));
                         if (!hasLot) {
-                            this.errorMsg = `${found.part_name} tidak memiliki Lot aktif untuk diretur.`;
+                            this.notifyError(`${found.part_name} tidak memiliki Lot aktif untuk diretur.`);
                             return;
                         }
+                        this.clearToast();
                         this.materialItem = found;
                         this.manualCode = '';
+                        if (fromCamera) {
+                            this.lastCamCode = c;
+                            this.lastCamAt = Date.now() + 600;
+                        }
                         this.step = 2;
                     } else if (this.step === 2) {
                         const matched = this.activeLots.filter(l =>
@@ -329,12 +341,15 @@
                             String(l.target_item_id) === String(found.id)
                         );
                         if (matched.length === 0) {
-                            this.errorMsg = `Tidak ada Lot aktif untuk ${this.materialItem.part_name} → ${found.part_name}.`;
+                            this.notifyError(`Tidak ada Lot aktif untuk ${this.materialItem.part_name} → ${found.part_name}.`);
                             return;
                         }
+                        this.clearToast();
                         this.targetItem = found;
                         this.lotNumber = matched.length === 1 ? matched[0].lot_number : '';
                         this.manualCode = '';
+                        this.lastCamCode = '';
+                        this.lastCamAt = 0;
                         this.step = 3;
                         window.DRCScanner.stop();
                         this.cameraActive = false;
@@ -370,30 +385,29 @@
                     return (r !== null && r > 0) ? r : 0;
                 },
                 submitForm(formEl) {
-                    this.formError = '';
                     if (!this.materialItem || !this.targetItem) {
-                        this.formError = 'Scan Material dan Target Output terlebih dahulu.';
+                        this.notifyError('Scan Material dan Target Output terlebih dahulu.');
                         return;
                     }
                     if (!this.lotNumber || !this.selectedLotObj) {
-                        this.formError = 'Pilih Nomor Lot terlebih dahulu.';
+                        this.notifyError('Pilih Nomor Lot terlebih dahulu.');
                         return;
                     }
                     if (String(this.rawQty || '').trim() === '') {
-                        this.formError = 'Qty wajib diisi.';
+                        this.notifyError('Qty wajib diisi.');
                         return;
                     }
                     const val = this.evalCalc(this.rawQty);
                     if (val === null) {
-                        this.formError = 'Format perhitungan tidak valid.';
+                        this.notifyError('Format perhitungan tidak valid.');
                         return;
                     }
                     if (val <= 0) {
-                        this.formError = 'Qty harus lebih dari 0.';
+                        this.notifyError('Qty harus lebih dari 0.');
                         return;
                     }
                     if (val > this.selectedLotObj.mat_saat_ini + 0.0001) {
-                        this.formError = `Qty melebihi sisa material di mesin (tersedia ${this.selectedLotObj.mat_saat_ini} ${this.materialItem?.uom || ''}).`;
+                        this.notifyError(`Qty melebihi sisa material di mesin (tersedia ${this.selectedLotObj.mat_saat_ini} ${this.materialItem?.uom || ''}).`);
                         return;
                     }
                     formEl.submit();
@@ -403,7 +417,7 @@
                         if (this.histDate && s.date !== this.histDate) return false;
                         if (this.histSearch) {
                             const q = this.histSearch.toLowerCase();
-                            const hay = `${s.lot_number} ${s.mat_no} ${s.mat_name} ${s.tgt_no} ${s.tgt_name} ${s.qty} ${s.user_name}`.toLowerCase();
+                            const hay = `${s.lot_number} ${s.mat_no} ${s.mat_name} ${s.targets} ${s.qty} ${s.user_name}`.toLowerCase();
                             if (!hay.includes(q)) return false;
                         }
                         return true;
@@ -415,8 +429,9 @@
                     this.lotNumber = '';
                     this.rawQty = '';
                     this.manualCode = '';
-                    this.errorMsg = '';
-                    this.formError = '';
+                    this.lastCamCode = '';
+                    this.lastCamAt = 0;
+                    this.clearToast();
                     this.step = 1;
                     if (window.DRCScanner && window.DRCScanner.isPermitted()) {
                         this.activateCamera();

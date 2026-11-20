@@ -160,26 +160,112 @@
             color: #fff;
         }
 
-        .toast {
+        /* Floating Toast Pop-up Atas (Single-Slot, Anti-Menumpuk, Tanpa Menggeser Layout) */
+        .drc-toast-host {
             position: fixed;
+            top: calc(62px + env(safe-area-inset-top));
             left: 12px;
             right: 12px;
-            bottom: calc(16px + env(safe-area-inset-bottom));
-            z-index: 60;
+            z-index: 70;
+            display: flex;
+            justify-content: center;
+            pointer-events: none;
+        }
+        .drc-toast {
+            position: relative;
+            width: 100%;
+            max-width: 480px;
             display: flex;
             align-items: center;
-            justify-content: space-between;
             gap: 10px;
-            max-width: 480px;
-            margin: 0 auto;
-            padding: 11px 14px;
+            padding: 10px 10px 12px 12px;
             border-radius: var(--r);
-            font-size: 13px;
-            font-weight: 600;
-            color: #fff;
+            color: #FFFFFF;
+            pointer-events: auto;
+            overflow: hidden;
+            box-shadow: 0 10px 25px -5px rgba(15, 30, 51, 0.28), 0 4px 10px -4px rgba(15, 30, 51, 0.18);
+            opacity: 0;
+            transform: translateY(-10px) scale(0.98);
+            transition: opacity 0.18s ease, transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+            visibility: hidden;
         }
-        .toast-good { background: var(--good); }
-        .toast-crit { background: var(--crit); }
+        .drc-toast.is-open {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+            visibility: visible;
+        }
+        .drc-toast.toast-good {
+            background: var(--good);
+        }
+        .drc-toast.toast-crit {
+            background: var(--crit);
+        }
+        .drc-toast.is-bump {
+            animation: drcToastBump 0.24s ease;
+        }
+        @keyframes drcToastBump {
+            0%   { transform: translateY(0) scale(1); }
+            45%  { transform: translateY(-2px) scale(1.015); }
+            100% { transform: translateY(0) scale(1); }
+        }
+        .drc-toast-ic {
+            width: 24px;
+            height: 24px;
+            flex: 0 0 24px;
+            border-radius: 3px;
+            background: rgba(255, 255, 255, 0.16);
+            display: grid;
+            place-items: center;
+        }
+        .drc-toast-ic > .ic {
+            width: 15px;
+            height: 15px;
+            flex: 0 0 15px;
+        }
+        .drc-toast-msg {
+            flex: 1 1 auto;
+            min-width: 0;
+            font-size: 12.5px;
+            font-weight: 600;
+            line-height: 1.35;
+            word-break: break-word;
+        }
+        .drc-toast-close {
+            width: 28px;
+            height: 28px;
+            flex: 0 0 28px;
+            border: 0;
+            border-radius: 3px;
+            background: transparent;
+            color: rgba(255, 255, 255, 0.85);
+            display: grid;
+            place-items: center;
+            cursor: pointer;
+            transition: background-color 0.12s ease, color 0.12s ease;
+        }
+        .drc-toast-close:hover {
+            background: rgba(255, 255, 255, 0.16);
+            color: #FFFFFF;
+        }
+        .drc-toast-close > .ic {
+            width: 15px;
+            height: 15px;
+            flex: 0 0 15px;
+        }
+        .drc-toast-bar {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            height: 3px;
+            background: rgba(255, 255, 255, 0.45);
+            transform-origin: left center;
+            transform: scaleX(0);
+        }
+        @keyframes drcToastTimer {
+            from { transform: scaleX(1); }
+            to   { transform: scaleX(0); }
+        }
     </style>
 
     <script>
@@ -238,7 +324,7 @@
                     return true;
                 } catch (err) {
                     if (typeof onErrorMsg === 'function') {
-                        onErrorMsg('Kamera tidak dapat diakses. Pastikan izin kamera browser diaktifkan atau gunakan input manual di bawah.');
+                        onErrorMsg('Kamera tidak dapat diakses. Aktifkan izin kamera browser atau ketik kode di bawah.');
                     }
                     return false;
                 }
@@ -254,39 +340,26 @@
         <div class="ttl">{{ $header ?? 'Mobile Scanner' }}</div>
     </header>
 
+    {{-- SINGLE-SLOT FLOATING TOAST ATAS (WARNING & SUKSES) --}}
+    <div class="drc-toast-host" aria-live="polite" aria-atomic="true">
+        <div id="drc-toast" class="drc-toast toast-good" role="status">
+            <span id="drc-toast-ic-good" class="drc-toast-ic" style="display: none;">
+                <x-icon name="check" />
+            </span>
+            <span id="drc-toast-ic-crit" class="drc-toast-ic" style="display: none;">
+                <x-icon name="alert" />
+            </span>
+            <span id="drc-toast-msg" class="drc-toast-msg"></span>
+            <button type="button" id="drc-toast-close" class="drc-toast-close" aria-label="Tutup notifikasi">
+                <x-icon name="x" />
+            </button>
+            <span id="drc-toast-bar" class="drc-toast-bar"></span>
+        </div>
+    </div>
+
     <main class="max-w-lg mx-auto p-3.5 space-y-3.5">
         {{ $slot }}
     </main>
-
-    @if (session('success'))
-        <div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 4000)" class="toast toast-good" role="status">
-            <span class="inline-flex items-center gap-2 min-w-0">
-                <x-icon name="check" />
-                <span>{{ session('success') }}</span>
-            </span>
-            <button type="button" @click="show = false" class="text-white/80 hover:text-white"><x-icon name="x" /></button>
-        </div>
-    @endif
-
-    @if (session('error'))
-        <div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 5000)" class="toast toast-crit" role="alert">
-            <span class="inline-flex items-center gap-2 min-w-0">
-                <x-icon name="alert" />
-                <span>{{ session('error') }}</span>
-            </span>
-            <button type="button" @click="show = false" class="text-white/80 hover:text-white"><x-icon name="x" /></button>
-        </div>
-    @endif
-
-    @if ($errors->any())
-        <div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 5000)" class="toast toast-crit" role="alert">
-            <span class="inline-flex items-center gap-2 min-w-0">
-                <x-icon name="alert" />
-                <span>{{ $errors->first() }}</span>
-            </span>
-            <button type="button" @click="show = false" class="text-white/80 hover:text-white"><x-icon name="x" /></button>
-        </div>
-    @endif
 
     {{-- GLOBAL SEARCHABLE DROPDOWN ENGINE (UNTUK SEMUA <SELECT> DI MOBILE SCANNER) --}}
     <div id="drc-sselect-popover" class="sselect-popover" style="display: none;">
@@ -297,6 +370,102 @@
     </div>
 
     <script>
+        window.DRCToast = (function () {
+            const box = document.getElementById('drc-toast');
+            const icGood = document.getElementById('drc-toast-ic-good');
+            const icCrit = document.getElementById('drc-toast-ic-crit');
+            const msgEl = document.getElementById('drc-toast-msg');
+            const closeBtn = document.getElementById('drc-toast-close');
+            const barEl = document.getElementById('drc-toast-bar');
+
+            let hideTimer = null;
+            let activeMsg = '';
+            let activeType = '';
+            let isOpen = false;
+
+            function restartProgress(ms) {
+                if (!barEl) return;
+                barEl.style.animation = 'none';
+                void barEl.offsetWidth;
+                barEl.style.animation = `drcToastTimer ${ms}ms linear forwards`;
+            }
+
+            function hide() {
+                if (hideTimer) {
+                    clearTimeout(hideTimer);
+                    hideTimer = null;
+                }
+                isOpen = false;
+                activeMsg = '';
+                activeType = '';
+                if (box) {
+                    box.classList.remove('is-open', 'is-bump');
+                }
+                if (barEl) {
+                    barEl.style.animation = 'none';
+                }
+            }
+
+            function show(message, type = 'crit', duration = null) {
+                const text = String(message || '').trim();
+                if (!text || !box) return;
+
+                const kind = type === 'good' ? 'good' : 'crit';
+                const ms = Number(duration) > 0 ? Number(duration) : (kind === 'good' ? 4000 : 4500);
+                const isSameActive = isOpen && activeMsg === text && activeType === kind;
+
+                if (hideTimer) {
+                    clearTimeout(hideTimer);
+                    hideTimer = null;
+                }
+
+                if (isSameActive) {
+                    box.classList.remove('is-bump');
+                    void box.offsetWidth;
+                    box.classList.add('is-bump');
+                    restartProgress(ms);
+                    hideTimer = setTimeout(hide, ms);
+                    return;
+                }
+
+                activeMsg = text;
+                activeType = kind;
+                isOpen = true;
+
+                box.classList.remove('toast-good', 'toast-crit', 'is-bump');
+                box.classList.add(kind === 'good' ? 'toast-good' : 'toast-crit');
+                box.setAttribute('role', kind === 'good' ? 'status' : 'alert');
+
+                if (icGood) icGood.style.display = kind === 'good' ? 'grid' : 'none';
+                if (icCrit) icCrit.style.display = kind === 'crit' ? 'grid' : 'none';
+                if (msgEl) msgEl.textContent = text;
+
+                box.classList.add('is-open');
+                restartProgress(ms);
+                hideTimer = setTimeout(hide, ms);
+
+                try {
+                    if (navigator.vibrate) {
+                        navigator.vibrate(kind === 'crit' ? [45, 35, 45] : 30);
+                    }
+                } catch (e) {}
+            }
+
+            if (closeBtn) {
+                closeBtn.addEventListener('click', hide);
+            }
+
+            return { show, hide };
+        })();
+
+        @if (session('success'))
+            window.DRCToast.show({{ Js::from(session('success')) }}, 'good');
+        @elseif (session('error'))
+            window.DRCToast.show({{ Js::from(session('error')) }}, 'crit');
+        @elseif ($errors->any())
+            window.DRCToast.show({{ Js::from($errors->first()) }}, 'crit');
+        @endif
+
         (function () {
             const popover = document.getElementById('drc-sselect-popover');
             const searchInput = document.getElementById('drc-sselect-input');

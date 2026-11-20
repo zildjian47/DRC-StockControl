@@ -70,7 +70,7 @@ class InboundController extends Controller
                 'item_id'   => $item->id,
                 'user_id'   => Auth::id(),
                 'qty'       => $qty,
-                'qty_check' => 'SESUAI',
+                'qty_check' => 'TERCATAT',
             ]);
 
             $stock = InventoryStock::firstOrCreate(
@@ -123,7 +123,7 @@ class InboundController extends Controller
                     $stock->save();
 
                     $inbound->qty       = $newQty;
-                    $inbound->qty_check = 'TIDAK SESUAI';
+                    $inbound->qty_check = 'DIKOREKSI';
                     $inbound->save();
 
                     $processed++;

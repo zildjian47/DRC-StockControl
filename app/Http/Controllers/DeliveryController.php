@@ -87,7 +87,7 @@ class DeliveryController extends Controller
                 'item_id'   => $item->id,
                 'user_id'   => Auth::id(),
                 'qty'       => $qty,
-                'qty_check' => 'SESUAI',
+                'qty_check' => 'TERCATAT',
             ]);
 
             $stock->current_stock = (float) $stock->current_stock - $qty;
@@ -136,7 +136,7 @@ class DeliveryController extends Controller
                     $stock->save();
 
                     $delivery->qty       = $newQty;
-                    $delivery->qty_check = 'TIDAK SESUAI';
+                    $delivery->qty_check = 'DIKOREKSI';
                     $delivery->save();
 
                     $processed++;

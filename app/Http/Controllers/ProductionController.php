@@ -101,7 +101,7 @@ class ProductionController extends Controller
                 'user_id'    => Auth::id(),
                 'lot_number' => $lotNumber,
                 'qty'        => $qtyProd,
-                'qty_check'  => 'SESUAI',
+                'qty_check'  => 'TERCATAT',
             ]);
 
             $lot->actual_qty_prod = (float) $lot->actual_qty_prod + $qtyProd;
@@ -166,7 +166,7 @@ class ProductionController extends Controller
                     $stock->save();
 
                     $prod->qty       = $newQty;
-                    $prod->qty_check = 'TIDAK SESUAI';
+                    $prod->qty_check = 'DIKOREKSI';
                     $prod->save();
 
                     $lot->actual_qty_prod = $newActualLot;

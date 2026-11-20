@@ -15,6 +15,7 @@ class MaterialReturn extends Model
         'target_item_id',
         'user_id',
         'lot_number',
+        'bom_group',
         'qty',
         'qty_check',
     ];

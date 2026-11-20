@@ -79,7 +79,7 @@ class ReturnToSupplierController extends Controller
                 'item_id'   => $item->id,
                 'user_id'   => Auth::id(),
                 'qty'       => $qty,
-                'qty_check' => 'SESUAI',
+                'qty_check' => 'TERCATAT',
             ]);
 
             $stock->current_stock = (float) $stock->current_stock - $qty;
@@ -128,7 +128,7 @@ class ReturnToSupplierController extends Controller
                     $stock->save();
 
                     $ret->qty       = $newQty;
-                    $ret->qty_check = 'TIDAK SESUAI';
+                    $ret->qty_check = 'DIKOREKSI';
                     $ret->save();
 
                     $processed++;

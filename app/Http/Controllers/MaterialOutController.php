@@ -13,27 +13,44 @@ use Illuminate\Support\Facades\DB;
 
 class MaterialOutController extends Controller
 {
-    private function resolveBomMeta(int $materialItemId, int $targetItemId, $allBoms): array
+    private function resolveBomMeta(int $materialItemId, int $targetItemId, $allBoms, ?string $bomGroup = null): array
     {
-        $triggerBom = $allBoms->first(function ($b) use ($materialItemId, $targetItemId) {
-            return (int) $b->input_item_id === $materialItemId
-                && (int) $b->output_item_id === $targetItemId
-                && (bool) $b->is_trigger === true;
-        }) ?? $allBoms->first(function ($b) use ($materialItemId, $targetItemId) {
-            return (int) $b->input_item_id === $materialItemId
-                && (int) $b->output_item_id === $targetItemId;
-        });
+        $triggerBom = null;
+
+        if (!empty($bomGroup)) {
+            $triggerBom = $allBoms->first(function ($b) use ($materialItemId, $targetItemId, $bomGroup) {
+                return (string) $b->bom_group === $bomGroup
+                    && (int) $b->input_item_id === $materialItemId
+                    && (int) $b->output_item_id === $targetItemId
+                    && (bool) $b->is_trigger === true;
+            }) ?? $allBoms->first(function ($b) use ($materialItemId, $targetItemId, $bomGroup) {
+                return (string) $b->bom_group === $bomGroup
+                    && (int) $b->input_item_id === $materialItemId
+                    && (int) $b->output_item_id === $targetItemId;
+            });
+        }
+
+        if (!$triggerBom) {
+            $triggerBom = $allBoms->first(function ($b) use ($materialItemId, $targetItemId) {
+                return (int) $b->input_item_id === $materialItemId
+                    && (int) $b->output_item_id === $targetItemId
+                    && (bool) $b->is_trigger === true;
+            }) ?? $allBoms->first(function ($b) use ($materialItemId, $targetItemId) {
+                return (int) $b->input_item_id === $materialItemId
+                    && (int) $b->output_item_id === $targetItemId;
+            });
+        }
 
         if (!$triggerBom) {
             return [
                 'bom_type'   => 'SINGLE',
-                'bom_group'  => null,
+                'bom_group'  => $bomGroup,
                 'qty_usage'  => 1,
                 'companions' => collect(),
             ];
         }
 
-        $groupKey = $triggerBom->bom_group;
+        $groupKey = $bomGroup ?: $triggerBom->bom_group;
         if (!empty($groupKey)) {
             $groupRows = $allBoms->where('bom_group', $groupKey);
         } else {
@@ -90,7 +107,7 @@ class MaterialOutController extends Controller
             ->get();
 
         foreach ($materialOuts as $row) {
-            $meta = $this->resolveBomMeta((int) $row->material_item_id, (int) $row->target_item_id, $allBoms);
+            $meta = $this->resolveBomMeta((int) $row->material_item_id, (int) $row->target_item_id, $allBoms, $row->bom_group);
             $row->bom_type = $meta['bom_type'];
             $estOut = $meta['qty_usage'] > 0 ? ((float) $row->qty / $meta['qty_usage']) : 0;
 
@@ -144,6 +161,8 @@ class MaterialOutController extends Controller
                 $outputs->pluck('part_name')->implode(' ')
             );
 
+            $isCorrected = $rows->contains('qty_check', 'DIKOREKSI');
+
             return [
                 'lot_number'   => $lotNo,
                 'bom_type'     => $bomType,
@@ -152,7 +171,7 @@ class MaterialOutController extends Controller
                 'qty_trigger'  => (float) $first->qty,
                 'companions'   => array_values($companionsMerged),
                 'outputs'      => $outputs,
-                'status_label' => $first->qty_check === 'TIDAK SESUAI' ? 'DIKOREKSI' : 'TERCATAT',
+                'status_label' => $isCorrected ? 'DIKOREKSI' : 'TERCATAT',
                 'search_index' => $searchStr,
                 'date_only'    => \Carbon\Carbon::parse($first->date_time)->format('Y-m-d'),
                 'time_only'    => \Carbon\Carbon::parse($first->date_time)->format('H:i'),
@@ -232,7 +251,8 @@ class MaterialOutController extends Controller
 
         $companionDeductions = [];
         foreach ($triggerBomsInGroup as $tBom) {
-            $estTargetQty = (float) $tBom->qty_usage > 0 ? round($qtyOut / (float) $tBom->qty_usage, 2) : 0;
+            $rawEst = (float) $tBom->qty_usage > 0 ? ($qtyOut / (float) $tBom->qty_usage) : 0;
+            $estTargetQty = abs($rawEst - round($rawEst)) < 0.001 ? round($rawEst) : round($rawEst, 2);
 
             $compQuery = Bom::with('inputItem')
                 ->where('process_id', $tBom->process_id)
@@ -267,7 +287,7 @@ class MaterialOutController extends Controller
             }
         }
 
-        DB::transaction(function () use ($request, $materialItem, $triggerBomsInGroup, $qtyOut, $matStock, $companionDeductions) {
+        DB::transaction(function () use ($request, $materialItem, $triggerBomsInGroup, $groupKey, $qtyOut, $matStock, $companionDeductions) {
             $matStock->decrement('current_stock', $qtyOut);
             $matStock->refresh()->updateDynamicStatus();
 
@@ -278,20 +298,25 @@ class MaterialOutController extends Controller
             }
 
             foreach ($triggerBomsInGroup as $tBom) {
+                $savedGroup = $tBom->bom_group ?: $groupKey;
+
                 MaterialOut::create([
                     'date_time'        => now(),
                     'user_id'          => Auth::id(),
                     'material_item_id' => $materialItem->id,
                     'target_item_id'   => $tBom->output_item_id,
                     'lot_number'       => $request->lot_number,
+                    'bom_group'        => $savedGroup,
                     'qty'              => $qtyOut,
-                    'qty_check'        => 'SESUAI',
+                    'qty_check'        => 'TERCATAT',
                 ]);
 
-                $estQty = (float) $tBom->qty_usage > 0 ? round($qtyOut / (float) $tBom->qty_usage, 2) : 0;
+                $rawEst = (float) $tBom->qty_usage > 0 ? ($qtyOut / (float) $tBom->qty_usage) : 0;
+                $estQty = abs($rawEst - round($rawEst)) < 0.001 ? round($rawEst) : round($rawEst, 2);
 
                 LotTracer::create([
                     'lot_number'          => $request->lot_number,
+                    'bom_group'           => $savedGroup,
                     'process_id'          => $tBom->process_id,
                     'material_item_id'    => $materialItem->id,
                     'target_item_id'      => $tBom->output_item_id,
@@ -324,13 +349,13 @@ class MaterialOutController extends Controller
             DB::transaction(function () use ($items, $allBoms) {
                 foreach ($items as $id => $data) {
                     $status = $data['qty_check'] ?? null;
-                    if (!$status || $status === 'PENDING') {
+                    if (!$status) {
                         continue;
                     }
 
                     $matOut = MaterialOut::findOrFail($id);
 
-                    if ($status === 'TIDAK SESUAI') {
+                    if ($status === 'DIKOREKSI') {
                         $newQty = BomController::evaluateMath($data['actual_qty'] ?? 0);
                         if ($newQty <= 0) {
                             throw new \Exception('Qty koreksi harus lebih dari 0.');
@@ -339,18 +364,18 @@ class MaterialOutController extends Controller
                         $oldQty = (float) $matOut->qty;
                         $diffTrigger = $newQty - $oldQty;
 
+                        $siblingOuts = MaterialOut::where('lot_number', $matOut->lot_number)
+                            ->where('material_item_id', $matOut->material_item_id)
+                            ->get();
+
                         if ($diffTrigger != 0) {
                             $matStock = InventoryStock::firstOrCreate(['item_id' => $matOut->material_item_id], ['current_stock' => 0]);
                             if ($diffTrigger > 0 && (float) $matStock->current_stock < $diffTrigger) {
                                 throw new \Exception('Stok Material Trigger tidak cukup untuk koreksi.');
                             }
 
-                            $siblingOuts = MaterialOut::where('lot_number', $matOut->lot_number)
-                                ->where('material_item_id', $matOut->material_item_id)
-                                ->get();
-
                             foreach ($siblingOuts as $sib) {
-                                $meta = $this->resolveBomMeta((int) $sib->material_item_id, (int) $sib->target_item_id, $allBoms);
+                                $meta = $this->resolveBomMeta((int) $sib->material_item_id, (int) $sib->target_item_id, $allBoms, $sib->bom_group);
                                 $oldEst = $meta['qty_usage'] > 0 ? ($oldQty / $meta['qty_usage']) : 0;
                                 $newEst = $meta['qty_usage'] > 0 ? ($newQty / $meta['qty_usage']) : 0;
 
@@ -371,7 +396,7 @@ class MaterialOutController extends Controller
 
                                 $sib->update([
                                     'qty'       => $newQty,
-                                    'qty_check' => 'TIDAK SESUAI',
+                                    'qty_check' => 'DIKOREKSI',
                                 ]);
 
                                 $lot = LotTracer::where('lot_number', $sib->lot_number)
@@ -380,8 +405,9 @@ class MaterialOutController extends Controller
 
                                 if ($lot) {
                                     $netMat = max(0, $newQty - (float) $lot->qty_material_return);
-                                    $estTarget = $meta['qty_usage'] > 0 ? round($netMat / $meta['qty_usage'], 2) : 0;
-                                    $wip = $lot->status_lot === 'FINISH' ? 0 : max(0, $estTarget - (float) $lot->actual_qty_prod);
+                                    $rawEst = $meta['qty_usage'] > 0 ? ($netMat / $meta['qty_usage']) : 0;
+                                    $estTarget = abs($rawEst - round($rawEst)) < 0.001 ? round($rawEst) : round($rawEst, 2);
+                                    $wip = $lot->status_lot === 'FINISH' ? 0 : round(max(0, $estTarget - (float) $lot->actual_qty_prod), 2);
 
                                     $lot->update([
                                         'qty_material_out'    => $newQty,
@@ -394,10 +420,12 @@ class MaterialOutController extends Controller
                             $matStock->decrement('current_stock', $diffTrigger);
                             $matStock->refresh()->updateDynamicStatus();
                         } else {
-                            $matOut->update(['qty_check' => 'TIDAK SESUAI']);
+                            foreach ($siblingOuts as $sib) {
+                                $sib->update(['qty_check' => 'DIKOREKSI']);
+                            }
                         }
                     } else {
-                        $matOut->update(['qty_check' => 'SESUAI']);
+                        $matOut->update(['qty_check' => 'TERCATAT']);
                     }
                 }
             });

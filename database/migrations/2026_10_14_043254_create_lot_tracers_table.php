@@ -11,6 +11,7 @@ return new class extends Migration
         Schema::create('lot_tracers', function (Blueprint $table) {
             $table->id();
             $table->string('lot_number')->index();
+            $table->string('bom_group')->nullable()->index();
             $table->foreignId('process_id')->constrained('processes')->onDelete('restrict');
             $table->foreignId('material_item_id')->constrained('items')->onDelete('restrict');
             $table->foreignId('target_item_id')->constrained('items')->onDelete('restrict');
