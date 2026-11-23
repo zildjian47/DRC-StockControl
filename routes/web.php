@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ProcessController;
 use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\ItemController;
@@ -22,9 +23,9 @@ Route::get('/', function () {
     return redirect()->route('login');
 });
 
-Route::get('/dashboard', function () {
-    return view('dashboard');
-})->middleware(['auth', 'verified'])->name('dashboard');
+Route::get('/dashboard', [DashboardController::class, 'index'])
+    ->middleware(['auth', 'verified'])
+    ->name('dashboard');
 
 Route::middleware('auth')->group(function () {
     // Profile
@@ -38,9 +39,10 @@ Route::middleware('auth')->group(function () {
     // 2. Master Companies
     Route::resource('companies', CompanyController::class)->only(['index', 'store', 'update', 'destroy']);
 
-    // 3. Master Items & Archive (Soft Deletes)
+    // 3. Master Items & Archive (Soft Deletes) + AJAX Info Modal
     Route::get('/items/trashed', [ItemController::class, 'trashed'])->name('items.trashed');
     Route::post('/items/{id}/restore', [ItemController::class, 'restore'])->name('items.restore');
+    Route::get('/items/{item}/info', [ItemController::class, 'info'])->name('items.info');
     Route::resource('items', ItemController::class)->only(['index', 'store', 'update', 'destroy']);
 
     // 4. Bill of Materials (BOM)
@@ -55,10 +57,12 @@ Route::middleware('auth')->group(function () {
     Route::patch('/lot-tracers/{lotTracer}/set-finish', [LotTracerController::class, 'finish'])->name('lot_tracers.set_finish');
 
     // 7. Inbounds (QR Scanner & Verifikasi PPIC)
+    Route::get('/inbounds/lookup', [InboundController::class, 'lookup'])->name('inbounds.lookup');
     Route::post('/inbounds/verify-batch', [InboundController::class, 'verifyBatch'])->name('inbounds.verify_batch');
     Route::resource('inbounds', InboundController::class)->only(['index', 'store']);
 
     // 8. Material Outs (QR Scanner & Verifikasi PPIC)
+    Route::get('/material-outs/lookup', [MaterialOutController::class, 'lookup'])->name('material_outs.lookup');
     Route::post('/material-outs/verify-batch', [MaterialOutController::class, 'verifyBatch'])->name('material_outs.verify_batch');
     Route::resource('material-outs', MaterialOutController::class)
         ->only(['index', 'store'])
@@ -68,6 +72,7 @@ Route::middleware('auth')->group(function () {
         ]);
 
     // 9. Material Returns (QR Scanner & Verifikasi PPIC)
+    Route::get('/material-returns/lookup', [MaterialReturnController::class, 'lookup'])->name('material_returns.lookup');
     Route::post('/material-returns/verify-batch', [MaterialReturnController::class, 'verifyBatch'])->name('material_returns.verify_batch');
     Route::resource('material-returns', MaterialReturnController::class)
         ->only(['index', 'store'])
@@ -77,6 +82,7 @@ Route::middleware('auth')->group(function () {
         ]);
 
     // 10. Productions (QR Scanner & Verifikasi PPIC)
+    Route::get('/productions/lookup', [ProductionController::class, 'lookup'])->name('productions.lookup');
     Route::post('/productions/verify-batch', [ProductionController::class, 'verifyBatch'])->name('productions.verify_batch');
     Route::resource('productions', ProductionController::class)->only(['index', 'store']);
 

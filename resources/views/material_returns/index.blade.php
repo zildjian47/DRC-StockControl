@@ -13,28 +13,6 @@
 
     <x-flash />
 
-    @php
-        $stockMap = \App\Models\InventoryStock::pluck('current_stock', 'item_id');
-        $lotRowsByKey = \App\Models\LotTracer::whereIn('lot_number', $materialReturns->pluck('lot_number')->unique())
-            ->get()
-            ->groupBy(fn ($l) => $l->lot_number . '|' . $l->material_item_id);
-
-        $maxAllowedMap = [];
-        foreach ($lotRowsByKey as $k => $lRows) {
-            $minAllow = null;
-            foreach ($lRows as $lt) {
-                $tb = $lt->resolveTriggerBom();
-                $usage = ($tb && (float) $tb->qty_usage > 0) ? (float) $tb->qty_usage : 1.0;
-                $usedByProd = (float) $lt->actual_qty_prod * $usage;
-                $allow = max(0, round((float) $lt->qty_material_out - $usedByProd, 2));
-                if ($minAllow === null || $allow < $minAllow) {
-                    $minAllow = $allow;
-                }
-            }
-            $maxAllowedMap[$k] = $minAllow ?? 0;
-        }
-    @endphp
-
     <div class="panel"
          x-data="matRetPage({{ $groupedReturns->count() }})"
          x-init="recalc()"
@@ -211,7 +189,7 @@
                             </td>
                             <td class="text-center">
                                 <button type="button" class="act-btn" title="Koreksi Qty Material Return"
-                                        @click="openEdit({{ $first->id }}, '{{ $grp['lot_number'] }}', '{{ addslashes($matItem->part_no ?: '-') }}', '{{ addslashes($matItem->part_name ?? '-') }}', {{ floatval($grp['qty_trigger']) }}, '{{ $matItem->uom ?? '' }}', {{ $currStock }}, {{ $maxRetAllow }})">
+                                        @click="openEdit({{ $first->id }}, {{ Js::from($grp['lot_number']) }}, {{ Js::from($matItem->part_no ?: '-') }}, {{ Js::from($matItem->part_name ?? '-') }}, {{ floatval($grp['qty_trigger']) }}, {{ Js::from($matItem->uom ?? '') }}, {{ $currStock }}, {{ $maxRetAllow }})">
                                     <x-icon name="edit" />
                                 </button>
                             </td>

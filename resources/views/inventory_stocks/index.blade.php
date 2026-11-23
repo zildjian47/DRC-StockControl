@@ -131,7 +131,7 @@
                             </td>
                             <td class="text-center">
                                 <button type="button" class="act-btn" title="Informasi Material, BOM & Riwayat Mutasi"
-                                        @click="$dispatch('open-material-info', {{ Js::from($itm->material_info_payload) }})">
+                                        @click="$dispatch('open-material-info', {{ Js::from(['id' => $itm->id, 'part_no' => $itm->part_no ?: '-', 'part_name' => $itm->part_name]) }})">
                                     <x-icon name="info" />
                                 </button>
                             </td>

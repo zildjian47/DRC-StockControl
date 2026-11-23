@@ -1,61 +1,9 @@
 <x-scanner-layout :backUrl="route('material_returns.index')">
     <x-slot name="header">Scanner Material Return</x-slot>
 
-    @php
-        $allScansData = \App\Models\MaterialReturn::with(['materialItem', 'targetItem', 'user'])
-            ->orderBy('date_time', 'desc')
-            ->orderBy('id', 'desc')
-            ->limit(500)
-            ->get()
-            ->groupBy('lot_number')
-            ->map(function ($rows, $lotNo) {
-                $s = $rows->first();
-                $dt = \Carbon\Carbon::parse($s->date_time);
-                $targets = $rows->map(function ($r) {
-                    $no = $r->targetItem->part_no ?? '';
-                    $nm = $r->targetItem->part_name ?? '-';
-                    return $no ? "{$no} — {$nm}" : $nm;
-                })->unique()->values()->implode(', ');
-
-                return [
-                    'id'         => $s->id,
-                    'date'       => $dt->format('Y-m-d'),
-                    'time'       => $dt->format('H:i'),
-                    'date_fmt'   => $dt->format('d M Y, H:i'),
-                    'lot_number' => $lotNo,
-                    'mat_no'     => $s->materialItem->part_no ?: '-',
-                    'mat_name'   => $s->materialItem->part_name ?? '-',
-                    'mat_uom'    => $s->materialItem->uom ?? '',
-                    'targets'    => $targets,
-                    'qty'        => (float) $s->qty,
-                    'user_name'  => $s->user->name ?? 'Operator',
-                ];
-            })->values();
-
-        $itemsPayload = $items->map(fn ($i) => [
-            'id'           => $i->id,
-            'part_no'      => $i->part_no ? strtoupper(trim($i->part_no)) : '',
-            'part_name'    => strtoupper(trim($i->part_name)),
-            'type'         => $i->type,
-            'uom'          => $i->uom,
-            'company_type' => $i->company->type_company ?? 'INTERNAL',
-            'stock'        => $i->inventoryStock ? (float) $i->inventoryStock->current_stock : 0,
-        ])->values();
-
-        $activeLotsPayload = $activeLots->map(fn ($lt) => [
-            'id'               => $lt->id,
-            'lot_number'       => $lt->lot_number,
-            'material_item_id' => $lt->material_item_id,
-            'target_item_id'   => $lt->target_item_id,
-            'mat_out'          => (float) $lt->qty_material_out,
-            'mat_saat_ini'     => (float) $lt->material_saat_ini,
-            'target_name'      => $lt->targetItem->part_name ?? '-',
-            'mat_uom'          => $lt->materialItem->uom ?? '',
-        ])->values();
-    @endphp
-
-    <div x-data="matReturnScanner({{ Js::from($itemsPayload) }}, {{ Js::from($activeLotsPayload) }}, {{ Js::from($allScansData) }}, '{{ now()->format('Y-m-d') }}')"
-         x-init="initScanner()">
+    <div x-data="matReturnScanner({{ Js::from(route('material_returns.lookup')) }}, {{ Js::from($allScansData ?? []) }}, '{{ now()->format('Y-m-d') }}')"
+         x-init="initScanner()"
+         @pageshow.window="isSubmitting = false">
 
         {{-- VISUAL STEPPER --}}
         <div class="scan-stepper mb-3">
@@ -122,8 +70,8 @@
                                    @keydown.enter.prevent="handleScan(manualCode)"
                                    :placeholder="step === 1 ? 'Contoh: SHEET TRAPESIUM SPHC 2.3MM' : 'Contoh: FG-GUS-R'"
                                    class="num uppercase flex-1 h-10 text-xs font-semibold">
-                            <button type="button" @click="handleScan(manualCode)" class="btn btn-primary px-4 h-10">
-                                Cek Kode
+                            <button type="button" @click="handleScan(manualCode)" :disabled="isLookingUp" class="btn btn-primary px-4 h-10">
+                                <span x-text="isLookingUp ? 'Cek...' : 'Cek Kode'"></span>
                             </button>
                         </div>
                     </div>
@@ -202,12 +150,12 @@
                             </div>
                         </div>
 
-                        <button type="submit" class="btn btn-primary btn-lg w-full">
-                            Simpan Material Return
+                        <button type="submit" :disabled="isSubmitting" class="btn btn-primary btn-lg w-full">
+                            <span x-text="isSubmitting ? 'Menyimpan...' : 'Simpan Material Return'"></span>
                         </button>
                     </form>
 
-                    <button type="button" @click="resetAll()" class="btn w-full">
+                    <button type="button" @click="resetAll()" :disabled="isSubmitting" class="btn w-full">
                         Batal &amp; Scan Ulang
                     </button>
                 </div>
@@ -255,22 +203,24 @@
     </div>
 
     <script>
-        function matReturnScanner(items, activeLots, allScans, todayStr) {
+        function matReturnScanner(lookupUrl, allScans, todayStr) {
             return {
+                lookupUrl: lookupUrl,
                 step: 1,
                 cameraActive: false,
+                isLookingUp: false,
+                isSubmitting: false,
                 manualCode: '',
                 lastCamCode: '',
                 lastCamAt: 0,
-                items: items,
-                activeLots: activeLots,
-                allScans: allScans,
+                allScans: allScans || [],
                 todayStr: todayStr,
                 histDate: todayStr,
                 histSearch: '',
 
                 materialItem: null,
                 targetItem: null,
+                matchingLots: [],
                 lotNumber: '',
                 rawQty: '',
 
@@ -301,70 +251,72 @@
                     );
                     if (!ok) this.cameraActive = false;
                 },
-                findItem(code) {
-                    const c = String(code || '').trim().toUpperCase();
-                    if (!c) return null;
-                    return this.items.find(i => i.part_no === c || i.part_name === c) || null;
-                },
-                handleScan(rawCode, fromCamera = false) {
+                async handleScan(rawCode, fromCamera = false) {
                     const c = String(rawCode || '').trim().toUpperCase();
-                    if (!c) return;
+                    if (!c || this.isLookingUp) return;
                     if (fromCamera) {
                         const now = Date.now();
                         if (this.lastCamCode === c && (now - this.lastCamAt) < 900) return;
                         this.lastCamCode = c;
                         this.lastCamAt = now;
                     }
-                    const found = this.findItem(c);
-                    if (!found) {
-                        this.notifyError(`Kode "${rawCode}" tidak ditemukan.`);
-                        return;
-                    }
 
-                    if (this.step === 1) {
-                        const hasLot = this.activeLots.some(l => String(l.material_item_id) === String(found.id));
-                        if (!hasLot) {
-                            this.notifyError(`${found.part_name} tidak memiliki Lot aktif untuk diretur.`);
+                    this.isLookingUp = true;
+                    try {
+                        const params = new URLSearchParams({
+                            step: String(this.step),
+                            code: c
+                        });
+                        if (this.step === 2 && this.materialItem) {
+                            params.set('material_item_id', String(this.materialItem.id));
+                        }
+
+                        const res = await fetch(`${this.lookupUrl}?${params.toString()}`, {
+                            method: 'GET',
+                            credentials: 'same-origin',
+                            headers: {
+                                'Accept': 'application/json',
+                                'X-Requested-With': 'XMLHttpRequest'
+                            }
+                        });
+                        if (!res.ok) {
+                            throw new Error(`Gagal memeriksa kode (HTTP ${res.status}).`);
+                        }
+                        const data = await res.json();
+                        if (!data.ok || !data.item) {
+                            this.notifyError(data.message || `Kode "${rawCode}" tidak ditemukan.`);
                             return;
                         }
-                        this.clearToast();
-                        this.materialItem = found;
-                        this.manualCode = '';
-                        if (fromCamera) {
-                            this.lastCamCode = c;
-                            this.lastCamAt = Date.now() + 600;
+
+                        if (this.step === 1) {
+                            this.clearToast();
+                            this.materialItem = data.item;
+                            this.manualCode = '';
+                            if (fromCamera) {
+                                this.lastCamCode = c;
+                                this.lastCamAt = Date.now() + 600;
+                            }
+                            this.step = 2;
+                        } else if (this.step === 2) {
+                            this.clearToast();
+                            if (data.material_item) {
+                                this.materialItem = data.material_item;
+                            }
+                            this.targetItem = data.item;
+                            this.matchingLots = Array.isArray(data.lots) ? data.lots : [];
+                            this.lotNumber = this.matchingLots.length === 1 ? this.matchingLots[0].lot_number : '';
+                            this.manualCode = '';
+                            this.lastCamCode = '';
+                            this.lastCamAt = 0;
+                            this.step = 3;
+                            window.DRCScanner.stop();
+                            this.cameraActive = false;
                         }
-                        this.step = 2;
-                    } else if (this.step === 2) {
-                        const matched = this.activeLots.filter(l =>
-                            String(l.material_item_id) === String(this.materialItem.id) &&
-                            String(l.target_item_id) === String(found.id)
-                        );
-                        if (matched.length === 0) {
-                            this.notifyError(`Tidak ada Lot aktif untuk ${this.materialItem.part_name} → ${found.part_name}.`);
-                            return;
-                        }
-                        this.clearToast();
-                        this.targetItem = found;
-                        this.lotNumber = matched.length === 1 ? matched[0].lot_number : '';
-                        this.manualCode = '';
-                        this.lastCamCode = '';
-                        this.lastCamAt = 0;
-                        this.step = 3;
-                        window.DRCScanner.stop();
-                        this.cameraActive = false;
+                    } catch (err) {
+                        this.notifyError((err && err.message) ? err.message : 'Gagal menghubungi server. Periksa koneksi jaringan.');
+                    } finally {
+                        this.isLookingUp = false;
                     }
-                },
-                get matchingLots() {
-                    if (!this.materialItem || !this.targetItem) return [];
-                    const map = {};
-                    this.activeLots.forEach(l => {
-                        if (String(l.material_item_id) === String(this.materialItem.id) &&
-                            String(l.target_item_id) === String(this.targetItem.id)) {
-                            map[l.lot_number] = l;
-                        }
-                    });
-                    return Object.values(map);
                 },
                 get selectedLotObj() {
                     return this.matchingLots.find(l => l.lot_number === this.lotNumber) || null;
@@ -385,6 +337,7 @@
                     return (r !== null && r > 0) ? r : 0;
                 },
                 submitForm(formEl) {
+                    if (this.isSubmitting) return;
                     if (!this.materialItem || !this.targetItem) {
                         this.notifyError('Scan Material dan Target Output terlebih dahulu.');
                         return;
@@ -410,6 +363,7 @@
                         this.notifyError(`Qty melebihi sisa material di mesin (tersedia ${this.selectedLotObj.mat_saat_ini} ${this.materialItem?.uom || ''}).`);
                         return;
                     }
+                    this.isSubmitting = true;
                     formEl.submit();
                 },
                 get filteredHistory() {
@@ -424,8 +378,10 @@
                     });
                 },
                 resetAll() {
+                    this.isSubmitting = false;
                     this.materialItem = null;
                     this.targetItem = null;
+                    this.matchingLots = [];
                     this.lotNumber = '';
                     this.rawQty = '';
                     this.manualCode = '';

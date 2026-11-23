@@ -49,16 +49,19 @@
 </head>
 <body x-data="{
         nav: false,
-        collapsed: localStorage.getItem('drc_sb_collapsed') === '1',
+        collapsed: (() => { try { return localStorage.getItem('drc_sb_collapsed') === '1'; } catch (e) { return false; } })(),
         toggleSidebar() {
             document.documentElement.classList.add('sb-ready');
             this.collapsed = !this.collapsed;
-            localStorage.setItem('drc_sb_collapsed', this.collapsed ? '1' : '0');
+            try { localStorage.setItem('drc_sb_collapsed', this.collapsed ? '1' : '0'); } catch (e) {}
             document.documentElement.classList.toggle('sb-collapsed', this.collapsed);
+        },
+        syncSidebar() {
+            try { this.collapsed = localStorage.getItem('drc_sb_collapsed') === '1'; } catch (e) {}
         }
       }"
       x-init="$nextTick(() => document.documentElement.classList.add('sb-ready'))"
-      @sb-sync.window="collapsed = localStorage.getItem('drc_sb_collapsed') === '1'"
+      @sb-sync.window="syncSidebar()"
       @keydown.escape.window="nav = false">
 <div class="app-shell">
 
@@ -342,7 +345,7 @@
         }, true);
     })();
 
-    // Auto-Update Tabel Saat Idle (Setiap 15 Detik)
+    // Auto-Update Tabel Saat Idle (Setiap 15 Detik · Anti Kedip saat Filter Aktif)
     (function () {
         let lastActivity = Date.now();
         ['mousemove', 'keydown', 'mousedown', 'touchstart', 'input'].forEach(evt => {
@@ -354,16 +357,40 @@
             if (activeController) activeController.abort();
         });
 
+        function getServerTables(root) {
+            return Array.from(root.querySelectorAll('main .tbl tbody')).filter(tb => {
+                return !tb.querySelector('template[x-for]');
+            });
+        }
+
+        function normalizeTbody(tb) {
+            const clone = tb.cloneNode(true);
+            clone.querySelectorAll('tr').forEach(tr => {
+                if (tr.hasAttribute('x-show')) {
+                    tr.removeAttribute('style');
+                }
+            });
+            clone.querySelectorAll('[data-col-no]').forEach(el => {
+                el.textContent = '';
+            });
+            clone.querySelectorAll('[x-cloak]').forEach(el => {
+                el.removeAttribute('x-cloak');
+            });
+            return clone.innerHTML.replace(/\s+/g, ' ').trim();
+        }
+
         setInterval(async () => {
+            if (document.hidden) return;
             if (Date.now() - lastActivity < 6000) return;
+
             const activeEl = document.activeElement;
             if (activeEl && ['INPUT', 'SELECT', 'TEXTAREA'].includes(activeEl.tagName)) return;
 
             const openModal = Array.from(document.querySelectorAll('.modal-backdrop')).some(el => el.offsetParent !== null);
             if (openModal) return;
 
-            const currentTbl = document.querySelector('main .tbl tbody');
-            if (!currentTbl) return;
+            const currentTables = getServerTables(document);
+            if (currentTables.length === 0) return;
 
             try {
                 if (activeController) activeController.abort();
@@ -377,13 +404,31 @@
 
                 const html = await res.text();
                 const doc = new DOMParser().parseFromString(html, 'text/html');
-                const newTbl = doc.querySelector('main .tbl tbody');
+                const newTables = getServerTables(doc);
 
-                if (newTbl && newTbl.innerHTML !== currentTbl.innerHTML) {
-                    currentTbl.innerHTML = newTbl.innerHTML;
-                    if (window.Alpine) {
-                        window.Alpine.initTree(currentTbl);
+                if (newTables.length !== currentTables.length) return;
+
+                let anyUpdated = false;
+                currentTables.forEach((currentTbl, idx) => {
+                    const newTbl = newTables[idx];
+                    const currentNorm = currentTbl._drcNormHtml !== undefined
+                        ? currentTbl._drcNormHtml
+                        : normalizeTbody(currentTbl);
+                    const newNorm = normalizeTbody(newTbl);
+
+                    if (newNorm !== currentNorm) {
+                        currentTbl.innerHTML = newTbl.innerHTML;
+                        currentTbl._drcNormHtml = newNorm;
+                        if (window.Alpine) {
+                            window.Alpine.initTree(currentTbl);
+                        }
+                        anyUpdated = true;
+                    } else if (currentTbl._drcNormHtml === undefined) {
+                        currentTbl._drcNormHtml = newNorm;
                     }
+                });
+
+                if (anyUpdated) {
                     window.dispatchEvent(new CustomEvent('table-refreshed'));
                 }
             } catch (e) {}

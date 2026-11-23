@@ -23,6 +23,22 @@ class ItemController extends Controller
             'bomsAsInput.outputItem',
             'bomsAsOutput.inputItem.inventoryStock',
             'bomsAsOutput.process',
+        ])->withCount([
+            'inbounds',
+            'materialOutsAsMaterial',
+            'materialOutsAsTarget',
+            'materialReturnsAsMaterial',
+            'materialReturnsAsTarget',
+            'productions',
+            'productionNgs',
+            'deliveries',
+            'returnToSuppliers',
+            'stockAdjustments',
+            'problemDelays',
+            'lotTracersAsMaterial',
+            'lotTracersAsTarget',
+            'bomsAsOutput',
+            'bomsAsInput',
         ]);
 
         if ($request->filled('search')) {
@@ -41,6 +57,20 @@ class ItemController extends Controller
         $trashedCount = Item::onlyTrashed()->count();
 
         return view('items.index', compact('items', 'companies', 'uoms', 'types', 'trashedCount'));
+    }
+
+    public function info(Item $item)
+    {
+        $item->load([
+            'company',
+            'inventoryStock',
+            'bomsAsOutput.inputItem.inventoryStock',
+            'bomsAsOutput.process',
+            'bomsAsInput.outputItem.inventoryStock',
+            'bomsAsInput.process',
+        ]);
+
+        return response()->json($item->material_info_payload);
     }
 
     public function trashed(Request $request)

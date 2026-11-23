@@ -140,6 +140,38 @@ class Item extends Model
 
     public function hasTransactionHistory(): bool
     {
+        $countAttrs = [
+            'inbounds_count',
+            'material_outs_as_material_count',
+            'material_outs_as_target_count',
+            'material_returns_as_material_count',
+            'material_returns_as_target_count',
+            'productions_count',
+            'production_ngs_count',
+            'deliveries_count',
+            'return_to_suppliers_count',
+            'stock_adjustments_count',
+            'problem_delays_count',
+            'lot_tracers_as_material_count',
+            'lot_tracers_as_target_count',
+            'boms_as_output_count',
+            'boms_as_input_count',
+        ];
+
+        $allLoaded = true;
+        $total     = 0;
+        foreach ($countAttrs as $attr) {
+            if (!array_key_exists($attr, $this->attributes)) {
+                $allLoaded = false;
+                break;
+            }
+            $total += (int) $this->attributes[$attr];
+        }
+
+        if ($allLoaded) {
+            return $total > 0;
+        }
+
         return $this->inbounds()->exists()
             || $this->materialOutsAsMaterial()->exists()
             || $this->materialOutsAsTarget()->exists()
@@ -199,7 +231,10 @@ class Item extends Model
             return round($poStd1, 2);
         }
 
-        $bomRows = $this->bomsAsInput()->with('outputItem')->get();
+        $bomRows = $this->relationLoaded('bomsAsInput')
+            ? $this->bomsAsInput
+            : $this->bomsAsInput()->with('outputItem')->get();
+
         if ($bomRows->isEmpty()) {
             return round($poStd1, 2);
         }
@@ -540,7 +575,11 @@ class Item extends Model
         $status       = $stock ? $stock->calculateDynamicStatus() : 'EMPTY STOCK';
         $wipQty       = round((float) $this->lotTracersAsTarget()->where('status_lot', 'ON PROGRESS')->sum('qty_wip'), 2);
 
-        $inputs = $this->bomsAsOutput()->with(['inputItem.inventoryStock', 'process'])->get()->map(function ($b) {
+        $bomsOut = $this->relationLoaded('bomsAsOutput')
+            ? $this->bomsAsOutput
+            : $this->bomsAsOutput()->with(['inputItem.inventoryStock', 'process'])->get();
+
+        $inputs = $bomsOut->map(function ($b) {
             $inItem  = $b->inputItem;
             $inStock = $inItem && $inItem->inventoryStock ? (float) $inItem->inventoryStock->current_stock : 0.0;
             $inStd1  = $inItem ? $inItem->calculated_std_day_1 : 0.0;
@@ -563,7 +602,11 @@ class Item extends Model
             ];
         })->values()->all();
 
-        $outputs = $this->bomsAsInput()->with(['outputItem.inventoryStock', 'process'])->get()->map(function ($b) {
+        $bomsIn = $this->relationLoaded('bomsAsInput')
+            ? $this->bomsAsInput
+            : $this->bomsAsInput()->with(['outputItem.inventoryStock', 'process'])->get();
+
+        $outputs = $bomsIn->map(function ($b) {
             $outItem  = $b->outputItem;
             $outStock = $outItem && $outItem->inventoryStock ? (float) $outItem->inventoryStock->current_stock : 0.0;
             $outStd1  = $outItem ? $outItem->calculated_std_day_1 : 0.0;

@@ -11,7 +11,8 @@
 
     <div class="panel"
          x-data="lotTracerPage()"
-         x-init="recalc()">
+         x-init="recalc()"
+         @table-refreshed.window="recalc()">
 
         <div class="panel-head">
             <div class="panel-title">
@@ -77,7 +78,8 @@
                             $matUom = $matItem->uom ?? '';
                             $companions = $first->companion_details ?? [];
                             $rows = $grp['rows'];
-                            $topEndVal = $first->top_end_coil;
+                            $matSaatIni = $grp['material_saat_ini'];
+                            $topEndVal = $grp['top_end_coil'];
                         @endphp
                         <tr x-ref="grp_{{ $gIdx }}"
                             data-process="{{ $grp['process_id'] }}"
@@ -162,8 +164,8 @@
                             <td class="num !p-0">
                                 <div class="divide-y divide-slate-200">
                                     <div class="subrow-qty">
-                                        <span class="font-bold {{ $first->material_saat_ini > 0 ? 'text-accent' : 'text-slate-400' }}">
-                                            {{ floatval($first->material_saat_ini) }}
+                                        <span class="font-bold {{ $matSaatIni > 0 ? 'text-accent' : 'text-slate-400' }}">
+                                            {{ floatval($matSaatIni) }}
                                         </span>
                                         <span class="text-[11px] text-slate-500">{{ $matUom }}</span>
                                     </div>

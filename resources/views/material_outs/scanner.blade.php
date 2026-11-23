@@ -1,64 +1,9 @@
 <x-scanner-layout :backUrl="route('material_outs.index')">
     <x-slot name="header">Scanner Material Out</x-slot>
 
-    @php
-        $allScansData = \App\Models\MaterialOut::with(['materialItem', 'targetItem', 'user'])
-            ->orderBy('date_time', 'desc')
-            ->orderBy('id', 'desc')
-            ->limit(500)
-            ->get()
-            ->groupBy('lot_number')
-            ->map(function ($rows, $lotNo) {
-                $s = $rows->first();
-                $dt = \Carbon\Carbon::parse($s->date_time);
-                $targets = $rows->map(function ($r) {
-                    $no = $r->targetItem->part_no ?? '';
-                    $nm = $r->targetItem->part_name ?? '-';
-                    return $no ? "{$no} — {$nm}" : $nm;
-                })->unique()->values()->implode(', ');
-
-                return [
-                    'id'         => $s->id,
-                    'date'       => $dt->format('Y-m-d'),
-                    'time'       => $dt->format('H:i'),
-                    'date_fmt'   => $dt->format('d M Y, H:i'),
-                    'lot_number' => $lotNo,
-                    'mat_no'     => $s->materialItem->part_no ?: '-',
-                    'mat_name'   => $s->materialItem->part_name ?? '-',
-                    'mat_uom'    => $s->materialItem->uom ?? '',
-                    'targets'    => $targets,
-                    'qty'        => (float) $s->qty,
-                    'user_name'  => $s->user->name ?? 'Operator',
-                ];
-            })->values();
-
-        $itemsPayload = $items->map(fn ($i) => [
-            'id'           => $i->id,
-            'part_no'      => $i->part_no ? strtoupper(trim($i->part_no)) : '',
-            'part_name'    => strtoupper(trim($i->part_name)),
-            'type'         => $i->type,
-            'uom'          => $i->uom,
-            'company_code' => $i->company->company_code ?? 'INTERNAL',
-            'company_type' => $i->company->type_company ?? 'INTERNAL',
-            'stock'        => $i->inventoryStock ? (float) $i->inventoryStock->current_stock : 0,
-        ])->values();
-
-        $bomsPayload = $allBoms->map(fn ($b) => [
-            'id'                => $b->id,
-            'bom_group'         => $b->bom_group ?: ('LEGACY-' . $b->process_id . '-' . $b->output_item_id),
-            'group_type'        => $b->group_type,
-            'process_id'        => $b->process_id,
-            'process_name'      => $b->process->process_name ?? '-',
-            'input_item_id'     => $b->input_item_id,
-            'output_item_id'    => $b->output_item_id,
-            'qty_usage'         => (float) $b->qty_usage,
-            'qty_usage_display' => $b->formatted_qty_usage,
-            'is_trigger'        => (bool) $b->is_trigger,
-        ])->values();
-    @endphp
-
-    <div x-data="matOutScanner({{ Js::from($itemsPayload) }}, {{ Js::from($bomsPayload) }}, {{ Js::from($existingLots) }}, {{ Js::from($allScansData) }}, '{{ now()->format('Y-m-d') }}')"
-         x-init="initScanner()">
+    <div x-data="matOutScanner({{ Js::from(route('material_outs.lookup')) }}, {{ Js::from($allScansData ?? []) }}, '{{ now()->format('Y-m-d') }}')"
+         x-init="initScanner()"
+         @pageshow.window="isSubmitting = false">
 
         {{-- VISUAL STEPPER --}}
         <div class="scan-stepper mb-3">
@@ -134,8 +79,8 @@
                                    @keydown.enter.prevent="handleScan(manualCode)"
                                    :placeholder="step === 1 ? 'Contoh: SHEET METAL SPHC 2.0MM atau FGK-PLT-001' : 'Contoh: FG-BKT-001 atau FG-GUS-R'"
                                    class="num uppercase flex-1 h-10 text-xs font-semibold">
-                            <button type="button" @click="handleScan(manualCode)" class="btn btn-primary px-4 h-10">
-                                Cek Kode
+                            <button type="button" @click="handleScan(manualCode)" :disabled="isLookingUp" class="btn btn-primary px-4 h-10">
+                                <span x-text="isLookingUp ? 'Cek...' : 'Cek Kode'"></span>
                             </button>
                         </div>
                     </div>
@@ -224,7 +169,7 @@
                         <input type="hidden" name="mode" value="scanner">
                         <input type="hidden" name="material_item_id" :value="materialItem?.id">
                         <input type="hidden" name="target_item_id" :value="targetItem?.id">
-                        <input type="hidden" name="bom_group" :value="selectedBomGroup">
+                        <input type="hidden" name="bom_group" :value="activeGroupObj?.bom_group_raw ?? ''">
 
                         <div>
                             <label class="lbl">Nomor Lot</label>
@@ -262,12 +207,12 @@
                             </div>
                         </div>
 
-                        <button type="submit" class="btn btn-primary btn-lg w-full">
-                            Simpan Material Out
+                        <button type="submit" :disabled="isSubmitting" class="btn btn-primary btn-lg w-full">
+                            <span x-text="isSubmitting ? 'Menyimpan...' : 'Simpan Material Out'"></span>
                         </button>
                     </form>
 
-                    <button type="button" @click="resetAll()" class="btn w-full">
+                    <button type="button" @click="resetAll()" :disabled="isSubmitting" class="btn w-full">
                         Batal &amp; Scan Ulang
                     </button>
                 </div>
@@ -315,17 +260,18 @@
     </div>
 
     <script>
-        function matOutScanner(items, boms, existingLots, allScans, todayStr) {
+        function matOutScanner(lookupUrl, allScans, todayStr) {
             return {
+                lookupUrl: lookupUrl,
                 step: 1,
                 cameraActive: false,
+                isLookingUp: false,
+                isSubmitting: false,
                 manualCode: '',
                 lastCamCode: '',
                 lastCamAt: 0,
-                items: items,
-                boms: boms,
-                existingLots: existingLots,
-                allScans: allScans,
+                existingLots: [],
+                allScans: allScans || [],
                 todayStr: todayStr,
                 histDate: todayStr,
                 histSearch: '',
@@ -364,85 +310,72 @@
                     );
                     if (!ok) this.cameraActive = false;
                 },
-                findItem(code) {
-                    const c = String(code || '').trim().toUpperCase();
-                    if (!c) return null;
-                    return this.items.find(i => i.part_no === c || i.part_name === c) || null;
-                },
-                handleScan(rawCode, fromCamera = false) {
+                async handleScan(rawCode, fromCamera = false) {
                     const c = String(rawCode || '').trim().toUpperCase();
-                    if (!c) return;
+                    if (!c || this.isLookingUp) return;
                     if (fromCamera) {
                         const now = Date.now();
                         if (this.lastCamCode === c && (now - this.lastCamAt) < 900) return;
                         this.lastCamCode = c;
                         this.lastCamAt = now;
                     }
-                    const found = this.findItem(c);
-                    if (!found) {
-                        this.notifyError(`Kode "${rawCode}" tidak ditemukan.`);
-                        return;
-                    }
 
-                    if (this.step === 1) {
-                        if (!['RM', 'KOMPONEN', 'FG/KOMPONEN'].includes(found.type) || !['SUPPLIER', 'INTERNAL'].includes(found.company_type)) {
-                            this.notifyError(`${found.part_name} tidak sesuai sebagai Material Input.`);
-                            return;
-                        }
-                        const isTrig = this.boms.some(b => String(b.input_item_id) === String(found.id) && b.is_trigger);
-                        if (!isTrig) {
-                            this.notifyError(`${found.part_name} belum terdaftar sebagai Trigger di BOM.`);
-                            return;
-                        }
-                        if (found.stock <= 0) {
-                            this.notifyError(`Stok ${found.part_name} kosong (0 ${found.uom}).`);
-                            return;
-                        }
-                        this.clearToast();
-                        this.materialItem = found;
-                        this.manualCode = '';
-                        if (fromCamera) {
-                            this.lastCamCode = c;
-                            this.lastCamAt = Date.now() + 600;
-                        }
-                        this.step = 2;
-                    } else if (this.step === 2) {
-                        if (!['FG', 'KOMPONEN', 'FG/KOMPONEN'].includes(found.type) || !['INTERNAL', 'CUSTOMER'].includes(found.company_type)) {
-                            this.notifyError(`${found.part_name} tidak sesuai sebagai Target Output.`);
-                            return;
-                        }
-                        const matchedTriggers = this.boms.filter(b =>
-                            String(b.input_item_id) === String(this.materialItem.id) &&
-                            String(b.output_item_id) === String(found.id) &&
-                            b.is_trigger
-                        );
-                        if (matchedTriggers.length === 0) {
-                            this.notifyError(`Pasangan ${this.materialItem.part_name} → ${found.part_name} tidak ada di BOM.`);
-                            return;
-                        }
-
-                        this.clearToast();
-                        this.targetItem = found;
-                        this.candidateGroups = matchedTriggers.map(mt => {
-                            const grpRows = this.boms.filter(b => b.bom_group === mt.bom_group && b.is_trigger);
-                            const outNames = grpRows.map(gr => {
-                                const it = this.items.find(x => String(x.id) === String(gr.output_item_id));
-                                return it ? (it.part_no || it.part_name) : '-';
-                            }).join(' + ');
-                            return {
-                                bom_group: mt.bom_group,
-                                group_type: mt.group_type,
-                                process_name: mt.process_name,
-                                outputs_label: outNames
-                            };
+                    this.isLookingUp = true;
+                    try {
+                        const params = new URLSearchParams({
+                            step: String(this.step),
+                            code: c
                         });
-                        this.selectedBomGroup = this.candidateGroups[0].bom_group;
-                        this.manualCode = '';
-                        this.lastCamCode = '';
-                        this.lastCamAt = 0;
-                        this.step = 3;
-                        window.DRCScanner.stop();
-                        this.cameraActive = false;
+                        if (this.step === 2 && this.materialItem) {
+                            params.set('material_item_id', String(this.materialItem.id));
+                        }
+
+                        const res = await fetch(`${this.lookupUrl}?${params.toString()}`, {
+                            method: 'GET',
+                            credentials: 'same-origin',
+                            headers: {
+                                'Accept': 'application/json',
+                                'X-Requested-With': 'XMLHttpRequest'
+                            }
+                        });
+                        if (!res.ok) {
+                            throw new Error(`Gagal memeriksa kode (HTTP ${res.status}).`);
+                        }
+                        const data = await res.json();
+                        if (!data.ok || !data.item) {
+                            this.notifyError(data.message || `Kode "${rawCode}" tidak ditemukan.`);
+                            return;
+                        }
+
+                        if (this.step === 1) {
+                            this.clearToast();
+                            this.materialItem = data.item;
+                            this.manualCode = '';
+                            if (fromCamera) {
+                                this.lastCamCode = c;
+                                this.lastCamAt = Date.now() + 600;
+                            }
+                            this.step = 2;
+                        } else if (this.step === 2) {
+                            this.clearToast();
+                            if (data.material_item) {
+                                this.materialItem = data.material_item;
+                            }
+                            this.targetItem = data.item;
+                            this.candidateGroups = Array.isArray(data.candidate_groups) ? data.candidate_groups : [];
+                            this.existingLots = Array.isArray(data.existing_lots) ? data.existing_lots : [];
+                            this.selectedBomGroup = this.candidateGroups.length > 0 ? this.candidateGroups[0].bom_group : '';
+                            this.manualCode = '';
+                            this.lastCamCode = '';
+                            this.lastCamAt = 0;
+                            this.step = 3;
+                            window.DRCScanner.stop();
+                            this.cameraActive = false;
+                        }
+                    } catch (err) {
+                        this.notifyError((err && err.message) ? err.message : 'Gagal menghubungi server. Periksa koneksi jaringan.');
+                    } finally {
+                        this.isLookingUp = false;
                     }
                 },
                 evalCalc(raw) {
@@ -460,30 +393,30 @@
                     const r = this.evalCalc(this.rawQty);
                     return (r !== null && r > 0) ? r : 0;
                 },
+                get activeGroupObj() {
+                    return this.candidateGroups.find(x => x.bom_group === this.selectedBomGroup) || null;
+                },
                 get activeGroupType() {
-                    const g = this.candidateGroups.find(x => x.bom_group === this.selectedBomGroup);
-                    return g ? g.group_type : 'SINGLE';
+                    return this.activeGroupObj ? this.activeGroupObj.group_type : 'SINGLE';
                 },
                 get activeProcessName() {
-                    const g = this.candidateGroups.find(x => x.bom_group === this.selectedBomGroup);
-                    return g ? g.process_name : '-';
+                    return this.activeGroupObj ? this.activeGroupObj.process_name : '-';
                 },
                 get groupTargetOutputs() {
-                    if (!this.materialItem || !this.selectedBomGroup) return [];
-                    const trigRows = this.boms.filter(b =>
-                        b.bom_group === this.selectedBomGroup &&
-                        String(b.input_item_id) === String(this.materialItem.id) &&
-                        b.is_trigger
-                    );
+                    const grp = this.activeGroupObj;
+                    if (!this.materialItem || !grp || !Array.isArray(grp.triggers)) return [];
                     const q = this.parsedQty;
-                    return trigRows.map(r => {
-                        const outIt = this.items.find(i => String(i.id) === String(r.output_item_id));
-                        const est = (q > 0 && r.qty_usage > 0) ? Math.round((q / r.qty_usage) * 100) / 100 : 0;
+                    return grp.triggers.map(r => {
+                        const rawEst = (q > 0 && r.qty_usage > 0) ? (q / r.qty_usage) : 0;
+                        const nearest = Math.round(rawEst);
+                        const est = rawEst > 0
+                            ? (Math.abs(rawEst - nearest) < 0.001 ? nearest : Math.round(rawEst * 100) / 100)
+                            : 0;
                         return {
                             output_item_id: r.output_item_id,
-                            part_no: outIt?.part_no || '-',
-                            part_name: outIt?.part_name || '-',
-                            uom: outIt?.uom || 'PCS',
+                            part_no: r.part_no || '-',
+                            part_name: r.part_name || '-',
+                            uom: r.uom || 'PCS',
                             qty_usage: r.qty_usage,
                             qty_usage_display: r.qty_usage_display || r.qty_usage,
                             est_qty: est
@@ -491,31 +424,27 @@
                     });
                 },
                 get groupCompanions() {
-                    if (!this.materialItem || !this.selectedBomGroup) return [];
+                    const grp = this.activeGroupObj;
+                    if (!this.materialItem || !grp || !Array.isArray(grp.companions)) return [];
                     const outputs = this.groupTargetOutputs;
                     const map = {};
                     outputs.forEach(out => {
-                        const compRows = this.boms.filter(b =>
-                            b.bom_group === this.selectedBomGroup &&
-                            String(b.output_item_id) === String(out.output_item_id) &&
-                            !b.is_trigger
-                        );
-                        compRows.forEach(cr => {
-                            const compIt = this.items.find(i => String(i.id) === String(cr.input_item_id));
-                            if (!compIt) return;
-                            const needed = Math.round((out.est_qty * cr.qty_usage) * 100) / 100;
-                            if (!map[compIt.id]) {
-                                map[compIt.id] = {
-                                    input_item_id: compIt.id,
-                                    part_no: compIt.part_no || '-',
-                                    part_name: compIt.part_name,
-                                    uom: compIt.uom,
-                                    stock: compIt.stock,
-                                    needed: 0
-                                };
-                            }
-                            map[compIt.id].needed = Math.round((map[compIt.id].needed + needed) * 100) / 100;
-                        });
+                        grp.companions
+                            .filter(cr => String(cr.output_item_id) === String(out.output_item_id))
+                            .forEach(cr => {
+                                const needed = Math.round((out.est_qty * cr.qty_usage) * 100) / 100;
+                                if (!map[cr.input_item_id]) {
+                                    map[cr.input_item_id] = {
+                                        input_item_id: cr.input_item_id,
+                                        part_no: cr.part_no || '-',
+                                        part_name: cr.part_name,
+                                        uom: cr.uom,
+                                        stock: cr.stock,
+                                        needed: 0
+                                    };
+                                }
+                                map[cr.input_item_id].needed = Math.round((map[cr.input_item_id].needed + needed) * 100) / 100;
+                            });
                     });
                     return Object.values(map);
                 },
@@ -527,6 +456,7 @@
                     return this.existingLots.includes(this.lotNumber.toUpperCase());
                 },
                 submitForm(formEl) {
+                    if (this.isSubmitting) return;
                     if (!this.materialItem || !this.targetItem) {
                         this.notifyError('Scan Material dan Target Output terlebih dahulu.');
                         return;
@@ -567,6 +497,7 @@
                         this.notifyError(`Stok pendamping ${lacking.part_name} kurang (butuh ${lacking.needed}, tersedia ${lacking.stock} ${lacking.uom}).`);
                         return;
                     }
+                    this.isSubmitting = true;
                     formEl.submit();
                 },
                 get filteredHistory() {
@@ -581,9 +512,11 @@
                     });
                 },
                 resetAll() {
+                    this.isSubmitting = false;
                     this.materialItem = null;
                     this.targetItem = null;
                     this.candidateGroups = [];
+                    this.existingLots = [];
                     this.selectedBomGroup = '';
                     this.lotNumber = '';
                     this.rawQty = '';

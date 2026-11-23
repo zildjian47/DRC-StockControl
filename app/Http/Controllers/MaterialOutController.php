@@ -7,6 +7,7 @@ use App\Models\InventoryStock;
 use App\Models\Item;
 use App\Models\LotTracer;
 use App\Models\MaterialOut;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -85,21 +86,41 @@ class MaterialOutController extends Controller
 
     public function index(Request $request)
     {
-        $allBoms = Bom::with(['process', 'inputItem.inventoryStock', 'outputItem'])->get();
-
         if ($request->query('mode') === 'scanner') {
-            $todayScans = MaterialOut::with(['materialItem', 'targetItem', 'user'])
-                ->whereDate('date_time', now()->toDateString())
+            $allScansData = MaterialOut::with(['materialItem', 'targetItem', 'user'])
                 ->orderBy('date_time', 'desc')
                 ->orderBy('id', 'desc')
-                ->get();
+                ->limit(500)
+                ->get()
+                ->groupBy('lot_number')
+                ->map(function ($rows, $lotNo) {
+                    $s = $rows->first();
+                    $dt = Carbon::parse($s->date_time);
+                    $targets = $rows->map(function ($r) {
+                        $no = $r->targetItem->part_no ?? '';
+                        $nm = $r->targetItem->part_name ?? '-';
+                        return $no ? "{$no} — {$nm}" : $nm;
+                    })->unique()->values()->implode(', ');
 
-            $recentScans = $todayScans;
-            $items = Item::with(['company', 'inventoryStock'])->get();
-            $existingLots = LotTracer::pluck('lot_number')->unique()->values();
+                    return [
+                        'id'         => $s->id,
+                        'date'       => $dt->format('Y-m-d'),
+                        'time'       => $dt->format('H:i'),
+                        'date_fmt'   => $dt->format('d M Y, H:i'),
+                        'lot_number' => $lotNo,
+                        'mat_no'     => $s->materialItem->part_no ?: '-',
+                        'mat_name'   => $s->materialItem->part_name ?? '-',
+                        'mat_uom'    => $s->materialItem->uom ?? '',
+                        'targets'    => $targets,
+                        'qty'        => (float) $s->qty,
+                        'user_name'  => $s->user->name ?? 'Operator',
+                    ];
+                })->values();
 
-            return view('material_outs.scanner', compact('todayScans', 'recentScans', 'allBoms', 'items', 'existingLots'));
+            return view('material_outs.scanner', compact('allScansData'));
         }
+
+        $allBoms = Bom::with(['process', 'inputItem.inventoryStock', 'outputItem'])->get();
 
         $materialOuts = MaterialOut::with(['materialItem.company', 'targetItem.company', 'user'])
             ->orderBy('date_time', 'desc')
@@ -173,14 +194,196 @@ class MaterialOutController extends Controller
                 'outputs'      => $outputs,
                 'status_label' => $isCorrected ? 'DIKOREKSI' : 'TERCATAT',
                 'search_index' => $searchStr,
-                'date_only'    => \Carbon\Carbon::parse($first->date_time)->format('Y-m-d'),
-                'time_only'    => \Carbon\Carbon::parse($first->date_time)->format('H:i'),
+                'date_only'    => Carbon::parse($first->date_time)->format('Y-m-d'),
+                'time_only'    => Carbon::parse($first->date_time)->format('H:i'),
             ];
         })->values();
 
         $groups = $groupedOuts;
 
         return view('material_outs.index', compact('materialOuts', 'groupedOuts', 'groups'));
+    }
+
+    public function lookup(Request $request)
+    {
+        $step    = (int) $request->query('step', 1);
+        $rawCode = trim((string) $request->query('code', ''));
+        $code    = strtoupper($rawCode);
+
+        if ($code === '') {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'Kode QR / Part wajib diisi.',
+            ]);
+        }
+
+        $item = Item::with(['company', 'inventoryStock'])
+            ->where('part_no', $code)
+            ->orWhere('part_name', $code)
+            ->first();
+
+        if (!$item) {
+            return response()->json([
+                'ok'      => false,
+                'message' => "Kode \"{$rawCode}\" tidak ditemukan.",
+            ]);
+        }
+
+        $formatItem = fn (Item $it) => [
+            'id'           => $it->id,
+            'part_no'      => $it->part_no ? strtoupper(trim($it->part_no)) : '',
+            'part_name'    => strtoupper(trim($it->part_name)),
+            'type'         => $it->type,
+            'uom'          => $it->uom,
+            'company_code' => $it->company->company_code ?? 'INTERNAL',
+            'company_type' => $it->company->type_company ?? 'INTERNAL',
+            'stock'        => $it->inventoryStock ? (float) $it->inventoryStock->current_stock : 0.0,
+        ];
+
+        $compType = $item->company->type_company ?? 'INTERNAL';
+
+        if ($step === 1) {
+            if (!in_array($item->type, ['RM', 'KOMPONEN', 'FG/KOMPONEN'], true) || !in_array($compType, ['SUPPLIER', 'INTERNAL'], true)) {
+                return response()->json([
+                    'ok'      => false,
+                    'message' => "{$item->part_name} tidak sesuai sebagai Material Input.",
+                ]);
+            }
+
+            $isTrigger = Bom::where('input_item_id', $item->id)
+                ->where('is_trigger', true)
+                ->exists();
+
+            if (!$isTrigger) {
+                return response()->json([
+                    'ok'      => false,
+                    'message' => "{$item->part_name} belum terdaftar sebagai Trigger di BOM.",
+                ]);
+            }
+
+            $stock = $item->inventoryStock ? (float) $item->inventoryStock->current_stock : 0.0;
+            if ($stock <= 0) {
+                return response()->json([
+                    'ok'      => false,
+                    'message' => "Stok {$item->part_name} kosong (0 {$item->uom}).",
+                ]);
+            }
+
+            return response()->json([
+                'ok'   => true,
+                'item' => $formatItem($item),
+            ]);
+        }
+
+        // STEP 2: Validasi Target Output & muat grup BOM + stok pendamping + existing lots terbaru
+        $materialItem = Item::with(['company', 'inventoryStock'])->find((int) $request->query('material_item_id', 0));
+        if (!$materialItem) {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'Material Input tidak ditemukan. Silakan ulangi dari Langkah 1.',
+            ]);
+        }
+
+        if (!in_array($item->type, ['FG', 'KOMPONEN', 'FG/KOMPONEN'], true) || !in_array($compType, ['INTERNAL', 'CUSTOMER'], true)) {
+            return response()->json([
+                'ok'      => false,
+                'message' => "{$item->part_name} tidak sesuai sebagai Target Output.",
+            ]);
+        }
+
+        $matchedTriggers = Bom::with('process')
+            ->where('input_item_id', $materialItem->id)
+            ->where('output_item_id', $item->id)
+            ->where('is_trigger', true)
+            ->get();
+
+        if ($matchedTriggers->isEmpty()) {
+            return response()->json([
+                'ok'      => false,
+                'message' => "Pasangan {$materialItem->part_name} → {$item->part_name} tidak ada di BOM.",
+            ]);
+        }
+
+        $candidateGroups = [];
+        foreach ($matchedTriggers as $mt) {
+            $groupKey = $mt->bom_group;
+            $displayKey = $groupKey ?: ('LEGACY-' . $mt->process_id . '-' . $mt->output_item_id);
+
+            if (!empty($groupKey) && (str_starts_with($groupKey, 'MO-') || str_starts_with($groupKey, 'CB-'))) {
+                $triggerBomsInGroup = Bom::with(['outputItem', 'process'])
+                    ->where('bom_group', $groupKey)
+                    ->where('input_item_id', $materialItem->id)
+                    ->where('is_trigger', true)
+                    ->get();
+            } else {
+                $mt->loadMissing(['outputItem', 'process']);
+                $triggerBomsInGroup = collect([$mt]);
+            }
+
+            $triggersPayload = [];
+            $companionsPayload = [];
+
+            foreach ($triggerBomsInGroup as $tBom) {
+                $outIt = $tBom->outputItem;
+                $triggersPayload[] = [
+                    'output_item_id'    => $tBom->output_item_id,
+                    'part_no'           => $outIt && $outIt->part_no ? strtoupper(trim($outIt->part_no)) : '-',
+                    'part_name'         => $outIt ? strtoupper(trim($outIt->part_name)) : '-',
+                    'uom'               => $outIt->uom ?? 'PCS',
+                    'qty_usage'         => (float) $tBom->qty_usage,
+                    'qty_usage_display' => $tBom->formatted_qty_usage,
+                ];
+
+                $compQuery = Bom::with(['inputItem.inventoryStock'])
+                    ->where('process_id', $tBom->process_id)
+                    ->where('output_item_id', $tBom->output_item_id)
+                    ->where('is_trigger', false);
+
+                if (!empty($tBom->bom_group)) {
+                    $compQuery->where('bom_group', $tBom->bom_group);
+                }
+
+                foreach ($compQuery->get() as $cBom) {
+                    $cIt = $cBom->inputItem;
+                    if (!$cIt) {
+                        continue;
+                    }
+                    $companionsPayload[] = [
+                        'output_item_id' => $cBom->output_item_id,
+                        'input_item_id'  => $cIt->id,
+                        'part_no'        => $cIt->part_no ? strtoupper(trim($cIt->part_no)) : '-',
+                        'part_name'      => strtoupper(trim($cIt->part_name)),
+                        'uom'            => $cIt->uom ?? '',
+                        'stock'          => $cIt->inventoryStock ? (float) $cIt->inventoryStock->current_stock : 0.0,
+                        'qty_usage'      => (float) $cBom->qty_usage,
+                    ];
+                }
+            }
+
+            $outputsLabel = collect($triggersPayload)
+                ->map(fn ($o) => $o['part_no'] !== '-' ? $o['part_no'] : $o['part_name'])
+                ->implode(' + ');
+
+            $candidateGroups[] = [
+                'bom_group'     => $displayKey,
+                'bom_group_raw' => $groupKey ?: '',
+                'group_type'    => $mt->group_type,
+                'process_name'  => $mt->process->process_name ?? '-',
+                'outputs_label' => $outputsLabel,
+                'triggers'      => $triggersPayload,
+                'companions'    => $companionsPayload,
+            ];
+        }
+
+        $existingLots = LotTracer::pluck('lot_number')->unique()->values()->all();
+
+        return response()->json([
+            'ok'               => true,
+            'material_item'    => $formatItem($materialItem),
+            'item'             => $formatItem($item),
+            'candidate_groups' => $candidateGroups,
+            'existing_lots'    => $existingLots,
+        ]);
     }
 
     public function store(Request $request)
@@ -199,7 +402,7 @@ class MaterialOutController extends Controller
             'lot_number.regex' => 'Format Lot wajib 1 huruf kapital + 6 angka (contoh: J260178).',
         ]);
 
-        $qtyOut = BomController::evaluateMath($request->qty);
+        $qtyOut = round(BomController::evaluateMath($request->qty), 2);
         if ($qtyOut <= 0) {
             return back()->withInput()->with('error', 'Qty harus lebih dari 0.');
         }

@@ -7,6 +7,7 @@ use App\Models\InventoryStock;
 use App\Models\Item;
 use App\Models\LotTracer;
 use App\Models\MaterialReturn;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -85,27 +86,41 @@ class MaterialReturnController extends Controller
 
     public function index(Request $request)
     {
-        $allBoms = Bom::with(['process', 'inputItem', 'outputItem'])->get();
-
         if ($request->query('mode') === 'scanner') {
-            $todayScans = MaterialReturn::with(['materialItem', 'targetItem', 'user'])
-                ->whereDate('date_time', now()->toDateString())
+            $allScansData = MaterialReturn::with(['materialItem', 'targetItem', 'user'])
                 ->orderBy('date_time', 'desc')
                 ->orderBy('id', 'desc')
-                ->get();
-
-            $recentScans = $todayScans;
-            $items = Item::with(['company', 'inventoryStock'])->get();
-            $returnedLots = MaterialReturn::pluck('lot_number')->unique()->toArray();
-
-            $activeLots = LotTracer::with(['materialItem', 'targetItem'])
-                ->where('status_lot', 'ON PROGRESS')
+                ->limit(500)
                 ->get()
-                ->filter(fn ($lt) => !in_array($lt->lot_number, $returnedLots) && $lt->material_saat_ini > 0)
-                ->values();
+                ->groupBy('lot_number')
+                ->map(function ($rows, $lotNo) {
+                    $s = $rows->first();
+                    $dt = Carbon::parse($s->date_time);
+                    $targets = $rows->map(function ($r) {
+                        $no = $r->targetItem->part_no ?? '';
+                        $nm = $r->targetItem->part_name ?? '-';
+                        return $no ? "{$no} — {$nm}" : $nm;
+                    })->unique()->values()->implode(', ');
 
-            return view('material_returns.scanner', compact('todayScans', 'recentScans', 'items', 'activeLots', 'allBoms'));
+                    return [
+                        'id'         => $s->id,
+                        'date'       => $dt->format('Y-m-d'),
+                        'time'       => $dt->format('H:i'),
+                        'date_fmt'   => $dt->format('d M Y, H:i'),
+                        'lot_number' => $lotNo,
+                        'mat_no'     => $s->materialItem->part_no ?: '-',
+                        'mat_name'   => $s->materialItem->part_name ?? '-',
+                        'mat_uom'    => $s->materialItem->uom ?? '',
+                        'targets'    => $targets,
+                        'qty'        => (float) $s->qty,
+                        'user_name'  => $s->user->name ?? 'Operator',
+                    ];
+                })->values();
+
+            return view('material_returns.scanner', compact('allScansData'));
         }
+
+        $allBoms = Bom::with(['process', 'inputItem', 'outputItem'])->get();
 
         $materialReturns = MaterialReturn::with(['materialItem.company', 'targetItem.company', 'user'])
             ->orderBy('date_time', 'desc')
@@ -179,14 +194,203 @@ class MaterialReturnController extends Controller
                 'outputs'      => $outputs,
                 'status_label' => $isCorrected ? 'DIKOREKSI' : 'TERCATAT',
                 'search_index' => $searchStr,
-                'date_only'    => \Carbon\Carbon::parse($first->date_time)->format('Y-m-d'),
-                'time_only'    => \Carbon\Carbon::parse($first->date_time)->format('H:i'),
+                'date_only'    => Carbon::parse($first->date_time)->format('Y-m-d'),
+                'time_only'    => Carbon::parse($first->date_time)->format('H:i'),
             ];
         })->values();
 
+        $stockMap = InventoryStock::whereIn('item_id', $materialReturns->pluck('material_item_id')->unique())
+            ->pluck('current_stock', 'item_id');
+
+        $lotRowsByKey = LotTracer::whereIn('lot_number', $materialReturns->pluck('lot_number')->unique())
+            ->get()
+            ->groupBy(fn ($l) => $l->lot_number . '|' . $l->material_item_id);
+
+        $maxAllowedMap = [];
+        foreach ($lotRowsByKey as $k => $lRows) {
+            $minAllow = null;
+            foreach ($lRows as $lt) {
+                $meta = $this->resolveBomMeta((int) $lt->material_item_id, (int) $lt->target_item_id, $allBoms, $lt->bom_group);
+                $usage = $meta['qty_usage'] > 0 ? (float) $meta['qty_usage'] : 1.0;
+                $usedByProd = (float) $lt->actual_qty_prod * $usage;
+                $allow = max(0, round((float) $lt->qty_material_out - $usedByProd, 2));
+                if ($minAllow === null || $allow < $minAllow) {
+                    $minAllow = $allow;
+                }
+            }
+            $maxAllowedMap[$k] = $minAllow ?? 0;
+        }
+
         $groups = $groupedReturns;
 
-        return view('material_returns.index', compact('materialReturns', 'groupedReturns', 'groups'));
+        return view('material_returns.index', compact('materialReturns', 'groupedReturns', 'groups', 'stockMap', 'maxAllowedMap'));
+    }
+
+    public function lookup(Request $request)
+    {
+        $step    = (int) $request->query('step', 1);
+        $rawCode = trim((string) $request->query('code', ''));
+        $code    = strtoupper($rawCode);
+
+        if ($code === '') {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'Kode QR / Part wajib diisi.',
+            ]);
+        }
+
+        $item = Item::with(['company', 'inventoryStock'])
+            ->where('part_no', $code)
+            ->orWhere('part_name', $code)
+            ->first();
+
+        if (!$item) {
+            return response()->json([
+                'ok'      => false,
+                'message' => "Kode \"{$rawCode}\" tidak ditemukan.",
+            ]);
+        }
+
+        $formatItem = fn (Item $it) => [
+            'id'           => $it->id,
+            'part_no'      => $it->part_no ? strtoupper(trim($it->part_no)) : '',
+            'part_name'    => strtoupper(trim($it->part_name)),
+            'type'         => $it->type,
+            'uom'          => $it->uom,
+            'company_type' => $it->company->type_company ?? 'INTERNAL',
+            'stock'        => $it->inventoryStock ? (float) $it->inventoryStock->current_stock : 0.0,
+        ];
+
+        $returnedLots = MaterialReturn::pluck('lot_number')->unique()->all();
+        $allBoms      = Bom::all();
+
+        if ($step === 1) {
+            $candidateLotNos = LotTracer::where('material_item_id', $item->id)
+                ->where('status_lot', 'ON PROGRESS')
+                ->when(!empty($returnedLots), fn ($q) => $q->whereNotIn('lot_number', $returnedLots))
+                ->pluck('lot_number')
+                ->unique()
+                ->all();
+
+            if (empty($candidateLotNos)) {
+                return response()->json([
+                    'ok'      => false,
+                    'message' => "{$item->part_name} tidak memiliki Lot aktif untuk diretur.",
+                ]);
+            }
+
+            $allLotRows = LotTracer::whereIn('lot_number', $candidateLotNos)->get();
+            $hasReturnable = false;
+
+            foreach ($allLotRows->groupBy('lot_number') as $lotRows) {
+                if ($lotRows->contains('status_lot', 'FINISH')) {
+                    continue;
+                }
+                $first   = $lotRows->first();
+                $maxUsed = 0.0;
+                foreach ($lotRows as $lr) {
+                    $meta  = $this->resolveBomMeta((int) $lr->material_item_id, (int) $lr->target_item_id, $allBoms, $lr->bom_group);
+                    $usage = $meta['qty_usage'] > 0 ? (float) $meta['qty_usage'] : 1.0;
+                    $used  = (float) $lr->actual_qty_prod * $usage;
+                    if ($used > $maxUsed) {
+                        $maxUsed = $used;
+                    }
+                }
+                $remMat = round(max(0, (float) $first->qty_material_out - (float) $first->qty_material_return - $maxUsed), 2);
+                if ($remMat > 0) {
+                    $hasReturnable = true;
+                    break;
+                }
+            }
+
+            if (!$hasReturnable) {
+                return response()->json([
+                    'ok'      => false,
+                    'message' => "{$item->part_name} tidak memiliki Lot aktif untuk diretur.",
+                ]);
+            }
+
+            return response()->json([
+                'ok'   => true,
+                'item' => $formatItem($item),
+            ]);
+        }
+
+        // STEP 2: Validasi Target Output & muat daftar Lot aktif beserta sisa material terbaru
+        $materialItem = Item::with(['company', 'inventoryStock'])->find((int) $request->query('material_item_id', 0));
+        if (!$materialItem) {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'Material Retur tidak ditemukan. Silakan ulangi dari Langkah 1.',
+            ]);
+        }
+
+        $matchedLotNos = LotTracer::where('material_item_id', $materialItem->id)
+            ->where('target_item_id', $item->id)
+            ->where('status_lot', 'ON PROGRESS')
+            ->when(!empty($returnedLots), fn ($q) => $q->whereNotIn('lot_number', $returnedLots))
+            ->pluck('lot_number')
+            ->unique()
+            ->all();
+
+        if (empty($matchedLotNos)) {
+            return response()->json([
+                'ok'      => false,
+                'message' => "Tidak ada Lot aktif untuk {$materialItem->part_name} → {$item->part_name}.",
+            ]);
+        }
+
+        $allLotRows = LotTracer::with(['materialItem', 'targetItem'])
+            ->whereIn('lot_number', $matchedLotNos)
+            ->orderBy('id', 'desc')
+            ->get();
+
+        $lotsPayload = [];
+        foreach ($allLotRows->groupBy('lot_number') as $lotNo => $lotRows) {
+            if ($lotRows->contains('status_lot', 'FINISH')) {
+                continue;
+            }
+            $first   = $lotRows->first();
+            $maxUsed = 0.0;
+            foreach ($lotRows as $lr) {
+                $meta  = $this->resolveBomMeta((int) $lr->material_item_id, (int) $lr->target_item_id, $allBoms, $lr->bom_group);
+                $usage = $meta['qty_usage'] > 0 ? (float) $meta['qty_usage'] : 1.0;
+                $used  = (float) $lr->actual_qty_prod * $usage;
+                if ($used > $maxUsed) {
+                    $maxUsed = $used;
+                }
+            }
+            $remMat = round(max(0, (float) $first->qty_material_out - (float) $first->qty_material_return - $maxUsed), 2);
+            if ($remMat <= 0) {
+                continue;
+            }
+
+            $targetRow = $lotRows->firstWhere('target_item_id', $item->id) ?? $first;
+            $lotsPayload[] = [
+                'id'               => $targetRow->id,
+                'lot_number'       => $lotNo,
+                'material_item_id' => $targetRow->material_item_id,
+                'target_item_id'   => $targetRow->target_item_id,
+                'mat_out'          => (float) $targetRow->qty_material_out,
+                'mat_saat_ini'     => $remMat,
+                'target_name'      => $targetRow->targetItem->part_name ?? $item->part_name,
+                'mat_uom'          => $targetRow->materialItem->uom ?? $materialItem->uom ?? '',
+            ];
+        }
+
+        if (empty($lotsPayload)) {
+            return response()->json([
+                'ok'      => false,
+                'message' => "Tidak ada Lot aktif untuk {$materialItem->part_name} → {$item->part_name}.",
+            ]);
+        }
+
+        return response()->json([
+            'ok'            => true,
+            'material_item' => $formatItem($materialItem),
+            'item'          => $formatItem($item),
+            'lots'          => array_values($lotsPayload),
+        ]);
     }
 
     public function store(Request $request)
@@ -202,7 +406,7 @@ class MaterialReturnController extends Controller
             'qty'              => 'required',
         ]);
 
-        $qtyReturn = BomController::evaluateMath($request->qty);
+        $qtyReturn = round(BomController::evaluateMath($request->qty), 2);
         if ($qtyReturn <= 0) {
             return back()->withInput()->with('error', 'Qty harus lebih dari 0.');
         }

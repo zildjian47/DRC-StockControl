@@ -14,8 +14,9 @@ class InventoryStockController extends Controller
 
     public function index(Request $request)
     {
-        $activeItems = Item::pluck('id');
-        foreach ($activeItems as $itemId) {
+        $existingItemIds = InventoryStock::pluck('item_id')->all();
+        $missingItemIds  = Item::whereNotIn('id', $existingItemIds)->pluck('id');
+        foreach ($missingItemIds as $itemId) {
             InventoryStock::firstOrCreate(
                 ['item_id' => $itemId],
                 ['current_stock' => 0, 'status_stock' => 'EMPTY STOCK']
@@ -24,10 +25,7 @@ class InventoryStockController extends Controller
 
         $allStocks = InventoryStock::with([
             'item.company',
-            'item.bomsAsInput.outputItem.inventoryStock',
-            'item.bomsAsInput.process',
-            'item.bomsAsOutput.inputItem.inventoryStock',
-            'item.bomsAsOutput.process',
+            'item.bomsAsInput.outputItem',
         ])->whereHas('item')->get();
 
         foreach ($allStocks as $st) {

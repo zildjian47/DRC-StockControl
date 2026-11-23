@@ -32,7 +32,8 @@
     <div class="panel"
          x-data="masterItemPage({{ $items->count() }}, {{ Js::from($companiesJs) }}, {{ $errors->any() ? 'true' : 'false' }})"
          @open-add-item.window="addOpen = true; addError = ''; syncAddCompany()"
-         x-init="syncAddCompany(); recalc()">
+         x-init="syncAddCompany(); recalc()"
+         @table-refreshed.window="recalc()">
 
         <div class="panel-head">
             <div class="panel-title">
@@ -107,7 +108,19 @@
                                 'has_history'  => $hasHist,
                             ];
 
-                            $info = $item->material_info_payload;
+                            $txCount = (int) ($item->inbounds_count ?? 0)
+                                + (int) ($item->material_outs_as_material_count ?? 0)
+                                + (int) ($item->material_returns_as_material_count ?? 0)
+                                + (int) ($item->productions_count ?? 0)
+                                + (int) ($item->production_ngs_count ?? 0)
+                                + (int) ($item->deliveries_count ?? 0)
+                                + (int) ($item->return_to_suppliers_count ?? 0)
+                                + (int) ($item->stock_adjustments_count ?? 0)
+                                + (int) ($item->problem_delays_count ?? 0);
+
+                            $bomCount = (int) ($item->boms_as_output_count ?? 0)
+                                + (int) ($item->boms_as_input_count ?? 0);
+
                             $delPayload = [
                                 'id'          => $item->id,
                                 'part_no'     => $item->part_no ?? '',
@@ -115,9 +128,9 @@
                                 'type'        => $item->type,
                                 'uom'         => $item->uom,
                                 'company'     => $compCode,
-                                'stock'       => floatval($info['current_stock'] ?? 0),
-                                'history'     => count($info['history'] ?? []),
-                                'bom'         => count($info['inputs'] ?? []) + count($info['outputs'] ?? []),
+                                'stock'       => floatval($item->inventoryStock->current_stock ?? 0),
+                                'history'     => $txCount,
+                                'bom'         => $bomCount,
                                 'has_history' => $hasHist,
                             ];
                         @endphp
@@ -156,7 +169,7 @@
                             <td class="text-center">
                                 <div class="inline-flex items-center justify-center gap-1">
                                     <button type="button" class="act-btn" title="Informasi Material & BOM"
-                                            @click="$dispatch('open-material-info', {{ Js::from($info) }})">
+                                            @click="$dispatch('open-material-info', {{ Js::from(['id' => $item->id, 'part_no' => $item->part_no ?: '-', 'part_name' => $item->part_name]) }})">
                                         <x-icon name="info" />
                                     </button>
                                     <button type="button" class="act-btn" title="Edit Item"
@@ -394,7 +407,7 @@
                                 <div class="opt-chips">
                                     @foreach($types as $t)
                                         <label>
-                                            <input type="radio" name="type" value="{{ $t }}" x-model="editData.type" :disabled="editData.has_history">
+                                            <input type="radio" name="type" value="{{ $t }}" x-model="editData.type" @change="syncEditCompany()" :disabled="editData.has_history">
                                             <span>{{ $t }}</span>
                                         </label>
                                     @endforeach
@@ -612,6 +625,15 @@
                         this.addCompanyId = list[0].id;
                     } else if (list.length === 0) {
                         this.addCompanyId = '';
+                    }
+                },
+                syncEditCompany() {
+                    if (this.editData.has_history) return;
+                    const list = this.allowedCompanies(this.editData.type);
+                    if (list.length > 0 && !list.some(c => String(c.id) === String(this.editData.company_id))) {
+                        this.editData.company_id = list[0].id;
+                    } else if (list.length === 0) {
+                        this.editData.company_id = '';
                     }
                 },
                 validatePoParams(po, wd, kb) {

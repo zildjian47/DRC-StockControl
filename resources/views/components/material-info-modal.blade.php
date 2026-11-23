@@ -1,4 +1,4 @@
-<div x-data="materialInfo()"
+<div x-data="materialInfo({{ Js::from(url('/items')) }})"
      @open-material-info.window="showModal($event.detail)"
      @keydown.escape.window="open = false"
      x-show="open"
@@ -11,14 +11,28 @@
             <div>
                 <h3 class="panel-title">Informasi Item</h3>
                 <p class="hint" style="margin-top: 2px"
-                   x-text="(info?.part_no && info?.part_no !== '-' ? info.part_no + ' · ' : '') + (info?.part_name ?? '')"></p>
+                   x-text="info ? ((info.part_no && info.part_no !== '-' ? info.part_no + ' · ' : '') + (info.part_name ?? '')) : (previewHeader || (loading ? 'Memuat data item...' : ''))"></p>
             </div>
             <button type="button" @click="open = false" class="act-btn" aria-label="Tutup">
                 <x-icon name="x" />
             </button>
         </div>
 
-        <div class="dlg-split dlg-split-wide" x-show="info">
+        <div x-show="loading" x-cloak class="panel-body py-12 text-center">
+            <div class="text-xs font-semibold text-slate-600">Memuat informasi item &amp; riwayat mutasi terbaru...</div>
+        </div>
+
+        <div x-show="!loading && loadError" x-cloak class="panel-body py-8 space-y-3">
+            <div class="alert alert-crit text-xs" role="alert">
+                <x-icon name="alert" />
+                <span x-text="loadError"></span>
+            </div>
+            <div>
+                <button type="button" class="btn btn-sm btn-primary" @click="retryLoad()">Coba Lagi</button>
+            </div>
+        </div>
+
+        <div class="dlg-split dlg-split-wide" x-show="!loading && !loadError && info">
             {{-- PANEL KIRI (ABU): IDENTITAS & STANDAR BUFFER --}}
             <aside class="dlg-side">
                 <div>
@@ -261,10 +275,10 @@
                                         <div class="tl-dot"><i></i></div>
                                         <div class="min-w-0">
                                             <div class="flex items-center gap-2 flex-wrap">
-                                                <span class="font-semibold" style="color: var(--ink)" x-text="cleanLabel(h.type_label)"></span>
+                                                <span class="font-semibold" style="color: var(--ink)" x-text="h.type_label || '-'"></span>
                                                 <span class="pill pill-info" x-show="h.status === 'DIKOREKSI'" x-text="'DIKOREKSI'"></span>
                                             </div>
-                                            <div class="hint break-words" style="margin-top: 0" x-text="cleanLabel(h.reference)"></div>
+                                            <div class="hint break-words" style="margin-top: 0" x-text="h.reference || '-'"></div>
                                             <div class="hint" style="margin-top: 0" x-text="cleanLabel(h.user_name || '-')"></div>
                                         </div>
                                         <div class="tl-qty num">
@@ -289,10 +303,16 @@
     </div>
 
     <script>
-        function materialInfo() {
+        function materialInfo(endpointBase) {
             const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
             return {
+                endpointBase: String(endpointBase || '/items').replace(/\/+$/, ''),
                 open: false,
+                loading: false,
+                loadError: '',
+                previewHeader: '',
+                lastPayload: null,
+                reqSeq: 0,
                 info: null,
                 histSearch: '',
                 histStartDate: '',
@@ -300,10 +320,59 @@
                 histStartTime: '',
                 histEndTime: '',
 
-                showModal(payload) {
-                    this.info = payload;
+                async showModal(payload) {
                     this.resetHistoryFilter();
+                    this.loadError = '';
+                    this.lastPayload = payload;
+
+                    if (payload && typeof payload === 'object' && Array.isArray(payload.history) && Array.isArray(payload.inputs)) {
+                        this.info = payload;
+                        this.previewHeader = '';
+                        this.loading = false;
+                        this.open = true;
+                        return;
+                    }
+
+                    const itemId = (payload && typeof payload === 'object') ? payload.id : payload;
+                    if (!itemId) return;
+
+                    const pNo = (payload && payload.part_no && payload.part_no !== '-') ? (payload.part_no + ' · ') : '';
+                    const pName = (payload && payload.part_name) ? payload.part_name : '';
+                    this.previewHeader = (pNo + pName).trim();
+
+                    this.info = null;
+                    this.loading = true;
                     this.open = true;
+
+                    const seq = ++this.reqSeq;
+                    try {
+                        const res = await fetch(`${this.endpointBase}/${encodeURIComponent(itemId)}/info`, {
+                            method: 'GET',
+                            credentials: 'same-origin',
+                            headers: {
+                                'Accept': 'application/json',
+                                'X-Requested-With': 'XMLHttpRequest'
+                            }
+                        });
+                        if (!res.ok) {
+                            throw new Error(`Gagal memuat informasi item (HTTP ${res.status}).`);
+                        }
+                        const data = await res.json();
+                        if (seq !== this.reqSeq) return;
+                        this.info = data;
+                    } catch (err) {
+                        if (seq !== this.reqSeq) return;
+                        this.loadError = (err && err.message) ? err.message : 'Gagal memuat informasi item. Periksa koneksi jaringan.';
+                    } finally {
+                        if (seq === this.reqSeq) {
+                            this.loading = false;
+                        }
+                    }
+                },
+                retryLoad() {
+                    if (this.lastPayload) {
+                        this.showModal(this.lastPayload);
+                    }
                 },
                 resetHistoryFilter() {
                     this.histSearch = '';

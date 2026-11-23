@@ -1,326 +1,4 @@
 <x-app-layout>
-    @php
-        $today = \Carbon\Carbon::today();
-        $cutoff07 = $today->copy()->setTime(7, 0, 0);
-        $isPast07 = now()->greaterThanOrEqualTo($cutoff07);
-
-        $outputToday = \App\Models\Production::whereDate('date_time', $today)->sum('qty');
-        $totalStock = \App\Models\InventoryStock::whereHas('item', fn($q) => $q->whereNull('deleted_at'))->sum('current_stock');
-        $inboundToday = \App\Models\Inbound::whereDate('date_time', $today)->count();
-
-        $totalProdAll = \App\Models\Production::sum('qty');
-        $totalNgAll = \App\Models\ProductionNg::sum('qty_ng');
-        $ngRate = $totalProdAll > 0 ? round(($totalNgAll / $totalProdAll) * 100, 2) : 0;
-
-        $delayCount = \App\Models\ProblemDelay::whereDate('date_time', $today)->count();
-        $activeLots = \App\Models\LotTracer::with(['process', 'materialItem', 'targetItem'])
-            ->where('status_lot', 'ON PROGRESS')
-            ->orderBy('updated_at', 'desc')
-            ->take(8)
-            ->get();
-
-        $outByDay = \App\Models\Production::selectRaw('DATE(date_time) as d, SUM(qty) as q')
-            ->whereDate('date_time', '>=', $today->copy()->subDays(6))
-            ->groupBy('d')
-            ->pluck('q', 'd');
-
-        $runningLots = \App\Models\LotTracer::where('status_lot', 'ON PROGRESS')->count();
-        $lowStockItems = \App\Models\InventoryStock::whereHas('item', fn($q) => $q->whereNull('deleted_at'))
-            ->whereIn('status_stock', ['EMPTY STOCK', 'VERY LOW', 'LOW STOCK'])
-            ->count();
-        $veryLowItems = \App\Models\InventoryStock::whereHas('item', fn($q) => $q->whereNull('deleted_at'))
-            ->whereIn('status_stock', ['EMPTY STOCK', 'VERY LOW'])
-            ->count();
-
-        // =========================================================================
-        // PERSIAPAN DATA ITEM, BOM, WIP, & SNAPSHOT PUKUL 07:00 PAGI
-        // =========================================================================
-        $allActiveItems = \App\Models\Item::with([
-            'company',
-            'inventoryStock',
-            'bomsAsInput.outputItem.inventoryStock',
-            'bomsAsInput.process',
-            'bomsAsOutput.inputItem.inventoryStock',
-            'bomsAsOutput.process',
-        ])->orderBy('part_name')->get();
-
-        $allRunningLots = \App\Models\LotTracer::with('process')
-            ->where('status_lot', 'ON PROGRESS')
-            ->orderBy('id', 'desc')
-            ->get();
-
-        $wipByTargetItem = [];
-        $wipDetailsByTargetItem = [];
-        $matInMachineByItem = [];
-
-        foreach ($allRunningLots->groupBy('lot_number') as $lotNo => $lotRows) {
-            $firstLot = $lotRows->first();
-            if ($firstLot) {
-                $remTrigger = (float) $firstLot->material_saat_ini;
-                if ($remTrigger > 0) {
-                    $mId = (int) $firstLot->material_item_id;
-                    $matInMachineByItem[$mId] = round(($matInMachineByItem[$mId] ?? 0) + $remTrigger, 2);
-                }
-                foreach ($firstLot->companion_items as $comp) {
-                    $cId = (int) ($comp['input_item_id'] ?? 0);
-                    $cRem = (float) ($comp['qty_saat_ini'] ?? 0);
-                    if ($cId > 0 && $cRem > 0) {
-                        $matInMachineByItem[$cId] = round(($matInMachineByItem[$cId] ?? 0) + $cRem, 2);
-                    }
-                }
-            }
-            foreach ($lotRows as $lr) {
-                $tId = (int) $lr->target_item_id;
-                $wipVal = (float) $lr->qty_wip;
-                $wipByTargetItem[$tId] = round(($wipByTargetItem[$tId] ?? 0) + $wipVal, 2);
-                if ($wipVal > 0) {
-                    $wipDetailsByTargetItem[$tId][] = [
-                        'lot_number'   => $lr->lot_number,
-                        'process_name' => $lr->process->process_name ?? '-',
-                        'qty_wip'      => floatval($wipVal),
-                    ];
-                }
-            }
-        }
-
-        // Hitung mutasi setelah pukul 07:00 pagi hari ini untuk mendapatkan posisi stock jam 07:00
-        $netAfter07 = [];
-        if ($isPast07) {
-            foreach (\App\Models\Inbound::where('date_time', '>=', $cutoff07)->get() as $r) {
-                $netAfter07[$r->item_id] = ($netAfter07[$r->item_id] ?? 0) + (float) $r->qty;
-            }
-            foreach (\App\Models\MaterialOut::where('date_time', '>=', $cutoff07)->get()->groupBy('lot_number') as $lotRows) {
-                $f = $lotRows->first();
-                if ($f) {
-                    $netAfter07[$f->material_item_id] = ($netAfter07[$f->material_item_id] ?? 0) - (float) $f->qty;
-                }
-            }
-            foreach (\App\Models\MaterialReturn::where('date_time', '>=', $cutoff07)->get()->groupBy('lot_number') as $lotRows) {
-                $f = $lotRows->first();
-                if ($f) {
-                    $netAfter07[$f->material_item_id] = ($netAfter07[$f->material_item_id] ?? 0) + (float) $f->qty;
-                }
-            }
-            foreach (\App\Models\Production::where('date_time', '>=', $cutoff07)->get() as $r) {
-                $netAfter07[$r->item_id] = ($netAfter07[$r->item_id] ?? 0) + (float) $r->qty;
-            }
-            foreach (\App\Models\ProductionNg::where('date_time', '>=', $cutoff07)->get() as $r) {
-                $netAfter07[$r->item_id] = ($netAfter07[$r->item_id] ?? 0) - (float) $r->qty_ng;
-            }
-            foreach (\App\Models\Delivery::where('date_time', '>=', $cutoff07)->get() as $r) {
-                $netAfter07[$r->item_id] = ($netAfter07[$r->item_id] ?? 0) - (float) $r->qty;
-            }
-            foreach (\App\Models\ReturnToSupplier::where('date_time', '>=', $cutoff07)->get() as $r) {
-                $netAfter07[$r->item_id] = ($netAfter07[$r->item_id] ?? 0) - (float) $r->qty;
-            }
-            foreach (\App\Models\StockAdjustment::where('date_time', '>=', $cutoff07)->get() as $r) {
-                $netAfter07[$r->item_id] = ($netAfter07[$r->item_id] ?? 0) + (float) $r->qty_diff;
-            }
-        }
-
-        // Daftar material pembentuk untuk filter pada Detail Stock
-        $allBomsFlat = \App\Models\Bom::with(['inputItem.inventoryStock', 'outputItem'])->get();
-        $sharedMaterialsList = [];
-
-        foreach ($allBomsFlat->groupBy('input_item_id') as $inId => $bRows) {
-            $uniqueOuts = $bRows->pluck('output_item_id')->unique();
-            if ($bRows->first() && $bRows->first()->inputItem) {
-                $inItm = $bRows->first()->inputItem;
-                $sharedMaterialsList[] = [
-                    'id'         => $inItm->id,
-                    'label'      => ($inItm->part_no ? $inItm->part_no . ' — ' : '') . $inItm->part_name,
-                    'output_ids' => $uniqueOuts->values()->all(),
-                ];
-            }
-        }
-
-        $dashboardItems = $allActiveItems->map(function ($itm) use ($wipByTargetItem, $wipDetailsByTargetItem, $matInMachineByItem, $netAfter07) {
-            $st = $itm->inventoryStock;
-            $currStock = $st ? (float) $st->current_stock : 0.0;
-            $std1 = (float) $itm->calculated_std_day_1;
-            $std2 = (float) $itm->std_day_2;
-            $std3 = (float) $itm->std_day_3;
-            $ratioFg = $std1 > 0 ? round($currStock / $std1, 2) : 0.0;
-            $statusNow = $st ? $st->calculateDynamicStatus() : 'EMPTY STOCK';
-
-            $deltaAfter07 = (float) ($netAfter07[$itm->id] ?? 0.0);
-            $stock07 = round(max(0, $currStock - $deltaAfter07), 2);
-            if ($stock07 <= 0) {
-                $status07 = 'EMPTY STOCK';
-            } elseif ($std1 <= 0) {
-                $status07 = 'NORMAL STOCK';
-            } elseif ($stock07 < $std1) {
-                $status07 = 'VERY LOW';
-            } elseif ($stock07 < $std2) {
-                $status07 = 'LOW STOCK';
-            } elseif ($stock07 <= $std3) {
-                $status07 = 'NORMAL STOCK';
-            } else {
-                $status07 = 'OVERSTOCK';
-            }
-            $ratio07 = $std1 > 0 ? round($stock07 / $std1, 2) : 0.0;
-
-            $wipTarget = (float) ($wipByTargetItem[$itm->id] ?? 0);
-            $matInMach = (float) ($matInMachineByItem[$itm->id] ?? 0);
-            $wipActive = $itm->type === 'RM' ? $matInMach : round($wipTarget, 2);
-
-            $outBoms = $itm->bomsAsOutput;
-            $hasBomInputs = $outBoms->isNotEmpty();
-            $potMax = 0.0;
-            $hasSharedInput = false;
-            $materialsDetail = [];
-            $bottleneckFormula = '';
-
-            if ($hasBomInputs) {
-                $byGroupMax = [];
-
-                foreach ($outBoms->groupBy(fn ($b) => $b->bom_group ?: ('SG-' . $b->id)) as $gKey => $gRows) {
-                    $minMax = null;
-                    $minInputMeta = null;
-
-                    foreach ($gRows as $bRow) {
-                        $inItm = $bRow->inputItem;
-                        $usage = (float) $bRow->qty_usage;
-                        if (!$inItm || $usage <= 0) continue;
-
-                        $inStock = $inItm->inventoryStock ? (float) $inItm->inventoryStock->current_stock : 0.0;
-                        $usedCount = $inItm->bomsAsInput ? $inItm->bomsAsInput->pluck('output_item_id')->unique()->count() : 1;
-                        if ($usedCount > 1) {
-                            $hasSharedInput = true;
-                        }
-
-                        $canMakeMax = floor($inStock / $usage);
-                        if ($minMax === null || $canMakeMax < $minMax) {
-                            $minMax = $canMakeMax;
-                            $minInputMeta = [
-                                'stock' => floatval($inStock),
-                                'uom'   => $inItm->uom,
-                                'usage' => $bRow->formatted_qty_usage,
-                                'make'  => (int) $canMakeMax,
-                            ];
-                        }
-
-                        $materialsDetail[] = [
-                            'name'       => ($inItm->part_no ? $inItm->part_no . ' — ' : '') . $inItm->part_name,
-                            'stock'      => floatval($inStock),
-                            'uom'        => $inItm->uom,
-                            'usage'      => $bRow->formatted_qty_usage,
-                            'make_max'   => (int) $canMakeMax,
-                            'is_shared'  => $usedCount > 1,
-                            'used_count' => $usedCount,
-                        ];
-                    }
-
-                    if ($minMax !== null) {
-                        $byGroupMax[] = [
-                            'val'  => $minMax,
-                            'meta' => $minInputMeta,
-                        ];
-                    }
-                }
-
-                if (!empty($byGroupMax)) {
-                    usort($byGroupMax, fn($a, $b) => $b['val'] <=> $a['val']);
-                    $bestGrp = $byGroupMax[0];
-                    $potMax = round($bestGrp['val'], 0);
-                    if (!empty($bestGrp['meta'])) {
-                        $m = $bestGrp['meta'];
-                        $bottleneckFormula = $m['stock'] . ' ' . $m['uom'] . ' ÷ ' . $m['usage'] . ' = ' . $m['make'] . ' ' . $itm->uom;
-                    }
-                }
-            }
-
-            $inputIds = $outBoms->pluck('input_item_id')->unique()->values()->all();
-
-            return [
-                'id'                 => $itm->id,
-                'part_no'            => $itm->part_no ?: '-',
-                'part_name'          => $itm->part_name,
-                'type'               => $itm->type,
-                'uom'                => $itm->uom,
-                'company_id'         => $itm->company_id,
-                'company_code'       => $itm->company->company_code ?? 'INTERNAL',
-                'company_name'       => $itm->company->company_name ?? 'PT. Dian Raya Cipta',
-                'company_type'       => $itm->company->type_company ?? 'INTERNAL',
-                'current_stock'      => $currStock,
-                'stock_07'           => $stock07,
-                'status_07'          => $status07,
-                'ratio_07'           => $ratio07,
-                'wip_active'         => $wipActive,
-                'wip_details'        => $wipDetailsByTargetItem[$itm->id] ?? [],
-                'has_bom_inputs'     => $hasBomInputs,
-                'pot_max'            => $potMax,
-                'bottleneck_formula' => $bottleneckFormula,
-                'has_shared_input'   => $hasSharedInput,
-                'input_ids'          => $inputIds,
-                'materials_detail'   => $materialsDetail,
-                'std_day_1'          => $std1,
-                'std_day_2'          => $std2,
-                'std_day_3'          => $std3,
-                'ratio_stock'        => $ratioFg,
-                'status_stock'       => $statusNow,
-                'info_payload'       => $itm->material_info_payload,
-            ];
-        })->values();
-
-        $allCompaniesList = \App\Models\Company::orderByRaw("CASE type_company WHEN 'CUSTOMER' THEN 1 WHEN 'INTERNAL' THEN 2 ELSE 3 END")
-            ->orderBy('company_code')
-            ->get()
-            ->map(fn ($c) => [
-                'id'   => $c->id,
-                'code' => $c->company_code,
-                'name' => $c->company_name,
-                'type' => $c->type_company,
-            ])->values();
-
-        $defaultFgCustomer = $allCompaniesList->firstWhere('type', 'CUSTOMER');
-        $defaultStockCompanyId = $defaultFgCustomer ? (string) $defaultFgCustomer['id'] : '';
-
-        $monthNamesShort = [
-            1 => 'Jan', 2 => 'Feb', 3 => 'Mar', 4 => 'Apr',
-            5 => 'Mei', 6 => 'Jun', 7 => 'Jul', 8 => 'Agu',
-            9 => 'Sep', 10 => 'Okt', 11 => 'Nov', 12 => 'Des',
-        ];
-        $monthNamesFull = [
-            1 => 'Januari', 2 => 'Februari', 3 => 'Maret', 4 => 'April',
-            5 => 'Mei', 6 => 'Juni', 7 => 'Juli', 8 => 'Agustus',
-            9 => 'September', 10 => 'Oktober', 11 => 'November', 12 => 'Desember',
-        ];
-
-        $allDelays = \App\Models\ProblemDelay::with(['company', 'item.company'])
-            ->orderByDesc('incident_date')
-            ->orderByDesc('date_time')
-            ->get()
-            ->map(function ($d) use ($monthNamesShort, $monthNamesFull) {
-                $dt = $d->incident_date ? \Carbon\Carbon::parse($d->incident_date) : \Carbon\Carbon::parse($d->date_time);
-                $mNum = (int) $dt->format('n');
-                $yr   = (int) $dt->format('Y');
-                return [
-                    'id'             => $d->id,
-                    'year'           => (string) $yr,
-                    'month_num'      => $mNum,
-                    'month_key'      => $dt->format('Y-m'),
-                    'month_short'    => ($monthNamesShort[$mNum] ?? $dt->format('M')) . ' ' . substr((string) $yr, -2),
-                    'month_label'    => ($monthNamesFull[$mNum] ?? $dt->format('M')) . ' ' . $yr,
-                    'company_id'     => $d->company_id,
-                    'company_code'   => $d->company->company_code ?? '-',
-                    'company_name'   => $d->company->company_name ?? '-',
-                    'company_type'   => $d->company->type_company ?? 'CUSTOMER',
-                    'item_id'        => $d->item_id,
-                    'part_no'        => $d->item->part_no ?: '-',
-                    'part_name'      => $d->item->part_name ?? '-',
-                    'item_type'      => $d->item->type ?? 'FG',
-                    'problem_reason' => $d->problem_reason,
-                ];
-            })->values();
-
-        $delayYears = $allDelays->pluck('year')->unique()->sortDesc()->values()->all();
-        if (empty($delayYears)) {
-            $delayYears = [(string) date('Y')];
-        }
-        $delayReasonsList = \App\Http\Controllers\ProblemDelayController::REASONS;
-    @endphp
-
     <x-slot name="header">
         <x-page-header title="Dashboard Produksi"
                        subtitle="{{ \Carbon\Carbon::now()->translatedFormat('l, d F Y') }} · Monitoring real-time" />
@@ -610,7 +288,7 @@
                                                 <div class="font-semibold text-slate-900 truncate" x-text="row.part_name"></div>
                                             </div>
                                             <button type="button" class="act-btn flex-none" title="Informasi Item"
-                                                    @click="$dispatch('open-material-info', row.info_payload)">
+                                                    @click="$dispatch('open-material-info', { id: row.id, part_no: row.part_no, part_name: row.part_name })">
                                                 <x-icon name="info" />
                                             </button>
                                         </div>
@@ -687,7 +365,7 @@
                             <option value="ALL_PROD">Semua (FG · FG/KOMPONEN · KOMPONEN)</option>
                         </select>
 
-                        <select x-model="fSharedMat" @change="syncHovered()" class="h-8 text-xs py-0 pl-2 pr-7" title="Filter Material Pembentuk">
+                        <select x-model="fSharedMat" @change="onSharedMatChange()" class="h-8 text-xs py-0 pl-2 pr-7" title="Filter Material Pembentuk">
                             <option value="">Semua Material</option>
                             @foreach($sharedMaterialsList as $sm)
                                 <option value="{{ $sm['id'] }}">{{ $sm['label'] }}</option>
@@ -830,7 +508,7 @@
                                     <div class="relative flex flex-col items-center justify-end h-[210px] flex-1 max-w-[92px] min-w-[62px] group cursor-pointer"
                                          @mouseenter="hoveredItem = it"
                                          @focus="hoveredItem = it"
-                                         @click="$dispatch('open-material-info', it.info_payload)">
+                                         @click="$dispatch('open-material-info', { id: it.id, part_no: it.part_no, part_name: it.part_name })">
 
                                         <div class="mb-1 text-center leading-tight">
                                             <div class="num text-[11px] font-bold text-[#0B5CAD]" x-text="it.current_stock"></div>
@@ -864,7 +542,7 @@
                                 <template x-for="it in chartItems" :key="'lbl-' + it.id">
                                     <div class="flex-1 max-w-[92px] min-w-[62px] text-center cursor-pointer"
                                          @mouseenter="hoveredItem = it"
-                                         @click="$dispatch('open-material-info', it.info_payload)">
+                                         @click="$dispatch('open-material-info', { id: it.id, part_no: it.part_no, part_name: it.part_name })">
                                         <div class="num text-[11px] font-bold text-accent truncate"
                                              x-text="it.part_no !== '-' ? it.part_no : it.part_name"></div>
                                         <div class="text-[10px] text-slate-600 truncate" x-text="it.part_name"></div>
@@ -1240,6 +918,13 @@
                     }
                     this.syncHovered();
                 },
+                onSharedMatChange() {
+                    if (this.fSharedMat !== '') {
+                        this.fCompany = '';
+                        this.fCategory = 'ALL_PROD';
+                    }
+                    this.syncHovered();
+                },
                 syncHovered() {
                     this.$nextTick(() => {
                         if (this.chartItems.length > 0) {
@@ -1256,6 +941,12 @@
                     this.fCompany = this.defaultCompanyId || '';
                     this.fCategory = 'FG_FGK';
                     this.fSharedMat = '';
+                    const hasDefault = this.items.some(
+                        it => ['FG', 'FG/KOMPONEN'].includes(it.type) && String(it.company_id) === String(this.fCompany)
+                    );
+                    if (!hasDefault) {
+                        this.fCompany = '';
+                    }
                     this.syncHovered();
                 },
                 tyClass(t) {
@@ -1312,17 +1003,16 @@
                                 if (!Array.isArray(it.input_ids) || !it.input_ids.includes(matId)) {
                                     return false;
                                 }
-                            } else {
-                                if (this.fCompany !== '' && String(it.company_id) !== String(this.fCompany)) {
-                                    return false;
-                                }
-                                if (this.fCategory === 'FG_FGK' && !['FG', 'FG/KOMPONEN'].includes(it.type)) {
-                                    return false;
-                                } else if (this.fCategory === 'KOMPONEN' && !(it.type === 'KOMPONEN' && it.has_bom_inputs)) {
-                                    return false;
-                                } else if (!['FG_FGK', 'KOMPONEN', 'ALL_PROD'].includes(this.fCategory) && it.type !== this.fCategory) {
-                                    return false;
-                                }
+                            }
+                            if (this.fCompany !== '' && String(it.company_id) !== String(this.fCompany)) {
+                                return false;
+                            }
+                            if (this.fCategory === 'FG_FGK' && !['FG', 'FG/KOMPONEN'].includes(it.type)) {
+                                return false;
+                            } else if (this.fCategory === 'KOMPONEN' && !(it.type === 'KOMPONEN' && it.has_bom_inputs)) {
+                                return false;
+                            } else if (!['FG_FGK', 'KOMPONEN', 'ALL_PROD'].includes(this.fCategory) && it.type !== this.fCategory) {
+                                return false;
                             }
                             return true;
                         })
@@ -1366,15 +1056,6 @@
                 { num: 12, short: 'Des', full: 'Desember' }
             ];
 
-            const REASON_COLORS = {
-                'MATERIAL': '#0B5CAD',
-                'PROSES': '#D97706',
-                'QC': '#DC2626',
-                'DIES': '#7C3AED',
-                'BOX/PALET': '#0D9488',
-                'PLANT 2': '#475569'
-            };
-
             return {
                 delays: delays || [],
                 companies: companies || [],
@@ -1411,9 +1092,6 @@
                     const a = [188, 211, 234];
                     const b = [11, 74, 142];
                     return 'rgb(' + a.map((v, k) => Math.round(v + (b[k] - v) * t)).join(',') + ')';
-                },
-                reasonColor(rName) {
-                    return REASON_COLORS[rName] || '#0B5CAD';
                 },
                 tyClass(t) {
                     return 'ty-' + (t === 'FG/KOMPONEN' ? 'FGK' : t);

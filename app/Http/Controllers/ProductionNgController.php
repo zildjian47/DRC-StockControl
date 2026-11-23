@@ -35,6 +35,7 @@ class ProductionNgController extends Controller
 
         $activeLots = LotTracer::with(['targetItem.inventoryStock', 'process'])
             ->where('status_lot', 'ON PROGRESS')
+            ->whereColumn('actual_qty_prod', '>', 'qty_ng')
             ->orderBy('id', 'desc')
             ->get();
 

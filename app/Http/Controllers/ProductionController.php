@@ -6,6 +6,7 @@ use App\Models\Production;
 use App\Models\Item;
 use App\Models\LotTracer;
 use App\Models\InventoryStock;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -15,22 +16,28 @@ class ProductionController extends Controller
     public function index(Request $request)
     {
         if ($request->query('mode') === 'scanner') {
-            $allScans = Production::with(['item.company', 'user'])
+            $allScansData = Production::with(['item.company', 'user'])
                 ->orderBy('date_time', 'desc')
                 ->orderBy('id', 'desc')
-                ->get();
+                ->limit(300)
+                ->get()
+                ->map(function ($s) {
+                    $dt = Carbon::parse($s->date_time);
+                    return [
+                        'id'         => $s->id,
+                        'date'       => $dt->format('Y-m-d'),
+                        'time'       => $dt->format('H:i'),
+                        'date_fmt'   => $dt->format('d M Y, H:i'),
+                        'lot_number' => $s->lot_number,
+                        'part_no'    => $s->item->part_no ?: '-',
+                        'part_name'  => $s->item->part_name ?? '-',
+                        'uom'        => $s->item->uom ?? 'PCS',
+                        'qty'        => (float) $s->qty,
+                        'user_name'  => $s->user->name ?? 'Operator',
+                    ];
+                })->values();
 
-            $todayScans = $allScans->filter(fn ($s) => \Carbon\Carbon::parse($s->date_time)->isToday())->values();
-            $recentScans = $todayScans;
-            $items = Item::with(['company', 'inventoryStock'])->get();
-
-            $activeLots = LotTracer::with(['targetItem', 'process'])
-                ->where('status_lot', 'ON PROGRESS')
-                ->where('qty_wip', '>', 0)
-                ->orderBy('id', 'desc')
-                ->get();
-
-            return view('productions.scanner', compact('allScans', 'todayScans', 'recentScans', 'items', 'activeLots'));
+            return view('productions.scanner', compact('allScansData'));
         }
 
         $productions = Production::with(['item.company', 'user'])
@@ -39,6 +46,77 @@ class ProductionController extends Controller
             ->get();
 
         return view('productions.index', compact('productions'));
+    }
+
+    public function lookup(Request $request)
+    {
+        $rawCode = trim((string) $request->query('code', ''));
+        $code = strtoupper($rawCode);
+
+        if ($code === '') {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'Kode QR / Part wajib diisi.',
+            ]);
+        }
+
+        $item = Item::with(['company', 'inventoryStock'])
+            ->where('part_no', $code)
+            ->orWhere('part_name', $code)
+            ->first();
+
+        if (!$item) {
+            return response()->json([
+                'ok'      => false,
+                'message' => "Kode \"{$rawCode}\" tidak ditemukan.",
+            ]);
+        }
+
+        $compType = $item->company ? $item->company->type_company : 'INTERNAL';
+        if (!in_array($item->type, ['FG', 'FG/KOMPONEN', 'KOMPONEN'], true) || !in_array($compType, ['INTERNAL', 'CUSTOMER'], true)) {
+            return response()->json([
+                'ok'      => false,
+                'message' => "{$item->part_name} tidak sesuai untuk Production.",
+            ]);
+        }
+
+        $lots = LotTracer::with(['process', 'targetItem'])
+            ->where('target_item_id', $item->id)
+            ->where('status_lot', 'ON PROGRESS')
+            ->where('qty_wip', '>', 0)
+            ->orderBy('id', 'desc')
+            ->get()
+            ->map(fn ($lt) => [
+                'id'             => $lt->id,
+                'lot_number'     => $lt->lot_number,
+                'target_item_id' => $lt->target_item_id,
+                'process_name'   => $lt->process->process_name ?? '-',
+                'target_est'     => (float) $lt->target_qty_estimasi,
+                'actual_prod'    => (float) $lt->actual_qty_prod,
+                'qty_wip'        => (float) $lt->qty_wip,
+                'uom'            => $lt->targetItem->uom ?? $item->uom ?? 'PCS',
+            ])->values();
+
+        if ($lots->isEmpty()) {
+            return response()->json([
+                'ok'      => false,
+                'message' => "Tidak ada Lot aktif dengan sisa WIP untuk {$item->part_name}.",
+            ]);
+        }
+
+        return response()->json([
+            'ok'   => true,
+            'item' => [
+                'id'           => $item->id,
+                'part_no'      => $item->part_no ? strtoupper(trim($item->part_no)) : '',
+                'part_name'    => strtoupper(trim($item->part_name)),
+                'type'         => $item->type,
+                'uom'          => $item->uom,
+                'company_type' => $compType,
+                'stock'        => $item->inventoryStock ? (float) $item->inventoryStock->current_stock : 0.0,
+            ],
+            'lots' => $lots,
+        ]);
     }
 
     public function store(Request $request)
@@ -61,7 +139,7 @@ class ProductionController extends Controller
             'qty'        => 'required',
         ]);
 
-        $qtyProd = BomController::evaluateMath($request->qty);
+        $qtyProd = round(BomController::evaluateMath($request->qty), 2);
         if ($qtyProd <= 0) {
             return back()->withInput()->with('error', 'Qty harus lebih dari 0.');
         }

@@ -61,10 +61,32 @@ class LotTracerController extends Controller
                 $bomType = 'SINGLE';
             }
 
+            $lotStatus = $rows->contains('status_lot', 'ON PROGRESS') ? 'ON PROGRESS' : 'FINISH';
             $companionsMap = [];
+            $maxUsedMaterial = 0.0;
+
             foreach ($rows as $r) {
-                $tBom = $groupBoms->first(fn ($b) => (int) $b->output_item_id === (int) $r->target_item_id && (bool) $b->is_trigger);
-                $triggerUsage = ($tBom && (float) $tBom->qty_usage > 0) ? (float) $tBom->qty_usage : 1;
+                $tBom = $groupBoms->first(function ($b) use ($r) {
+                    return (int) $b->output_item_id === (int) $r->target_item_id
+                        && (int) $b->input_item_id === (int) $r->material_item_id
+                        && (bool) $b->is_trigger === true;
+                }) ?? $allBoms->first(function ($b) use ($r) {
+                    return (int) $b->process_id === (int) $r->process_id
+                        && (int) $b->output_item_id === (int) $r->target_item_id
+                        && (int) $b->input_item_id === (int) $r->material_item_id
+                        && (bool) $b->is_trigger === true;
+                }) ?? $allBoms->first(function ($b) use ($r) {
+                    return (int) $b->output_item_id === (int) $r->target_item_id
+                        && (int) $b->input_item_id === (int) $r->material_item_id
+                        && (bool) $b->is_trigger === true;
+                });
+
+                $triggerUsage = ($tBom && (float) $tBom->qty_usage > 0) ? (float) $tBom->qty_usage : 1.0;
+
+                $usedMat = (float) $r->actual_qty_prod * $triggerUsage;
+                if ($usedMat > $maxUsedMaterial) {
+                    $maxUsedMaterial = $usedMat;
+                }
 
                 $estInitial = (float) $r->qty_material_out / $triggerUsage;
                 if (abs($estInitial - round($estInitial)) < 0.001) {
@@ -107,6 +129,13 @@ class LotTracerController extends Controller
                 }
             }
 
+            $rawRemaining = round(
+                max(0, (float) $first->qty_material_out - (float) $first->qty_material_return - $maxUsedMaterial),
+                2
+            );
+            $materialSaatIni = $lotStatus === 'FINISH' ? 0.0 : $rawRemaining;
+            $topEndCoil = ($first->is_coil && $lotStatus === 'FINISH') ? $rawRemaining : null;
+
             $first->bom_type = $bomType;
             $first->companion_details = array_values($companionsMap);
 
@@ -121,14 +150,16 @@ class LotTracerController extends Controller
             );
 
             return [
-                'lot_number'   => $lotNo,
-                'bom_type'     => $bomType,
-                'first'        => $first,
-                'rows'         => $rows,
-                'process_id'   => $first->process_id,
-                'process_name' => $first->process->process_name ?? '-',
-                'status_lot'   => $rows->contains('status_lot', 'ON PROGRESS') ? 'ON PROGRESS' : 'FINISH',
-                'search_index' => $searchStr,
+                'lot_number'        => $lotNo,
+                'bom_type'          => $bomType,
+                'first'             => $first,
+                'rows'              => $rows,
+                'process_id'        => $first->process_id,
+                'process_name'      => $first->process->process_name ?? '-',
+                'status_lot'        => $lotStatus,
+                'material_saat_ini' => $materialSaatIni,
+                'top_end_coil'      => $topEndCoil,
+                'search_index'      => $searchStr,
             ];
         })->values();
 
