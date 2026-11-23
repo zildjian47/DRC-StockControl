@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\ReturnToSupplier;
 use App\Models\Item;
 use App\Models\InventoryStock;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -14,16 +15,28 @@ class ReturnToSupplierController extends Controller
     public function index(Request $request)
     {
         if ($request->query('mode') === 'scanner') {
-            $allScans = ReturnToSupplier::with(['item.company', 'user'])
+            $allScansData = ReturnToSupplier::with(['item.company', 'user'])
                 ->orderBy('date_time', 'desc')
                 ->orderBy('id', 'desc')
-                ->get();
+                ->limit(300)
+                ->get()
+                ->map(function ($s) {
+                    $dt = Carbon::parse($s->date_time);
+                    return [
+                        'id'        => $s->id,
+                        'date'      => $dt->format('Y-m-d'),
+                        'time'      => $dt->format('H:i'),
+                        'date_fmt'  => $dt->format('d M Y, H:i'),
+                        'part_no'   => $s->item->part_no ?: '-',
+                        'part_name' => $s->item->part_name ?? '-',
+                        'uom'       => $s->item->uom ?? '',
+                        'supplier'  => $s->item->company->company_code ?? '-',
+                        'qty'       => (float) $s->qty,
+                        'user_name' => $s->user->name ?? 'Operator',
+                    ];
+                })->values();
 
-            $todayScans = $allScans->filter(fn ($s) => \Carbon\Carbon::parse($s->date_time)->isToday())->values();
-            $recentScans = $todayScans;
-            $items = Item::with(['company', 'inventoryStock'])->get();
-
-            return view('return_to_suppliers.scanner', compact('allScans', 'todayScans', 'recentScans', 'items'));
+            return view('return_to_suppliers.scanner', compact('allScansData'));
         }
 
         $returns = ReturnToSupplier::with(['item.company', 'user'])
@@ -32,6 +45,61 @@ class ReturnToSupplierController extends Controller
             ->get();
 
         return view('return_to_suppliers.index', compact('returns'));
+    }
+
+    public function lookup(Request $request)
+    {
+        $rawCode = trim((string) $request->query('code', ''));
+        $code    = strtoupper($rawCode);
+
+        if ($code === '') {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'Kode QR / Part wajib diisi.',
+            ]);
+        }
+
+        $item = Item::with(['company', 'inventoryStock'])
+            ->where('part_no', $code)
+            ->orWhere('part_name', $code)
+            ->first();
+
+        if (!$item) {
+            return response()->json([
+                'ok'      => false,
+                'message' => "Kode \"{$rawCode}\" tidak ditemukan.",
+            ]);
+        }
+
+        $compType = $item->company ? $item->company->type_company : 'INTERNAL';
+        if (!in_array($item->type, ['RM', 'KOMPONEN', 'TRANSIT'], true) || $compType !== 'SUPPLIER') {
+            return response()->json([
+                'ok'      => false,
+                'message' => "{$item->part_name} tidak sesuai untuk Return to Supplier (wajib RM, KOMPONEN, atau TRANSIT dari SUPPLIER).",
+            ]);
+        }
+
+        $stock = $item->inventoryStock ? (float) $item->inventoryStock->current_stock : 0.0;
+        if ($stock <= 0) {
+            return response()->json([
+                'ok'      => false,
+                'message' => "Stok {$item->part_name} kosong (0 {$item->uom}).",
+            ]);
+        }
+
+        return response()->json([
+            'ok'   => true,
+            'item' => [
+                'id'           => $item->id,
+                'part_no'      => $item->part_no ? strtoupper(trim($item->part_no)) : '',
+                'part_name'    => strtoupper(trim($item->part_name)),
+                'type'         => $item->type,
+                'uom'          => $item->uom,
+                'company_code' => $item->company->company_code ?? '-',
+                'company_type' => $compType,
+                'stock'        => $stock,
+            ],
+        ]);
     }
 
     public function store(Request $request)
@@ -49,7 +117,7 @@ class ReturnToSupplierController extends Controller
             'qty'     => 'required',
         ]);
 
-        $qty = BomController::evaluateMath($request->qty);
+        $qty = round(BomController::evaluateMath($request->qty), 2);
         if ($qty <= 0) {
             return back()->withInput()->with('error', 'Qty harus lebih dari 0.');
         }
@@ -151,4 +219,4 @@ class ReturnToSupplierController extends Controller
         return redirect()->route('return_to_suppliers.index')
             ->with('success', 'Koreksi Return to Supplier tersimpan.');
     }
-}
+}   

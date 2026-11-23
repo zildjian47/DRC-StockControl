@@ -1,42 +1,9 @@
 <x-scanner-layout :backUrl="route('stock_adjustments.index')">
     <x-slot name="header">Scanner Stock Adjustment</x-slot>
 
-    @php
-        $allScansData = \App\Models\StockAdjustment::with(['item.company', 'user'])
-            ->orderBy('date_time', 'desc')
-            ->orderBy('id', 'desc')
-            ->limit(300)
-            ->get()
-            ->map(function ($s) {
-                $dt = \Carbon\Carbon::parse($s->date_time);
-                return [
-                    'id'         => $s->id,
-                    'date'       => $dt->format('Y-m-d'),
-                    'time'       => $dt->format('H:i'),
-                    'date_fmt'   => $dt->format('d M Y, H:i'),
-                    'part_no'    => $s->item->part_no ?: '-',
-                    'part_name'  => $s->item->part_name ?? '-',
-                    'uom'        => $s->item->uom ?? '',
-                    'adj_type'   => $s->adjustment_type,
-                    'qty_actual' => (float) $s->qty_actual,
-                    'qty_diff'   => (float) $s->qty_diff,
-                    'user_name'  => $s->user->name ?? 'PPIC',
-                ];
-            })->values();
-
-        $itemsPayload = $items->map(fn ($i) => [
-            'id'           => $i->id,
-            'part_no'      => $i->part_no ? strtoupper(trim($i->part_no)) : '',
-            'part_name'    => strtoupper(trim($i->part_name)),
-            'type'         => $i->type,
-            'uom'          => $i->uom,
-            'company_code' => $i->company->company_code ?? 'INTERNAL',
-            'stock'        => $i->inventoryStock ? (float) $i->inventoryStock->current_stock : 0,
-        ])->values();
-    @endphp
-
-    <div x-data="adjScanner({{ Js::from($itemsPayload) }}, {{ Js::from($allScansData) }}, '{{ now()->format('Y-m-d') }}')"
-         x-init="initScanner()">
+    <div x-data="adjScanner({{ Js::from(route('stock_adjustments.lookup')) }}, {{ Js::from($allScansData ?? []) }}, '{{ now()->format('Y-m-d') }}')"
+         x-init="initScanner()"
+         @pageshow.window="isSubmitting = false">
 
         <div class="scan-stepper mb-3">
             <div class="scan-step" :class="step === 1 ? 'active' : 'done'">
@@ -85,8 +52,8 @@
                                    @keydown.enter.prevent="handleScan(manualCode)"
                                    placeholder="Contoh: FG-BKT-001 atau SHEET METAL SPHC 2.0MM"
                                    class="num uppercase flex-1 h-10 text-xs font-semibold">
-                            <button type="button" @click="handleScan(manualCode)" class="btn btn-primary px-4 h-10">
-                                Cek Kode
+                            <button type="button" @click="handleScan(manualCode)" :disabled="isLookingUp" class="btn btn-primary px-4 h-10">
+                                <span x-text="isLookingUp ? 'Cek...' : 'Cek Kode'"></span>
                             </button>
                         </div>
                     </div>
@@ -180,10 +147,12 @@
                             <input id="sc_adj_notes" type="text" name="notes" placeholder="Keterangan penyesuaian..." class="w-full h-10 text-xs">
                         </div>
 
-                        <button type="submit" class="btn btn-primary btn-lg w-full">Simpan Stock Adjustment</button>
+                        <button type="submit" :disabled="isSubmitting" class="btn btn-primary btn-lg w-full">
+                            <span x-text="isSubmitting ? 'Menyimpan...' : 'Simpan Stock Adjustment'"></span>
+                        </button>
                     </form>
 
-                    <button type="button" class="btn w-full" @click="resetAll()">Batal &amp; Scan Ulang</button>
+                    <button type="button" class="btn w-full" @click="resetAll()" :disabled="isSubmitting">Batal &amp; Scan Ulang</button>
                 </div>
             </div>
         </div>
@@ -234,15 +203,17 @@
     </div>
 
     <script>
-        function adjScanner(items, allScans, todayStr) {
+        function adjScanner(lookupUrl, allScans, todayStr) {
             return {
+                lookupUrl: lookupUrl,
                 step: 1,
                 cameraActive: false,
+                isLookingUp: false,
+                isSubmitting: false,
                 manualCode: '',
                 lastCamCode: '',
                 lastCamAt: 0,
-                items: items,
-                allScans: allScans,
+                allScans: allScans || [],
                 todayStr: todayStr,
                 histDate: todayStr,
                 histSearch: '',
@@ -280,9 +251,9 @@
                     );
                     if (!ok) this.cameraActive = false;
                 },
-                handleScan(rawCode, fromCamera = false) {
+                async handleScan(rawCode, fromCamera = false) {
                     const code = String(rawCode || '').trim().toUpperCase();
-                    if (!code) return;
+                    if (!code || this.isLookingUp) return;
                     if (fromCamera) {
                         const now = Date.now();
                         if (this.lastCamCode === code && (now - this.lastCamAt) < 900) return;
@@ -290,23 +261,43 @@
                         this.lastCamAt = now;
                     }
 
-                    const found = this.items.find(i => i.part_no === code || i.part_name === code);
-                    if (!found) {
-                        this.notifyError(`Kode "${rawCode}" tidak ditemukan.`);
-                        return;
-                    }
+                    this.isLookingUp = true;
+                    try {
+                        const url = `${this.lookupUrl}?code=${encodeURIComponent(code)}`;
+                        const res = await fetch(url, {
+                            method: 'GET',
+                            credentials: 'same-origin',
+                            headers: {
+                                'Accept': 'application/json',
+                                'X-Requested-With': 'XMLHttpRequest'
+                            }
+                        });
+                        if (!res.ok) {
+                            throw new Error(`Gagal memeriksa kode (HTTP ${res.status}).`);
+                        }
+                        const data = await res.json();
+                        if (!data.ok || !data.item) {
+                            this.notifyError(data.message || `Kode "${rawCode}" tidak ditemukan.`);
+                            return;
+                        }
 
-                    this.clearToast();
-                    this.selectedItem = found;
-                    this.qtySystem = found.stock;
-                    this.rawActual = String(found.stock);
-                    this.rawDiff = '0';
-                    this.manualCode = '';
-                    this.lastCamCode = '';
-                    this.lastCamAt = 0;
-                    this.step = 2;
-                    window.DRCScanner.stop();
-                    this.cameraActive = false;
+                        this.clearToast();
+                        this.selectedItem = data.item;
+                        this.qtySystem = data.item.stock;
+                        this.rawActual = String(data.item.stock);
+                        this.rawDiff = '0';
+                        this.inputMode = 'actual';
+                        this.manualCode = '';
+                        this.lastCamCode = '';
+                        this.lastCamAt = 0;
+                        this.step = 2;
+                        window.DRCScanner.stop();
+                        this.cameraActive = false;
+                    } catch (err) {
+                        this.notifyError((err && err.message) ? err.message : 'Gagal menghubungi server. Periksa koneksi jaringan.');
+                    } finally {
+                        this.isLookingUp = false;
+                    }
                 },
                 evalCalc(raw) {
                     if (raw === null || raw === undefined) return null;
@@ -344,6 +335,7 @@
                     }
                 },
                 submitForm(formEl) {
+                    if (this.isSubmitting) return;
                     if (!this.selectedItem) {
                         this.notifyError('Scan item terlebih dahulu.');
                         return;
@@ -373,7 +365,10 @@
                     }
 
                     let qtyActual, qtyDiff;
-                    if (parsedActual !== null) {
+                    if (this.inputMode === 'diff' && parsedDiff !== null) {
+                        qtyDiff = parsedDiff;
+                        qtyActual = Math.round((this.qtySystem + qtyDiff) * 100) / 100;
+                    } else if (parsedActual !== null) {
                         qtyActual = parsedActual;
                         qtyDiff = Math.round((qtyActual - this.qtySystem) * 100) / 100;
                     } else {
@@ -398,6 +393,7 @@
                         return;
                     }
 
+                    this.isSubmitting = true;
                     formEl.submit();
                 },
                 get filteredHistory() {
@@ -412,6 +408,7 @@
                     });
                 },
                 resetAll() {
+                    this.isSubmitting = false;
                     this.selectedItem = null;
                     this.adjType = 'STOCK OPNAME';
                     this.qtySystem = 0;

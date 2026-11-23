@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\StockAdjustment;
 use App\Models\Item;
 use App\Models\InventoryStock;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -102,18 +103,35 @@ class StockAdjustmentController extends Controller
 
     public function index(Request $request)
     {
-        $items = Item::with(['company', 'inventoryStock'])->orderBy('part_name')->get();
         $types = self::TYPES;
 
         if ($request->query('mode') === 'scanner') {
-            $recentScans = StockAdjustment::with(['item.company', 'user'])
-                ->whereDate('date_time', today())
+            $allScansData = StockAdjustment::with(['item.company', 'user'])
+                ->orderBy('date_time', 'desc')
                 ->orderBy('id', 'desc')
-                ->get();
+                ->limit(300)
+                ->get()
+                ->map(function ($s) {
+                    $dt = Carbon::parse($s->date_time);
+                    return [
+                        'id'         => $s->id,
+                        'date'       => $dt->format('Y-m-d'),
+                        'time'       => $dt->format('H:i'),
+                        'date_fmt'   => $dt->format('d M Y, H:i'),
+                        'part_no'    => $s->item->part_no ?: '-',
+                        'part_name'  => $s->item->part_name ?? '-',
+                        'uom'        => $s->item->uom ?? '',
+                        'adj_type'   => $s->adjustment_type,
+                        'qty_actual' => (float) $s->qty_actual,
+                        'qty_diff'   => (float) $s->qty_diff,
+                        'user_name'  => $s->user->name ?? 'PPIC',
+                    ];
+                })->values();
 
-            return view('stock_adjustments.scanner', compact('items', 'recentScans', 'types'));
+            return view('stock_adjustments.scanner', compact('allScansData', 'types'));
         }
 
+        $items = Item::with(['company', 'inventoryStock'])->orderBy('part_name')->get();
         $query = StockAdjustment::with(['item.company', 'user']);
 
         if ($request->filled('search')) {
@@ -147,6 +165,44 @@ class StockAdjustmentController extends Controller
         $adjustments = $query->orderBy('id', 'desc')->get();
 
         return view('stock_adjustments.index', compact('adjustments', 'items', 'types'));
+    }
+
+    public function lookup(Request $request)
+    {
+        $rawCode = trim((string) $request->query('code', ''));
+        $code    = strtoupper($rawCode);
+
+        if ($code === '') {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'Kode QR / Part wajib diisi.',
+            ]);
+        }
+
+        $item = Item::with(['company', 'inventoryStock'])
+            ->where('part_no', $code)
+            ->orWhere('part_name', $code)
+            ->first();
+
+        if (!$item) {
+            return response()->json([
+                'ok'      => false,
+                'message' => "Kode \"{$rawCode}\" tidak ditemukan.",
+            ]);
+        }
+
+        return response()->json([
+            'ok'   => true,
+            'item' => [
+                'id'           => $item->id,
+                'part_no'      => $item->part_no ? strtoupper(trim($item->part_no)) : '',
+                'part_name'    => strtoupper(trim($item->part_name)),
+                'type'         => $item->type,
+                'uom'          => $item->uom,
+                'company_code' => $item->company->company_code ?? 'INTERNAL',
+                'stock'        => $item->inventoryStock ? (float) $item->inventoryStock->current_stock : 0.0,
+            ],
+        ]);
     }
 
     public function store(Request $request)

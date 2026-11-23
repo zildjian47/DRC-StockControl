@@ -1,59 +1,9 @@
 <x-scanner-layout :backUrl="route('production_ngs.index')">
     <x-slot name="header">Scanner Form Production NG</x-slot>
 
-    @php
-        $allScansData = \App\Models\ProductionNg::with(['item.company', 'user'])
-            ->orderBy('date_time', 'desc')
-            ->orderBy('id', 'desc')
-            ->limit(300)
-            ->get()
-            ->map(function ($s) {
-                $dt = \Carbon\Carbon::parse($s->date_time);
-                return [
-                    'id'         => $s->id,
-                    'date'       => $dt->format('Y-m-d'),
-                    'time'       => $dt->format('H:i'),
-                    'date_fmt'   => $dt->format('d M Y, H:i'),
-                    'lot_number' => $s->lot_number,
-                    'part_no'    => $s->item->part_no ?: '-',
-                    'part_name'  => $s->item->part_name ?? '-',
-                    'uom'        => $s->item->uom ?? 'PCS',
-                    'reason'     => $s->problem_reason,
-                    'qty_ng'     => (float) $s->qty_ng,
-                    'user_name'  => $s->user->name ?? 'QC',
-                ];
-            })->values();
-
-        $itemsPayload = \App\Models\Item::with('inventoryStock')
-            ->whereIn('type', ['FG', 'FG/KOMPONEN', 'KOMPONEN'])
-            ->get()
-            ->map(fn ($i) => [
-                'id'        => $i->id,
-                'part_no'   => $i->part_no ? strtoupper(trim($i->part_no)) : '',
-                'part_name' => strtoupper(trim($i->part_name)),
-                'type'      => $i->type,
-                'uom'       => $i->uom,
-                'stock'     => $i->inventoryStock ? (float) $i->inventoryStock->current_stock : 0,
-            ])->values();
-
-        $activeLotsPayload = \App\Models\LotTracer::with(['targetItem', 'process'])
-            ->where('status_lot', 'ON PROGRESS')
-            ->get()
-            ->filter(fn ($lt) => $lt->act_fg > 0)
-            ->map(fn ($lt) => [
-                'id'             => $lt->id,
-                'lot_number'     => $lt->lot_number,
-                'target_item_id' => $lt->target_item_id,
-                'process_name'   => $lt->process->process_name ?? '-',
-                'actual_prod'    => (float) $lt->actual_qty_prod,
-                'qty_ng'         => (float) $lt->qty_ng,
-                'act_fg'         => (float) $lt->act_fg,
-                'uom'            => $lt->targetItem->uom ?? 'PCS',
-            ])->values();
-    @endphp
-
-    <div x-data="ngScanner({{ Js::from($itemsPayload) }}, {{ Js::from($activeLotsPayload) }}, {{ Js::from($allScansData) }}, '{{ now()->format('Y-m-d') }}', {{ Js::from($reasons[0] ?? 'MATERIAL') }})"
-         x-init="initScanner()">
+    <div x-data="ngScanner({{ Js::from(route('production_ngs.lookup')) }}, {{ Js::from($allScansData ?? []) }}, '{{ now()->format('Y-m-d') }}', {{ Js::from($reasons[0] ?? 'MATERIAL') }})"
+         x-init="initScanner()"
+         @pageshow.window="isSubmitting = false">
 
         <div class="scan-stepper mb-3">
             <div class="scan-step" :class="step === 1 ? 'active' : 'done'">
@@ -101,8 +51,8 @@
                                    @keydown.enter.prevent="handleScan(manualCode)"
                                    placeholder="Contoh: FGK-PLT-001 atau FG-BKT-001"
                                    class="num uppercase flex-1 h-10 text-xs font-semibold">
-                            <button type="button" @click="handleScan(manualCode)" class="btn btn-primary px-4 h-10">
-                                Cek Kode
+                            <button type="button" @click="handleScan(manualCode)" :disabled="isLookingUp" class="btn btn-primary px-4 h-10">
+                                <span x-text="isLookingUp ? 'Cek...' : 'Cek Kode'"></span>
                             </button>
                         </div>
                     </div>
@@ -187,12 +137,12 @@
                             </div>
                         </div>
 
-                        <button type="submit" class="btn btn-primary btn-lg w-full">
-                            Simpan Data NG
+                        <button type="submit" :disabled="isSubmitting" class="btn btn-primary btn-lg w-full">
+                            <span x-text="isSubmitting ? 'Menyimpan...' : 'Simpan Data NG'"></span>
                         </button>
                     </form>
 
-                    <button type="button" @click="resetAll()" class="btn w-full">
+                    <button type="button" @click="resetAll()" :disabled="isSubmitting" class="btn w-full">
                         Batal &amp; Scan Ulang
                     </button>
                 </div>
@@ -240,20 +190,22 @@
     </div>
 
     <script>
-        function ngScanner(items, activeLots, allScans, todayStr, defaultReason) {
+        function ngScanner(lookupUrl, allScans, todayStr, defaultReason) {
             return {
+                lookupUrl: lookupUrl,
                 step: 1,
                 cameraActive: false,
+                isLookingUp: false,
+                isSubmitting: false,
                 manualCode: '',
                 lastCamCode: '',
                 lastCamAt: 0,
-                items: items,
-                activeLots: activeLots,
-                allScans: allScans,
+                allScans: allScans || [],
                 todayStr: todayStr,
                 histDate: todayStr,
                 histSearch: '',
                 scannedItem: null,
+                itemLots: [],
                 selectedLotId: '',
                 problemReason: defaultReason || 'MATERIAL',
                 qtyNg: '',
@@ -285,38 +237,51 @@
                     );
                     if (!ok) this.cameraActive = false;
                 },
-                handleScan(rawCode, fromCamera = false) {
+                async handleScan(rawCode, fromCamera = false) {
                     const c = String(rawCode || '').trim().toUpperCase();
-                    if (!c) return;
+                    if (!c || this.isLookingUp) return;
                     if (fromCamera) {
                         const now = Date.now();
                         if (this.lastCamCode === c && (now - this.lastCamAt) < 900) return;
                         this.lastCamCode = c;
                         this.lastCamAt = now;
                     }
-                    const found = this.items.find(i => i.part_no === c || i.part_name === c);
-                    if (!found) {
-                        this.notifyError(`Kode "${rawCode}" tidak ditemukan.`);
-                        return;
+
+                    this.isLookingUp = true;
+                    try {
+                        const url = `${this.lookupUrl}?code=${encodeURIComponent(c)}`;
+                        const res = await fetch(url, {
+                            method: 'GET',
+                            credentials: 'same-origin',
+                            headers: {
+                                'Accept': 'application/json',
+                                'X-Requested-With': 'XMLHttpRequest'
+                            }
+                        });
+                        if (!res.ok) {
+                            throw new Error(`Gagal memeriksa kode (HTTP ${res.status}).`);
+                        }
+                        const data = await res.json();
+                        if (!data.ok || !data.item) {
+                            this.notifyError(data.message || `Kode "${rawCode}" tidak ditemukan.`);
+                            return;
+                        }
+
+                        this.clearToast();
+                        this.scannedItem = data.item;
+                        this.itemLots = Array.isArray(data.lots) ? data.lots : [];
+                        this.selectedLotId = this.itemLots.length === 1 ? String(this.itemLots[0].id) : '';
+                        this.manualCode = '';
+                        this.lastCamCode = '';
+                        this.lastCamAt = 0;
+                        this.step = 2;
+                        window.DRCScanner.stop();
+                        this.cameraActive = false;
+                    } catch (err) {
+                        this.notifyError((err && err.message) ? err.message : 'Gagal menghubungi server. Periksa koneksi jaringan.');
+                    } finally {
+                        this.isLookingUp = false;
                     }
-                    const lots = this.activeLots.filter(l => String(l.target_item_id) === String(found.id));
-                    if (lots.length === 0) {
-                        this.notifyError(`Tidak ada Lot aktif dengan saldo Act FG untuk ${found.part_name}.`);
-                        return;
-                    }
-                    this.clearToast();
-                    this.scannedItem = found;
-                    this.selectedLotId = lots.length === 1 ? String(lots[0].id) : '';
-                    this.manualCode = '';
-                    this.lastCamCode = '';
-                    this.lastCamAt = 0;
-                    this.step = 2;
-                    window.DRCScanner.stop();
-                    this.cameraActive = false;
-                },
-                get itemLots() {
-                    if (!this.scannedItem) return [];
-                    return this.activeLots.filter(l => String(l.target_item_id) === String(this.scannedItem.id));
                 },
                 get selectedLotObj() {
                     return this.itemLots.find(l => String(l.id) === String(this.selectedLotId)) || null;
@@ -326,6 +291,7 @@
                     return (!isNaN(q) && q > 0) ? Math.round(q * 100) / 100 : 0;
                 },
                 submitForm(formEl) {
+                    if (this.isSubmitting) return;
                     if (!this.scannedItem) {
                         this.notifyError('Scan output terlebih dahulu.');
                         return;
@@ -351,6 +317,7 @@
                         this.notifyError(`Stok gudang kurang. Tersedia: ${this.scannedItem.stock} ${this.scannedItem.uom}.`);
                         return;
                     }
+                    this.isSubmitting = true;
                     formEl.submit();
                 },
                 get filteredHistory() {
@@ -365,7 +332,9 @@
                     });
                 },
                 resetAll() {
+                    this.isSubmitting = false;
                     this.scannedItem = null;
+                    this.itemLots = [];
                     this.selectedLotId = '';
                     this.qtyNg = '';
                     this.manualCode = '';

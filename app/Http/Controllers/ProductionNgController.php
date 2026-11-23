@@ -6,6 +6,7 @@ use App\Models\ProductionNg;
 use App\Models\LotTracer;
 use App\Models\Item;
 use App\Models\InventoryStock;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -25,12 +26,29 @@ class ProductionNgController extends Controller
         $reasons = self::REASONS;
 
         if ($request->query('mode') === 'scanner') {
-            $recentScans = ProductionNg::with(['item.company', 'user'])
-                ->whereDate('date_time', today())
+            $allScansData = ProductionNg::with(['item.company', 'user'])
+                ->orderBy('date_time', 'desc')
                 ->orderBy('id', 'desc')
-                ->get();
+                ->limit(300)
+                ->get()
+                ->map(function ($s) {
+                    $dt = Carbon::parse($s->date_time);
+                    return [
+                        'id'         => $s->id,
+                        'date'       => $dt->format('Y-m-d'),
+                        'time'       => $dt->format('H:i'),
+                        'date_fmt'   => $dt->format('d M Y, H:i'),
+                        'lot_number' => $s->lot_number,
+                        'part_no'    => $s->item->part_no ?: '-',
+                        'part_name'  => $s->item->part_name ?? '-',
+                        'uom'        => $s->item->uom ?? 'PCS',
+                        'reason'     => $s->problem_reason,
+                        'qty_ng'     => (float) $s->qty_ng,
+                        'user_name'  => $s->user->name ?? 'QC',
+                    ];
+                })->values();
 
-            return view('production_ngs.scanner', compact('recentScans', 'reasons'));
+            return view('production_ngs.scanner', compact('allScansData', 'reasons'));
         }
 
         $activeLots = LotTracer::with(['targetItem.inventoryStock', 'process'])
@@ -75,6 +93,75 @@ class ProductionNgController extends Controller
         $ngs = $query->orderBy('id', 'desc')->get();
 
         return view('production_ngs.index', compact('ngs', 'activeLots', 'reasons'));
+    }
+
+    public function lookup(Request $request)
+    {
+        $rawCode = trim((string) $request->query('code', ''));
+        $code    = strtoupper($rawCode);
+
+        if ($code === '') {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'Kode QR / Part wajib diisi.',
+            ]);
+        }
+
+        $item = Item::with('inventoryStock')
+            ->where('part_no', $code)
+            ->orWhere('part_name', $code)
+            ->first();
+
+        if (!$item) {
+            return response()->json([
+                'ok'      => false,
+                'message' => "Kode \"{$rawCode}\" tidak ditemukan.",
+            ]);
+        }
+
+        if (!in_array($item->type, ['FG', 'FG/KOMPONEN', 'KOMPONEN'], true)) {
+            return response()->json([
+                'ok'      => false,
+                'message' => "{$item->part_name} tidak sesuai untuk Production NG (wajib FG, FG/KOMPONEN, atau KOMPONEN).",
+            ]);
+        }
+
+        $lots = LotTracer::with(['targetItem', 'process'])
+            ->where('target_item_id', $item->id)
+            ->where('status_lot', 'ON PROGRESS')
+            ->whereColumn('actual_qty_prod', '>', 'qty_ng')
+            ->orderBy('id', 'desc')
+            ->get()
+            ->map(fn ($lt) => [
+                'id'             => $lt->id,
+                'lot_number'     => $lt->lot_number,
+                'target_item_id' => $lt->target_item_id,
+                'process_name'   => $lt->process->process_name ?? '-',
+                'actual_prod'    => (float) $lt->actual_qty_prod,
+                'qty_ng'         => (float) $lt->qty_ng,
+                'act_fg'         => (float) $lt->act_fg,
+                'uom'            => $lt->targetItem->uom ?? $item->uom ?? 'PCS',
+            ])->values();
+
+        if ($lots->isEmpty()) {
+            return response()->json([
+                'ok'      => false,
+                'message' => "Tidak ada Lot aktif dengan saldo Act FG untuk {$item->part_name}.",
+            ]);
+        }
+
+        return response()->json([
+            'ok'   => true,
+            'item' => [
+                'id'        => $item->id,
+                'part_no'   => $item->part_no ? strtoupper(trim($item->part_no)) : '',
+                'part_name' => strtoupper(trim($item->part_name)),
+                'type'      => $item->type,
+                'uom'       => $item->uom,
+                'stock'     => $item->inventoryStock ? (float) $item->inventoryStock->current_stock : 0.0,
+            ],
+            'lots' => $lots,
+        ]);
     }
 
     public function store(Request $request)

@@ -1,37 +1,9 @@
 <x-scanner-layout :backUrl="route('return_to_suppliers.index')">
     <x-slot name="header">Scanner Return to Supplier</x-slot>
 
-    @php
-        $allScansData = ($allScans ?? collect())->map(function ($s) {
-            $dt = \Carbon\Carbon::parse($s->date_time);
-            return [
-                'id'        => $s->id,
-                'date'      => $dt->format('Y-m-d'),
-                'time'      => $dt->format('H:i'),
-                'date_fmt'  => $dt->format('d M Y, H:i'),
-                'part_no'   => $s->item->part_no ?: '-',
-                'part_name' => $s->item->part_name ?? '-',
-                'uom'       => $s->item->uom ?? '',
-                'supplier'  => $s->item->company->company_code ?? '-',
-                'qty'       => (float) $s->qty,
-                'user_name' => $s->user->name ?? 'Operator',
-            ];
-        })->values();
-
-        $itemsPayload = $items->map(fn ($i) => [
-            'id'           => $i->id,
-            'part_no'      => $i->part_no ? strtoupper(trim($i->part_no)) : '',
-            'part_name'    => strtoupper(trim($i->part_name)),
-            'type'         => $i->type,
-            'uom'          => $i->uom,
-            'company_code' => $i->company->company_code ?? '-',
-            'company_type' => $i->company->type_company ?? 'INTERNAL',
-            'stock'        => $i->inventoryStock ? (float) $i->inventoryStock->current_stock : 0,
-        ])->values();
-    @endphp
-
-    <div x-data="retSupScanner({{ Js::from($itemsPayload) }}, {{ Js::from($allScansData) }}, '{{ now()->format('Y-m-d') }}')"
-         x-init="initScanner()">
+    <div x-data="retSupScanner({{ Js::from(route('return_to_suppliers.lookup')) }}, {{ Js::from($allScansData ?? []) }}, '{{ now()->format('Y-m-d') }}')"
+         x-init="initScanner()"
+         @pageshow.window="isSubmitting = false">
 
         <div class="scan-stepper mb-3">
             <div class="scan-step" :class="step === 1 ? 'active' : 'done'">
@@ -79,8 +51,8 @@
                                    @keydown.enter.prevent="handleScan(manualCode)"
                                    placeholder="Contoh: SHEET METAL SPHC 2.0MM atau KMP-NUT-M8"
                                    class="num uppercase flex-1 h-10 text-xs font-semibold">
-                            <button type="button" @click="handleScan(manualCode)" class="btn btn-primary px-4 h-10">
-                                Cek Kode
+                            <button type="button" @click="handleScan(manualCode)" :disabled="isLookingUp" class="btn btn-primary px-4 h-10">
+                                <span x-text="isLookingUp ? 'Cek...' : 'Cek Kode'"></span>
                             </button>
                         </div>
                     </div>
@@ -137,12 +109,12 @@
                             </div>
                         </div>
 
-                        <button type="submit" class="btn btn-primary btn-lg w-full">
-                            Simpan Return to Supplier
+                        <button type="submit" :disabled="isSubmitting" class="btn btn-primary btn-lg w-full">
+                            <span x-text="isSubmitting ? 'Menyimpan...' : 'Simpan Return to Supplier'"></span>
                         </button>
                     </form>
 
-                    <button type="button" @click="resetAll()" class="btn w-full">
+                    <button type="button" @click="resetAll()" :disabled="isSubmitting" class="btn w-full">
                         Batal &amp; Scan Ulang
                     </button>
                 </div>
@@ -190,15 +162,17 @@
     </div>
 
     <script>
-        function retSupScanner(items, allScans, todayStr) {
+        function retSupScanner(lookupUrl, allScans, todayStr) {
             return {
+                lookupUrl: lookupUrl,
                 step: 1,
                 cameraActive: false,
+                isLookingUp: false,
+                isSubmitting: false,
                 manualCode: '',
                 lastCamCode: '',
                 lastCamAt: 0,
-                items: items,
-                allScans: allScans,
+                allScans: allScans || [],
                 todayStr: todayStr,
                 histDate: todayStr,
                 histSearch: '',
@@ -232,36 +206,49 @@
                     );
                     if (!ok) this.cameraActive = false;
                 },
-                handleScan(rawCode, fromCamera = false) {
+                async handleScan(rawCode, fromCamera = false) {
                     const c = String(rawCode || '').trim().toUpperCase();
-                    if (!c) return;
+                    if (!c || this.isLookingUp) return;
                     if (fromCamera) {
                         const now = Date.now();
                         if (this.lastCamCode === c && (now - this.lastCamAt) < 900) return;
                         this.lastCamCode = c;
                         this.lastCamAt = now;
                     }
-                    const found = this.items.find(i => i.part_no === c || i.part_name === c);
-                    if (!found) {
-                        this.notifyError(`Kode "${rawCode}" tidak ditemukan.`);
-                        return;
+
+                    this.isLookingUp = true;
+                    try {
+                        const url = `${this.lookupUrl}?code=${encodeURIComponent(c)}`;
+                        const res = await fetch(url, {
+                            method: 'GET',
+                            credentials: 'same-origin',
+                            headers: {
+                                'Accept': 'application/json',
+                                'X-Requested-With': 'XMLHttpRequest'
+                            }
+                        });
+                        if (!res.ok) {
+                            throw new Error(`Gagal memeriksa kode (HTTP ${res.status}).`);
+                        }
+                        const data = await res.json();
+                        if (!data.ok || !data.item) {
+                            this.notifyError(data.message || `Kode "${rawCode}" tidak ditemukan.`);
+                            return;
+                        }
+
+                        this.clearToast();
+                        this.scannedItem = data.item;
+                        this.manualCode = '';
+                        this.lastCamCode = '';
+                        this.lastCamAt = 0;
+                        this.step = 2;
+                        window.DRCScanner.stop();
+                        this.cameraActive = false;
+                    } catch (err) {
+                        this.notifyError((err && err.message) ? err.message : 'Gagal menghubungi server. Periksa koneksi jaringan.');
+                    } finally {
+                        this.isLookingUp = false;
                     }
-                    if (!['RM', 'KOMPONEN', 'TRANSIT'].includes(found.type) || found.company_type !== 'SUPPLIER') {
-                        this.notifyError(`${found.part_name} tidak sesuai untuk Return to Supplier (wajib RM, KOMPONEN, atau TRANSIT dari SUPPLIER).`);
-                        return;
-                    }
-                    if (found.stock <= 0) {
-                        this.notifyError(`Stok ${found.part_name} kosong (0 ${found.uom}).`);
-                        return;
-                    }
-                    this.clearToast();
-                    this.scannedItem = found;
-                    this.manualCode = '';
-                    this.lastCamCode = '';
-                    this.lastCamAt = 0;
-                    this.step = 2;
-                    window.DRCScanner.stop();
-                    this.cameraActive = false;
                 },
                 evalCalc(raw) {
                     if (raw === null || raw === undefined) return null;
@@ -279,6 +266,7 @@
                     return (r !== null && r > 0) ? r : 0;
                 },
                 submitForm(formEl) {
+                    if (this.isSubmitting) return;
                     if (!this.scannedItem) {
                         this.notifyError('Scan item terlebih dahulu.');
                         return;
@@ -300,6 +288,7 @@
                         this.notifyError(`Stok kurang. Tersedia: ${this.scannedItem.stock} ${this.scannedItem.uom}.`);
                         return;
                     }
+                    this.isSubmitting = true;
                     formEl.submit();
                 },
                 get filteredHistory() {
@@ -314,6 +303,7 @@
                     });
                 },
                 resetAll() {
+                    this.isSubmitting = false;
                     this.scannedItem = null;
                     this.rawQty = '';
                     this.manualCode = '';

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Delivery;
 use App\Models\Item;
 use App\Models\InventoryStock;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -14,16 +15,28 @@ class DeliveryController extends Controller
     public function index(Request $request)
     {
         if ($request->query('mode') === 'scanner') {
-            $allScans = Delivery::with(['item.company', 'user'])
+            $allScansData = Delivery::with(['item.company', 'user'])
                 ->orderBy('date_time', 'desc')
                 ->orderBy('id', 'desc')
-                ->get();
+                ->limit(300)
+                ->get()
+                ->map(function ($s) {
+                    $dt = Carbon::parse($s->date_time);
+                    return [
+                        'id'        => $s->id,
+                        'date'      => $dt->format('Y-m-d'),
+                        'time'      => $dt->format('H:i'),
+                        'date_fmt'  => $dt->format('d M Y, H:i'),
+                        'part_no'   => $s->item->part_no ?: '-',
+                        'part_name' => $s->item->part_name ?? '-',
+                        'uom'       => $s->item->uom ?? 'PCS',
+                        'company'   => $s->item->company->company_code ?? '-',
+                        'qty'       => (float) $s->qty,
+                        'user_name' => $s->user->name ?? 'Operator',
+                    ];
+                })->values();
 
-            $todayScans = $allScans->filter(fn ($s) => \Carbon\Carbon::parse($s->date_time)->isToday())->values();
-            $recentScans = $todayScans;
-            $items = Item::with(['company', 'inventoryStock'])->get();
-
-            return view('deliveries.scanner', compact('allScans', 'todayScans', 'recentScans', 'items'));
+            return view('deliveries.scanner', compact('allScansData'));
         }
 
         $deliveries = Delivery::with(['item.company', 'user'])
@@ -32,6 +45,81 @@ class DeliveryController extends Controller
             ->get();
 
         return view('deliveries.index', compact('deliveries'));
+    }
+
+    public function lookup(Request $request)
+    {
+        $rawCode = trim((string) $request->query('code', ''));
+        $code    = strtoupper($rawCode);
+
+        if ($code === '') {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'Kode QR / Part wajib diisi.',
+            ]);
+        }
+
+        $item = Item::with(['company', 'inventoryStock'])
+            ->where('part_no', $code)
+            ->orWhere('part_name', $code)
+            ->first();
+
+        if (!$item) {
+            return response()->json([
+                'ok'      => false,
+                'message' => "Kode \"{$rawCode}\" tidak ditemukan.",
+            ]);
+        }
+
+        if (!in_array($item->type, ['FG', 'FG/KOMPONEN', 'TRANSIT'], true)) {
+            return response()->json([
+                'ok'      => false,
+                'message' => "{$item->part_name} tidak sesuai untuk Delivery (wajib FG, FG/KOMPONEN, atau TRANSIT).",
+            ]);
+        }
+
+        $compType = $item->company ? $item->company->type_company : 'INTERNAL';
+
+        if ($item->type === 'FG' && $compType !== 'CUSTOMER') {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'Item FG wajib ber-perusahaan CUSTOMER.',
+            ]);
+        }
+        if ($item->type === 'FG/KOMPONEN' && !in_array($compType, ['INTERNAL', 'CUSTOMER'], true)) {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'Item FG/KOMPONEN wajib ber-perusahaan INTERNAL atau CUSTOMER.',
+            ]);
+        }
+        if ($item->type === 'TRANSIT' && !in_array($compType, ['SUPPLIER', 'CUSTOMER'], true)) {
+            return response()->json([
+                'ok'      => false,
+                'message' => 'Item TRANSIT wajib ber-perusahaan SUPPLIER atau CUSTOMER.',
+            ]);
+        }
+
+        $stock = $item->inventoryStock ? (float) $item->inventoryStock->current_stock : 0.0;
+        if ($stock <= 0) {
+            return response()->json([
+                'ok'      => false,
+                'message' => "Stok {$item->part_name} kosong (0 {$item->uom}).",
+            ]);
+        }
+
+        return response()->json([
+            'ok'   => true,
+            'item' => [
+                'id'           => $item->id,
+                'part_no'      => $item->part_no ? strtoupper(trim($item->part_no)) : '',
+                'part_name'    => strtoupper(trim($item->part_name)),
+                'type'         => $item->type,
+                'uom'          => $item->uom,
+                'company_code' => $item->company->company_code ?? '-',
+                'company_type' => $compType,
+                'stock'        => $stock,
+            ],
+        ]);
     }
 
     public function store(Request $request)
@@ -49,7 +137,7 @@ class DeliveryController extends Controller
             'qty'     => 'required',
         ]);
 
-        $qty = BomController::evaluateMath($request->qty);
+        $qty = round(BomController::evaluateMath($request->qty), 2);
         if ($qty <= 0) {
             return back()->withInput()->with('error', 'Qty harus lebih dari 0.');
         }

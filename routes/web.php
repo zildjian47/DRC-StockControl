@@ -87,10 +87,12 @@ Route::middleware('auth')->group(function () {
     Route::resource('productions', ProductionController::class)->only(['index', 'store']);
 
     // 11. Deliveries (QR Scanner & Verifikasi PPIC)
+    Route::get('/deliveries/lookup', [DeliveryController::class, 'lookup'])->name('deliveries.lookup');
     Route::post('/deliveries/verify-batch', [DeliveryController::class, 'verifyBatch'])->name('deliveries.verify_batch');
     Route::resource('deliveries', DeliveryController::class)->only(['index', 'store']);
 
     // 12. Return to Suppliers (QR Scanner & Verifikasi PPIC)
+    Route::get('/return-to-suppliers/lookup', [ReturnToSupplierController::class, 'lookup'])->name('return_to_suppliers.lookup');
     Route::post('/return-to-suppliers/verify-batch', [ReturnToSupplierController::class, 'verifyBatch'])->name('return_to_suppliers.verify_batch');
     Route::resource('return-to-suppliers', ReturnToSupplierController::class)
         ->only(['index', 'store'])
@@ -100,6 +102,7 @@ Route::middleware('auth')->group(function () {
         ]);
 
     // 13. Stock Adjustments (2 Jalur: Desktop & Mobile Scanner)
+    Route::get('/stock-adjustments/lookup', [StockAdjustmentController::class, 'lookup'])->name('stock_adjustments.lookup');
     Route::resource('stock-adjustments', StockAdjustmentController::class)
         ->only(['index', 'store'])
         ->names([
@@ -107,7 +110,8 @@ Route::middleware('auth')->group(function () {
             'store' => 'stock_adjustments.store',
         ]);
 
-    // 14. Form Production NG (Desktop QC)
+    // 14. Form Production NG (Desktop QC & Mobile Scanner)
+    Route::get('/production-ngs/lookup', [ProductionNgController::class, 'lookup'])->name('production_ngs.lookup');
     Route::resource('production-ngs', ProductionNgController::class)
         ->only(['index', 'store'])
         ->names([
