@@ -35,7 +35,7 @@
     @endphp
 
     <div class="panel"
-         x-data="prodNgPage({{ $ngs->count() }}, {{ Js::from($lotsJs) }}, {{ $errors->any() ? 'true' : 'false' }})"
+         x-data="prodNgPage({{ $ngs->count() }}, {{ Js::from($lotsJs) }}, {{ Js::from($reasons[0] ?? 'MATERIAL') }}, {{ $errors->any() ? 'true' : 'false' }})"
          @open-add-ng.window="addOpen = true; addError = ''"
          x-init="recalc()"
          @table-refreshed.window="recalc()">
@@ -114,7 +114,7 @@
                             data-time="{{ $dt->format('H:i') }}"
                             data-reason="{{ $ng->problem_reason }}"
                             x-show="matchRow($el)">
-                            <td class="text-center num font-semibold text-slate-500">{{ $idx + 1 }}</td>
+                            <td class="text-center num font-semibold text-slate-500" data-col-no>{{ $idx + 1 }}</td>
                             <td class="num col-time text-left whitespace-nowrap">
                                 <div class="font-semibold text-slate-900">{{ $dt->format('d M Y') }}</div>
                                 <div class="text-xs text-slate-500">{{ $dt->format('H:i') }} WIB</div>
@@ -132,7 +132,7 @@
                                 <span class="ty {{ $tyCls }}">{{ $itemType }}</span>
                             </td>
                             <td class="text-center">
-                                <span class="pill pill-crit">{{ $ng->problem_reason }}</span>
+                                <span class="pill pill-neu">{{ $ng->problem_reason }}</span>
                             </td>
                             <td class="num whitespace-nowrap">
                                 <span class="text-[13.5px] font-bold text-rose-700">-{{ floatval($ng->qty_ng) }}</span>
@@ -216,11 +216,22 @@
 
                             <div>
                                 <label class="lbl" for="ng_qty">Qty NG (Maksimal sebesar Act FG)</label>
-                                <input id="ng_qty" type="number" step="0.01" min="0.01"
-                                       :max="selectedLot ? selectedLot.act_fg : undefined"
-                                       name="qty_ng" x-model="qtyNg" required
-                                       placeholder="Masukkan jumlah NG..."
-                                       class="num w-full h-9 font-semibold">
+                                <div class="inp-calc">
+                                    <input id="ng_qty" type="text"
+                                           name="qty_ng" x-model="qtyNg" required
+                                           placeholder="Contoh: 2 atau 3+2"
+                                           class="num w-full h-9 font-semibold">
+                                    <span class="inp-calc-ic" title="Mendukung kalkulator (+, -, *, /)">
+                                        <x-icon name="calc" />
+                                    </span>
+                                </div>
+                                <div class="calc-preview" x-show="String(qtyNg || '').trim() !== '' && evalCalc(qtyNg) !== null" x-cloak>
+                                    Hasil: <b x-text="evalCalc(qtyNg)"></b> <span x-text="selectedLot?.uom || ''"></span>
+                                </div>
+                                <div class="calc-err" x-show="String(qtyNg || '').trim() !== '' && evalCalc(qtyNg) === null" x-cloak>
+                                    <x-icon name="alert" />
+                                    <span>Format perhitungan tidak valid</span>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -235,7 +246,7 @@
     </div>
 
     <script>
-        function prodNgPage(initialCount, lotsList, openInitially) {
+        function prodNgPage(initialCount, lotsList, defaultReason, openInitially) {
             return {
                 q: '',
                 startDate: '',
@@ -248,11 +259,22 @@
                 addOpen: openInitially,
                 addError: '',
                 selectedLotId: '',
-                selectedReason: 'PROSES',
+                selectedReason: defaultReason || 'MATERIAL',
                 qtyNg: '',
 
                 get selectedLot() {
                     return this.lotsList.find(x => String(x.id) === String(this.selectedLotId)) || null;
+                },
+                evalCalc(raw) {
+                    if (raw === null || raw === undefined) return null;
+                    const expr = String(raw).replace(/,/g, '.').replace(/[xX]/g, '*').replace(/:/g, '/').replace(/\s+/g, '');
+                    if (!expr || !/^[0-9.+\-*\/()]+$/.test(expr) || /[\+\-\*\/]{2,}/.test(expr)) return null;
+                    try {
+                        const r = Function('return (' + expr + ')')();
+                        return (typeof r === 'number' && isFinite(r)) ? Math.round(r * 100) / 100 : null;
+                    } catch (e) {
+                        return null;
+                    }
                 },
                 submitAdd(formEl) {
                     this.addError = '';
@@ -264,17 +286,25 @@
                         this.addError = 'Problem Reason wajib dipilih.';
                         return;
                     }
-                    const qty = parseFloat(this.qtyNg);
-                    if (this.qtyNg === '' || this.qtyNg === null || isNaN(qty) || qty <= 0) {
-                        this.addError = 'Qty NG wajib diisi dan lebih besar dari 0.';
+                    if (String(this.qtyNg || '').trim() === '') {
+                        this.addError = 'Qty NG wajib diisi.';
+                        return;
+                    }
+                    const qty = this.evalCalc(this.qtyNg);
+                    if (qty === null) {
+                        this.addError = 'Format perhitungan tidak valid.';
+                        return;
+                    }
+                    if (qty <= 0) {
+                        this.addError = 'Qty NG harus lebih dari 0.';
                         return;
                     }
                     if (qty > this.selectedLot.act_fg + 0.0001) {
-                        this.addError = 'Ditolak: Qty NG (' + qty + ') melebihi saldo Act FG pada Lot ' + this.selectedLot.lot_no + ' (Maksimal: ' + this.selectedLot.act_fg + ' ' + this.selectedLot.uom + ').';
+                        this.addError = 'Qty NG (' + qty + ') melebihi saldo Act FG pada Lot ' + this.selectedLot.lot_no + ' (maksimal ' + this.selectedLot.act_fg + ' ' + this.selectedLot.uom + ').';
                         return;
                     }
                     if (qty > this.selectedLot.stock + 0.0001) {
-                        this.addError = 'Ditolak: Qty NG (' + qty + ') melebihi Current Stock ' + this.selectedLot.part_name + ' di gudang (' + this.selectedLot.stock + ' ' + this.selectedLot.uom + ').';
+                        this.addError = 'Stok gudang ' + this.selectedLot.part_name + ' kurang (tersedia ' + this.selectedLot.stock + ' ' + this.selectedLot.uom + ').';
                         return;
                     }
                     formEl.submit();
@@ -306,7 +336,11 @@
                     this.$nextTick(() => {
                         let c = 0;
                         this.$el.querySelectorAll('tbody tr[data-row]').forEach(tr => {
-                            if (this.matchRow(tr)) c++;
+                            if (this.matchRow(tr)) {
+                                c++;
+                                const noCell = tr.querySelector('[data-col-no]');
+                                if (noCell) noCell.textContent = c;
+                            }
                         });
                         this.visibleCount = c;
                     });

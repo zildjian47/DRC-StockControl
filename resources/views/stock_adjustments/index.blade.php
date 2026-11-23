@@ -83,15 +83,15 @@
                 <thead>
                     <tr>
                         <th class="w-[4%] text-center">No</th>
-                        <th class="w-[14%] col-time">Waktu</th>
-                        <th class="w-[13%]">Petugas</th>
-                        <th class="w-[22%]">Part No &amp; Part Name</th>
-                        <th class="w-[8%] text-center">Tipe</th>
+                        <th class="w-[12%] col-time">Waktu</th>
+                        <th class="w-[11%]">Petugas</th>
+                        <th class="w-[20%]">Part No &amp; Part Name</th>
+                        <th class="w-[7%] text-center">Tipe</th>
                         <th class="w-[10%] text-center">Kategori</th>
                         <th class="num w-[8%]">Qty System</th>
                         <th class="num w-[8%]">Qty Actual</th>
                         <th class="num w-[8%]">Qty Diff</th>
-                        <th class="w-[13%]">Catatan</th>
+                        <th class="w-[12%]">Catatan</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -112,7 +112,7 @@
                             data-time="{{ $dt->format('H:i') }}"
                             data-adjtype="{{ $adj->adjustment_type }}"
                             x-show="matchRow($el)">
-                            <td class="text-center num font-semibold text-slate-500">{{ $idx + 1 }}</td>
+                            <td class="text-center num font-semibold text-slate-500" data-col-no>{{ $idx + 1 }}</td>
                             <td class="num col-time text-left whitespace-nowrap">
                                 <div class="font-semibold text-slate-900">{{ $dt->format('d M Y') }}</div>
                                 <div class="text-xs text-slate-500">{{ $dt->format('H:i') }} WIB</div>
@@ -177,7 +177,7 @@
                                     <div class="dlg-name" x-text="selectedItem.part"></div>
                                     <div class="flex items-center gap-2 mt-1">
                                         <span class="ty" :class="'ty-' + (selectedItem.type === 'FG/KOMPONEN' ? 'FGK' : selectedItem.type)" x-text="selectedItem.type"></span>
-                                        <span class="pill pill-neu num" x-text="selectedItem.uom"></span>
+                                        <span class="num text-xs font-semibold text-slate-600" x-text="selectedItem.uom"></span>
                                     </div>
                                 </div>
                             </template>
@@ -377,7 +377,10 @@
                     }
 
                     let qtyActual, qtyDiff;
-                    if (parsedActual !== null) {
+                    if (this.inputMode === 'diff' && parsedDiff !== null) {
+                        qtyDiff = parsedDiff;
+                        qtyActual = Math.round((this.qtySystem + qtyDiff) * 100) / 100;
+                    } else if (parsedActual !== null) {
                         qtyActual = parsedActual;
                         qtyDiff = Math.round((qtyActual - this.qtySystem) * 100) / 100;
                     } else {
@@ -386,22 +389,22 @@
                     }
 
                     if (qtyActual < 0) {
-                        this.addError = 'Ditolak: Qty Actual tidak boleh bernilai minus.';
+                        this.addError = 'Qty Actual tidak boleh minus.';
                         return;
                     }
 
                     if (this.adjType === 'LOSS' && qtyActual >= this.qtySystem) {
-                        this.addError = 'Ditolak: Untuk kategori LOSS, Qty Actual (' + qtyActual + ') wajib lebih kecil dari Qty System (' + this.qtySystem + ').';
+                        this.addError = 'Kategori LOSS: Qty Actual (' + qtyActual + ') harus lebih kecil dari Qty System (' + this.qtySystem + ').';
                         return;
                     }
 
                     if (['SURPLUS', 'FOUND', 'REPAIR'].includes(this.adjType) && qtyActual <= this.qtySystem) {
-                        this.addError = 'Ditolak: Untuk kategori ' + this.adjType + ', Qty Actual (' + qtyActual + ') wajib lebih besar dari Qty System (' + this.qtySystem + ').';
+                        this.addError = 'Kategori ' + this.adjType + ': Qty Actual (' + qtyActual + ') harus lebih besar dari Qty System (' + this.qtySystem + ').';
                         return;
                     }
 
                     if (this.adjType === 'STOCK OPNAME' && Math.abs(qtyDiff) < 0.0001) {
-                        this.addError = 'Ditolak: Tidak ada perubahan kuantitas (Qty Diff = 0).';
+                        this.addError = 'Tidak ada perubahan stok (selisih 0).';
                         return;
                     }
 
@@ -434,7 +437,11 @@
                     this.$nextTick(() => {
                         let c = 0;
                         this.$el.querySelectorAll('tbody tr[data-row]').forEach(tr => {
-                            if (this.matchRow(tr)) c++;
+                            if (this.matchRow(tr)) {
+                                c++;
+                                const noCell = tr.querySelector('[data-col-no]');
+                                if (noCell) noCell.textContent = c;
+                            }
                         });
                         this.visibleCount = c;
                     });

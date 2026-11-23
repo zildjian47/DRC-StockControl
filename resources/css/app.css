@@ -51,7 +51,7 @@
     --t-km-bg: #ECE9F8;
     --t-tr: #8E3A86;
     --t-tr-bg: #F3E5F1;
-    --t-fk: #4A6B0C;
+    --t-fk: #3F6212;
     --t-fk-bg: #EAF2D9;
 
     /* Ramp bulan (grafik delay): satu hue biru, terang ke gelap */
@@ -139,6 +139,10 @@
     height: 16px;
     flex: 0 0 16px;
     display: block;
+  }
+
+  .ic-flip {
+    transform: scaleX(-1);
   }
 
   .num,
@@ -1792,7 +1796,6 @@
   .sselect-list {
     max-height: 220px;
     overflow-y: auto;
-    divide-y: 1px solid var(--line);
   }
 
   .sselect-opt {
@@ -1867,47 +1870,4 @@
     font-size: 10.5px;
     font-weight: 600;
   }
-}
-
-/* Warna Tipe Item Permanen (Opsi A: Flat Tint Tanpa Border & Rata Tengah Vertikal) */
-.ty {
-  box-sizing: border-box;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 20px;
-  padding: 1px 7px 0;
-  border-radius: 3px;
-  border: 0 !important;
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  line-height: 1;
-  white-space: nowrap;
-}
-
-.ty-RM {
-  background-color: #E4EEF8 !important;
-  color: #0B5CAD !important;
-}
-
-.ty-FG {
-  background-color: #DCF1EE !important;
-  color: #0B7A6B !important;
-}
-
-.ty-KOMPONEN {
-  background-color: #ECE9F8 !important;
-  color: #5B4BB7 !important;
-}
-
-.ty-TRANSIT {
-  background-color: #F3E5F1 !important;
-  color: #8E3A86 !important;
-}
-
-.ty-FGK {
-  background-color: #EAF2D9 !important;
-  color: #3F6212 !important;
 }

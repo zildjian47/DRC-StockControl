@@ -115,11 +115,21 @@
 
                         <div>
                             <label class="lbl">Qty NG (<span x-text="scannedItem?.uom"></span>)</label>
-                            <input type="number" step="0.01" min="0.01"
-                                   :max="selectedLotObj ? selectedLotObj.act_fg : null"
-                                   name="qty_ng" x-model="qtyNg" required
-                                   placeholder="Contoh: 2"
-                                   class="num w-full h-14 text-2xl text-center font-bold">
+                            <div class="inp-calc">
+                                <input type="text" name="qty_ng" x-model="qtyNg" required
+                                       placeholder="Contoh: 2 atau 3+2"
+                                       class="num w-full h-14 text-2xl text-center font-bold pl-[30px]">
+                                <span class="inp-calc-ic" title="Mendukung kalkulator (+, -, *, /)">
+                                    <x-icon name="calc" />
+                                </span>
+                            </div>
+                            <div class="calc-preview text-center" x-show="String(qtyNg || '').trim() !== '' && evalCalc(qtyNg) !== null" x-cloak>
+                                Hasil: <b x-text="evalCalc(qtyNg)"></b> <span x-text="scannedItem?.uom || ''"></span>
+                            </div>
+                            <div class="calc-err justify-center w-full" x-show="String(qtyNg || '').trim() !== '' && evalCalc(qtyNg) === null" x-cloak>
+                                <x-icon name="alert" />
+                                <span>Format perhitungan tidak valid</span>
+                            </div>
                         </div>
 
                         <div class="dlg-list" x-show="selectedLotObj && parsedQtyNg > 0" x-cloak>
@@ -171,7 +181,7 @@
                         <div class="min-w-0 flex-1">
                             <div class="flex items-center gap-1.5 flex-wrap">
                                 <span class="pill pill-info num" x-text="s.lot_number"></span>
-                                <span class="pill pill-crit" x-text="s.reason"></span>
+                                <span class="pill pill-neu" x-text="s.reason"></span>
                                 <span class="num text-[11px] text-slate-500" x-text="s.date_fmt"></span>
                             </div>
                             <div class="num font-bold text-accent mt-1" x-text="s.part_no"></div>
@@ -286,9 +296,20 @@
                 get selectedLotObj() {
                     return this.itemLots.find(l => String(l.id) === String(this.selectedLotId)) || null;
                 },
+                evalCalc(raw) {
+                    if (raw === null || raw === undefined) return null;
+                    const expr = String(raw).replace(/,/g, '.').replace(/[xX]/g, '*').replace(/:/g, '/').replace(/\s+/g, '');
+                    if (!expr || !/^[0-9\.\+\-\*\/\(\)]+$/.test(expr) || /[\+\-\*\/]{2,}/.test(expr)) return null;
+                    try {
+                        const r = Function('return (' + expr + ')')();
+                        return (typeof r === 'number' && isFinite(r)) ? Math.round(r * 100) / 100 : null;
+                    } catch (e) {
+                        return null;
+                    }
+                },
                 get parsedQtyNg() {
-                    const q = parseFloat(this.qtyNg);
-                    return (!isNaN(q) && q > 0) ? Math.round(q * 100) / 100 : 0;
+                    const r = this.evalCalc(this.qtyNg);
+                    return (r !== null && r > 0) ? r : 0;
                 },
                 submitForm(formEl) {
                     if (this.isSubmitting) return;
@@ -304,8 +325,16 @@
                         this.notifyError('Pilih Problem Reason terlebih dahulu.');
                         return;
                     }
-                    const qty = parseFloat(this.qtyNg);
-                    if (this.qtyNg === '' || this.qtyNg === null || isNaN(qty) || qty <= 0) {
+                    if (String(this.qtyNg || '').trim() === '') {
+                        this.notifyError('Qty NG wajib diisi.');
+                        return;
+                    }
+                    const qty = this.evalCalc(this.qtyNg);
+                    if (qty === null) {
+                        this.notifyError('Format perhitungan tidak valid.');
+                        return;
+                    }
+                    if (qty <= 0) {
                         this.notifyError('Qty NG harus lebih dari 0.');
                         return;
                     }

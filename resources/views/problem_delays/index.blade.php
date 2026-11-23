@@ -32,7 +32,7 @@
     @endphp
 
     <div class="panel"
-         x-data="delayPage({{ $delays->count() }}, {{ Js::from($companiesJs) }}, {{ Js::from($itemsJs) }}, '{{ now()->toDateString() }}', {{ $errors->any() ? 'true' : 'false' }})"
+         x-data="delayPage({{ $delays->count() }}, {{ Js::from($companiesJs) }}, {{ Js::from($itemsJs) }}, '{{ now()->toDateString() }}', {{ Js::from($reasons[0] ?? 'MATERIAL') }}, {{ $errors->any() ? 'true' : 'false' }})"
          @open-add-delay.window="addOpen = true; addError = ''"
          x-init="recalc()"
          @table-refreshed.window="recalc()">
@@ -114,7 +114,7 @@
                             data-time="{{ $recDt->format('H:i') }}"
                             data-reason="{{ $d->problem_reason }}"
                             x-show="matchRow($el)">
-                            <td class="text-center num font-semibold text-slate-500">{{ $idx + 1 }}</td>
+                            <td class="text-center num font-semibold text-slate-500" data-col-no>{{ $idx + 1 }}</td>
                             <td class="num col-time text-left whitespace-nowrap">
                                 <span class="font-bold text-slate-900">{{ $incDt->format('d M Y') }}</span>
                             </td>
@@ -147,7 +147,7 @@
                                 <span class="ty {{ $tyCls }}">{{ $itemType }}</span>
                             </td>
                             <td class="text-center">
-                                <span class="pill pill-crit">{{ $d->problem_reason }}</span>
+                                <span class="pill pill-neu">{{ $d->problem_reason }}</span>
                             </td>
                         </tr>
                     @empty
@@ -247,7 +247,7 @@
     </div>
 
     <script>
-        function delayPage(initialCount, companiesList, itemsList, todayStr, openInitially) {
+        function delayPage(initialCount, companiesList, itemsList, todayStr, defaultReason, openInitially) {
             return {
                 q: '',
                 startDate: '',
@@ -263,7 +263,7 @@
                 incidentDate: todayStr,
                 selectedCompanyId: '',
                 selectedItemId: '',
-                selectedReason: 'MATERIAL',
+                selectedReason: defaultReason || 'MATERIAL',
 
                 get selectedCompany() {
                     return this.companiesList.find(c => String(c.id) === String(this.selectedCompanyId)) || null;
@@ -326,7 +326,11 @@
                     this.$nextTick(() => {
                         let c = 0;
                         this.$el.querySelectorAll('tbody tr[data-row]').forEach(tr => {
-                            if (this.matchRow(tr)) c++;
+                            if (this.matchRow(tr)) {
+                                c++;
+                                const noCell = tr.querySelector('[data-col-no]');
+                                if (noCell) noCell.textContent = c;
+                            }
                         });
                         this.visibleCount = c;
                     });

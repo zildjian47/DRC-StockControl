@@ -44,11 +44,25 @@ class ProblemDelayController extends Controller
         }
 
         if ($request->filled('start_date')) {
-            $query->whereDate('incident_date', '>=', $request->start_date);
+            $startDate = $request->start_date;
+            $query->where(function ($q) use ($startDate) {
+                $q->whereDate('incident_date', '>=', $startDate)
+                  ->orWhere(function ($sub) use ($startDate) {
+                      $sub->whereNull('incident_date')
+                          ->whereDate('date_time', '>=', $startDate);
+                  });
+            });
         }
 
         if ($request->filled('end_date')) {
-            $query->whereDate('incident_date', '<=', $request->end_date);
+            $endDate = $request->end_date;
+            $query->where(function ($q) use ($endDate) {
+                $q->whereDate('incident_date', '<=', $endDate)
+                  ->orWhere(function ($sub) use ($endDate) {
+                      $sub->whereNull('incident_date')
+                          ->whereDate('date_time', '<=', $endDate);
+                  });
+            });
         }
 
         if ($request->filled('start_time')) {

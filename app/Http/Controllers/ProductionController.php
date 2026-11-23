@@ -45,7 +45,14 @@ class ProductionController extends Controller
             ->orderBy('id', 'desc')
             ->get();
 
-        return view('productions.index', compact('productions'));
+        $stockMap = InventoryStock::whereIn('item_id', $productions->pluck('item_id')->unique())
+            ->pluck('current_stock', 'item_id');
+
+        $lotMap = LotTracer::whereIn('lot_number', $productions->pluck('lot_number')->unique())
+            ->get()
+            ->keyBy(fn ($l) => $l->lot_number . '|' . $l->target_item_id);
+
+        return view('productions.index', compact('productions', 'stockMap', 'lotMap'));
     }
 
     public function lookup(Request $request)

@@ -139,7 +139,7 @@
                             data-type="{{ $item->type }}"
                             data-comptype="{{ $compType }}"
                             x-show="matchRow($el)">
-                            <td class="text-center num font-semibold text-slate-500">{{ $idx + 1 }}</td>
+                            <td class="text-center num font-semibold text-slate-500" data-col-no>{{ $idx + 1 }}</td>
                             <td>
                                 <div class="num text-xs font-bold text-accent">{{ $item->part_no ?: '-' }}</div>
                                 <div class="font-semibold text-slate-900">{{ $item->part_name }}</div>
@@ -748,7 +748,11 @@
                     this.$nextTick(() => {
                         let c = 0;
                         this.$el.querySelectorAll('tbody tr[data-item-row]').forEach(tr => {
-                            if (this.matchRow(tr)) c++;
+                            if (this.matchRow(tr)) {
+                                c++;
+                                const noCell = tr.querySelector('[data-col-no]');
+                                if (noCell) noCell.textContent = c;
+                            }
                         });
                         this.visibleCount = c;
                     });

@@ -23,7 +23,8 @@
     <div class="panel"
          x-data="processPage({{ $processes->count() }}, {{ Js::from($processesJs) }}, {{ $errors->any() ? 'true' : 'false' }})"
          @open-add-process.window="addOpen = true; addError = ''"
-         x-init="recalc()">
+         x-init="recalc()"
+         @table-refreshed.window="recalc()">
 
         <div class="panel-head">
             <div class="panel-title">
@@ -57,16 +58,16 @@
                         <tr data-proc-row
                             data-search="{{ strtolower($proc->process_name) }}"
                             x-show="matchRow($el)">
-                            <td class="text-center num font-semibold text-slate-500">{{ $idx + 1 }}</td>
+                            <td class="text-center num font-semibold text-slate-500" data-col-no>{{ $idx + 1 }}</td>
                             <td class="text-left font-bold text-slate-900">{{ $proc->process_name }}</td>
                             <td class="text-center">
                                 <div class="inline-flex items-center justify-center gap-1">
                                     <button type="button" class="act-btn" title="Edit Proses"
-                                            @click="openEditModal({{ $proc->id }}, '{{ addslashes($proc->process_name) }}')">
+                                            @click="openEditModal({{ $proc->id }}, {{ Js::from($proc->process_name) }})">
                                         <x-icon name="edit" />
                                     </button>
                                     <form action="{{ route('processes.destroy', $proc->id) }}" method="POST" class="inline"
-                                          @submit.prevent="$dispatch('open-confirm', { form: $el, title: 'Hapus Proses Manufaktur', message: 'Hapus proses {{ addslashes($proc->process_name) }}?' })">
+                                          @submit.prevent="$dispatch('open-confirm', { form: $el, title: 'Hapus Proses Manufaktur', message: {{ Js::from('Hapus proses ' . $proc->process_name . '?') }} })">
                                         @csrf
                                         @method('DELETE')
                                         <button type="submit" class="act-btn danger" title="Hapus Proses">
@@ -238,7 +239,11 @@
                     this.$nextTick(() => {
                         let c = 0;
                         this.$el.querySelectorAll('tbody tr[data-proc-row]').forEach(tr => {
-                            if (this.matchRow(tr)) c++;
+                            if (this.matchRow(tr)) {
+                                c++;
+                                const noCell = tr.querySelector('[data-col-no]');
+                                if (noCell) noCell.textContent = c;
+                            }
                         });
                         this.visibleCount = c;
                     });

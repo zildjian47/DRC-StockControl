@@ -44,7 +44,10 @@ class DeliveryController extends Controller
             ->orderBy('id', 'desc')
             ->get();
 
-        return view('deliveries.index', compact('deliveries'));
+        $stockMap = InventoryStock::whereIn('item_id', $deliveries->pluck('item_id')->unique())
+            ->pluck('current_stock', 'item_id');
+
+        return view('deliveries.index', compact('deliveries', 'stockMap'));
     }
 
     public function lookup(Request $request)

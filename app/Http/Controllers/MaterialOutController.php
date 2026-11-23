@@ -199,9 +199,29 @@ class MaterialOutController extends Controller
             ];
         })->values();
 
+        $stockMap = InventoryStock::whereIn('item_id', $materialOuts->pluck('material_item_id')->unique())
+            ->pluck('current_stock', 'item_id');
+
+        $lotRowsByKey = LotTracer::whereIn('lot_number', $materialOuts->pluck('lot_number')->unique())
+            ->get()
+            ->groupBy(fn ($l) => $l->lot_number . '|' . $l->material_item_id);
+
+        $minRequiredMap = [];
+        foreach ($lotRowsByKey as $k => $lRows) {
+            $maxMinReq = 0.0;
+            foreach ($lRows as $lt) {
+                $metaLt = $this->resolveBomMeta((int) $lt->material_item_id, (int) $lt->target_item_id, $allBoms, $lt->bom_group);
+                $minReq = round((float) $lt->qty_material_return + ((float) $lt->actual_qty_prod * $metaLt['qty_usage']), 2);
+                if ($minReq > $maxMinReq) {
+                    $maxMinReq = $minReq;
+                }
+            }
+            $minRequiredMap[$k] = $maxMinReq;
+        }
+
         $groups = $groupedOuts;
 
-        return view('material_outs.index', compact('materialOuts', 'groupedOuts', 'groups'));
+        return view('material_outs.index', compact('materialOuts', 'groupedOuts', 'groups', 'stockMap', 'minRequiredMap'));
     }
 
     public function lookup(Request $request)

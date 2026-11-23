@@ -44,7 +44,10 @@ class InboundController extends Controller
             ->orderBy('id', 'desc')
             ->get();
 
-        return view('inbounds.index', compact('inbounds'));
+        $stockMap = InventoryStock::whereIn('item_id', $inbounds->pluck('item_id')->unique())
+            ->pluck('current_stock', 'item_id');
+
+        return view('inbounds.index', compact('inbounds', 'stockMap'));
     }
 
     public function lookup(Request $request)

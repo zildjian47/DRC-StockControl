@@ -44,7 +44,10 @@ class ReturnToSupplierController extends Controller
             ->orderBy('id', 'desc')
             ->get();
 
-        return view('return_to_suppliers.index', compact('returns'));
+        $stockMap = InventoryStock::whereIn('item_id', $returns->pluck('item_id')->unique())
+            ->pluck('current_stock', 'item_id');
+
+        return view('return_to_suppliers.index', compact('returns', 'stockMap'));
     }
 
     public function lookup(Request $request)
@@ -219,4 +222,4 @@ class ReturnToSupplierController extends Controller
         return redirect()->route('return_to_suppliers.index')
             ->with('success', 'Koreksi Return to Supplier tersimpan.');
     }
-}   
+}

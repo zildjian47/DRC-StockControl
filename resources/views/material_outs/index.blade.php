@@ -13,10 +13,6 @@
 
     <x-flash />
 
-    @php
-        $stockMap = \App\Models\InventoryStock::pluck('current_stock', 'item_id');
-    @endphp
-
     <div class="panel"
          x-data="matOutPage({{ $groupedOuts->count() }})"
          x-init="recalc()"
@@ -91,12 +87,13 @@
                 <tbody>
                     @forelse($groupedOuts as $idx => $grp)
                         @php
-                            $first     = $grp['first'];
-                            $dt        = \Carbon\Carbon::parse($first->date_time);
-                            $bType     = $grp['bom_type'];
-                            $matItem   = $first->materialItem;
-                            $uName     = $first->user->name ?? 'Operator';
-                            $currStock = floatval($stockMap[$first->material_item_id] ?? 0);
+                            $first       = $grp['first'];
+                            $dt          = \Carbon\Carbon::parse($first->date_time);
+                            $bType       = $grp['bom_type'];
+                            $matItem     = $first->materialItem;
+                            $uName       = $first->user->name ?? 'Operator';
+                            $currStock   = floatval($stockMap[$first->material_item_id] ?? 0);
+                            $minRequired = floatval($minRequiredMap[$grp['lot_number'] . '|' . $first->material_item_id] ?? 0);
                         @endphp
                         <tr data-row
                             data-search="{{ $grp['search_index'] }}"
@@ -195,7 +192,7 @@
                             </td>
                             <td class="text-center">
                                 <button type="button" class="act-btn" title="Koreksi Qty Material Out"
-                                        @click="openEdit({{ $first->id }}, '{{ $grp['lot_number'] }}', '{{ addslashes($matItem->part_no ?: '-') }}', '{{ addslashes($matItem->part_name ?? '-') }}', {{ floatval($grp['qty_trigger']) }}, '{{ $matItem->uom ?? '' }}', {{ $currStock }})">
+                                        @click="openEdit({{ $first->id }}, {{ Js::from($grp['lot_number']) }}, {{ Js::from($matItem->part_no ?: '-') }}, {{ Js::from($matItem->part_name ?? '-') }}, {{ floatval($grp['qty_trigger']) }}, {{ Js::from($matItem->uom ?? '') }}, {{ $currStock }}, {{ $minRequired }})">
                                     <x-icon name="edit" />
                                 </button>
                             </td>
@@ -299,8 +296,9 @@
                 editNewQty: '',
                 editUom: '',
                 editStock: 0,
+                editMinRequired: 0,
 
-                openEdit(id, lot, partNo, partName, qty, uom, stock) {
+                openEdit(id, lot, partNo, partName, qty, uom, stock, minRequired) {
                     this.editId = id;
                     this.editLot = lot;
                     this.editPartNo = partNo;
@@ -309,6 +307,7 @@
                     this.editNewQty = String(qty);
                     this.editUom = uom;
                     this.editStock = Number(stock) || 0;
+                    this.editMinRequired = Number(minRequired) || 0;
                     this.editError = '';
                     this.editOpen = true;
                 },
@@ -339,6 +338,10 @@
                         return;
                     }
                     const diff = Math.round((val - this.editOldQty) * 100) / 100;
+                    if (diff < 0 && val < this.editMinRequired - 0.0001) {
+                        this.editError = 'Qty koreksi tidak boleh lebih kecil dari total material yang sudah diretur dan terpakai produksi (minimal ' + this.editMinRequired + ' ' + this.editUom + ').';
+                        return;
+                    }
                     if (diff > 0 && diff > this.editStock + 0.0001) {
                         this.editError = 'Stok Material Trigger (' + this.editPartName + ') tidak cukup untuk koreksi (tersedia ' + this.editStock + ' ' + this.editUom + ').';
                         return;

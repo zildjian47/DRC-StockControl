@@ -24,7 +24,8 @@
     <div class="panel"
          x-data="companyPage({{ $companies->count() }}, {{ Js::from($companiesJs) }}, {{ $errors->any() ? 'true' : 'false' }})"
          @open-add-company.window="addOpen = true; addError = ''"
-         x-init="recalc()">
+         x-init="recalc()"
+         @table-refreshed.window="recalc()">
 
         <div class="panel-head">
             <div class="panel-title">
@@ -68,7 +69,7 @@
                             data-search="{{ strtolower($comp->company_code . ' ' . $comp->company_name . ' ' . $comp->type_company) }}"
                             data-type="{{ $comp->type_company }}"
                             x-show="matchRow($el)">
-                            <td class="text-center num font-semibold text-slate-500">{{ $idx + 1 }}</td>
+                            <td class="text-center num font-semibold text-slate-500" data-col-no>{{ $idx + 1 }}</td>
                             <td class="num text-left font-bold text-accent">{{ $comp->company_code }}</td>
                             <td class="text-left font-semibold text-slate-900">{{ $comp->company_name }}</td>
                             <td class="text-center">
@@ -83,11 +84,11 @@
                             <td class="text-center">
                                 <div class="inline-flex items-center justify-center gap-1">
                                     <button type="button" class="act-btn" title="Edit Perusahaan"
-                                            @click="openEditModal({{ $comp->id }}, '{{ addslashes($comp->company_code) }}', '{{ addslashes($comp->company_name) }}', '{{ $comp->type_company }}')">
+                                            @click="openEditModal({{ $comp->id }}, {{ Js::from($comp->company_code) }}, {{ Js::from($comp->company_name) }}, {{ Js::from($comp->type_company) }})">
                                         <x-icon name="edit" />
                                     </button>
                                     <form action="{{ route('companies.destroy', $comp->id) }}" method="POST" class="inline"
-                                          @submit.prevent="$dispatch('open-confirm', { form: $el, title: 'Hapus Perusahaan', message: 'Hapus perusahaan {{ addslashes($comp->company_name) }}?' })">
+                                          @submit.prevent="$dispatch('open-confirm', { form: $el, title: 'Hapus Perusahaan', message: {{ Js::from('Hapus perusahaan ' . $comp->company_name . '?') }} })">
                                         @csrf
                                         @method('DELETE')
                                         <button type="submit" class="act-btn danger" title="Hapus Perusahaan">
@@ -335,7 +336,11 @@
                     this.$nextTick(() => {
                         let c = 0;
                         this.$el.querySelectorAll('tbody tr[data-comp-row]').forEach(tr => {
-                            if (this.matchRow(tr)) c++;
+                            if (this.matchRow(tr)) {
+                                c++;
+                                const noCell = tr.querySelector('[data-col-no]');
+                                if (noCell) noCell.textContent = c;
+                            }
                         });
                         this.visibleCount = c;
                     });

@@ -1,4 +1,4 @@
-@props(['name'])
+@props(['name', 'flip' => false])
 @php
 $p = [
  'grid'          => '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>',
@@ -38,4 +38,4 @@ $p = [
  'x'             => '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
 ];
 @endphp
-<svg {{ $attributes->merge(['class' => 'ic']) }} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{!! $p[$name] ?? '' !!}</svg>
+<svg {{ $attributes->merge(['class' => 'ic' . ($flip ? ' ic-flip' : '')]) }} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{!! $p[$name] ?? '' !!}</svg>

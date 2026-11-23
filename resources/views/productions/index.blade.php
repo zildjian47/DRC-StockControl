@@ -13,13 +13,6 @@
 
     <x-flash />
 
-    @php
-        $stockMap = \App\Models\InventoryStock::pluck('current_stock', 'item_id');
-        $lotMap = \App\Models\LotTracer::whereIn('lot_number', $productions->pluck('lot_number')->unique())
-            ->get()
-            ->keyBy(fn ($l) => $l->lot_number . '|' . $l->target_item_id);
-    @endphp
-
     <div class="panel"
          x-data="productionPage({{ $productions->count() }})"
          x-init="recalc()"
@@ -104,6 +97,7 @@
                             $lotRow        = $lotMap[$prod->lot_number . '|' . $prod->item_id] ?? null;
                             $lotActualProd = $lotRow ? floatval($lotRow->actual_qty_prod) : floatval($prod->qty);
                             $lotQtyNg      = $lotRow ? floatval($lotRow->qty_ng) : 0;
+                            $lotIsFinish   = $lotRow && $lotRow->status_lot === 'FINISH';
                         @endphp
                         <tr data-row
                             data-search="{{ strtolower($prod->lot_number . ' ' . $partNo . ' ' . $partName . ' ' . $uName) }}"
@@ -112,7 +106,7 @@
                             data-type="{{ $itemType }}"
                             data-status="{{ $statusText }}"
                             x-show="matchRow($el)">
-                            <td class="text-center num font-semibold text-slate-500">{{ $idx + 1 }}</td>
+                            <td class="text-center num font-semibold text-slate-500" data-col-no>{{ $idx + 1 }}</td>
                             <td class="num col-time text-left whitespace-nowrap">
                                 <div class="font-semibold text-slate-900">{{ $dt->format('d M Y') }}</div>
                                 <div class="text-xs text-slate-500">{{ $dt->format('H:i') }} WIB</div>
@@ -142,7 +136,7 @@
                             </td>
                             <td class="text-center">
                                 <button type="button" class="act-btn" title="Koreksi Qty Production"
-                                        @click="openEdit({{ $prod->id }}, '{{ $prod->lot_number }}', '{{ addslashes($partNo) }}', '{{ addslashes($partName) }}', '{{ $itemType }}', {{ floatval($prod->qty) }}, '{{ $uom }}', {{ $currStock }}, {{ $lotActualProd }}, {{ $lotQtyNg }})">
+                                        @click="openEdit({{ $prod->id }}, {{ Js::from($prod->lot_number) }}, {{ Js::from($partNo) }}, {{ Js::from($partName) }}, {{ Js::from($itemType) }}, {{ floatval($prod->qty) }}, {{ Js::from($uom) }}, {{ $currStock }}, {{ $lotActualProd }}, {{ $lotQtyNg }}, {{ Js::from($lotIsFinish) }})">
                                     <x-icon name="edit" />
                                 </button>
                             </td>
@@ -186,7 +180,12 @@
                         </aside>
 
                         <div class="dlg-main">
-                            <div x-show="editError" x-cloak class="alert alert-crit text-xs" role="alert">
+                            <div x-show="editLotIsFinish" x-cloak class="alert alert-crit text-xs" role="alert">
+                                <x-icon name="alert" />
+                                <span x-text="'Lot ' + editLot + ' sudah berstatus FINISH sehingga tidak dapat dikoreksi.'"></span>
+                            </div>
+
+                            <div x-show="editError && !editLotIsFinish" x-cloak class="alert alert-crit text-xs" role="alert">
                                 <x-icon name="alert" />
                                 <span x-text="editError"></span>
                             </div>
@@ -198,16 +197,17 @@
                                     <input id="prod_actual_qty" type="text"
                                            :name="'items[' + editId + '][actual_qty]'"
                                            x-model="editNewQty" required
+                                           :disabled="editLotIsFinish"
                                            placeholder="Contoh: 60 atau 2*30"
                                            class="num w-full h-9 font-semibold">
                                     <span class="inp-calc-ic" title="Mendukung kalkulator (+, -, *, /)">
                                         <x-icon name="calc" />
                                     </span>
                                 </div>
-                                <div class="calc-preview" x-show="String(editNewQty || '').trim() !== '' && evalCalc(editNewQty) !== null" x-cloak>
+                                <div class="calc-preview" x-show="!editLotIsFinish && String(editNewQty || '').trim() !== '' && evalCalc(editNewQty) !== null" x-cloak>
                                     Hasil: <b x-text="evalCalc(editNewQty)"></b> <span x-text="editUom"></span>
                                 </div>
-                                <div class="calc-err" x-show="String(editNewQty || '').trim() !== '' && evalCalc(editNewQty) === null" x-cloak>
+                                <div class="calc-err" x-show="!editLotIsFinish && String(editNewQty || '').trim() !== '' && evalCalc(editNewQty) === null" x-cloak>
                                     <x-icon name="alert" />
                                     <span>Format perhitungan tidak valid</span>
                                 </div>
@@ -221,7 +221,7 @@
 
                     <div class="panel-foot">
                         <button type="button" class="btn" @click="editOpen = false">Batal</button>
-                        <button type="submit" class="btn btn-primary">Simpan Koreksi</button>
+                        <button type="submit" class="btn btn-primary" :disabled="editLotIsFinish">Simpan Koreksi</button>
                     </div>
                 </form>
             </div>
@@ -252,8 +252,9 @@
                 editStock: 0,
                 editLotActual: 0,
                 editLotNg: 0,
+                editLotIsFinish: false,
 
-                openEdit(id, lot, partNo, partName, type, qty, uom, stock, lotActual, lotNg) {
+                openEdit(id, lot, partNo, partName, type, qty, uom, stock, lotActual, lotNg, lotIsFinish) {
                     this.editId = id;
                     this.editLot = lot;
                     this.editPartNo = partNo;
@@ -265,6 +266,7 @@
                     this.editStock = Number(stock) || 0;
                     this.editLotActual = Number(lotActual) || 0;
                     this.editLotNg = Number(lotNg) || 0;
+                    this.editLotIsFinish = Boolean(lotIsFinish);
                     this.editError = '';
                     this.editOpen = true;
                 },
@@ -281,6 +283,10 @@
                 },
                 submitEdit(formEl) {
                     this.editError = '';
+                    if (this.editLotIsFinish) {
+                        this.editError = 'Lot ' + this.editLot + ' sudah berstatus FINISH sehingga tidak dapat dikoreksi.';
+                        return;
+                    }
                     if (String(this.editNewQty || '').trim() === '') {
                         this.editError = 'Qty koreksi wajib diisi.';
                         return;
@@ -335,7 +341,11 @@
                     this.$nextTick(() => {
                         let c = 0;
                         this.$el.querySelectorAll('tbody tr[data-row]').forEach(tr => {
-                            if (this.matchRow(tr)) c++;
+                            if (this.matchRow(tr)) {
+                                c++;
+                                const noCell = tr.querySelector('[data-col-no]');
+                                if (noCell) noCell.textContent = c;
+                            }
                         });
                         this.visibleCount = c;
                     });

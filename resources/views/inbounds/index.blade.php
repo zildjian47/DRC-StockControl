@@ -13,10 +13,6 @@
 
     <x-flash />
 
-    @php
-        $stockMap = \App\Models\InventoryStock::pluck('current_stock', 'item_id');
-    @endphp
-
     <div class="panel"
          x-data="inboundPage({{ $inbounds->count() }})"
          x-init="recalc()"
@@ -107,7 +103,7 @@
                             data-type="{{ $itemType }}"
                             data-status="{{ $statusText }}"
                             x-show="matchRow($el)">
-                            <td class="text-center num font-semibold text-slate-500">{{ $idx + 1 }}</td>
+                            <td class="text-center num font-semibold text-slate-500" data-col-no>{{ $idx + 1 }}</td>
                             <td class="num col-time text-left whitespace-nowrap">
                                 <div class="font-semibold text-slate-900">{{ $dt->format('d M Y') }}</div>
                                 <div class="text-xs text-slate-500">{{ $dt->format('H:i') }} WIB</div>
@@ -140,7 +136,7 @@
                             </td>
                             <td class="text-center">
                                 <button type="button" class="act-btn" title="Koreksi Qty Inbound"
-                                        @click="openEdit({{ $inb->id }}, '{{ addslashes($partNo) }}', '{{ addslashes($partName) }}', '{{ $itemType }}', {{ floatval($inb->qty) }}, '{{ $uom }}', {{ $currStock }})">
+                                        @click="openEdit({{ $inb->id }}, {{ Js::from($partNo) }}, {{ Js::from($partName) }}, {{ Js::from($itemType) }}, {{ floatval($inb->qty) }}, {{ Js::from($uom) }}, {{ $currStock }})">
                                     <x-icon name="edit" />
                                 </button>
                             </td>
@@ -322,7 +318,11 @@
                     this.$nextTick(() => {
                         let c = 0;
                         this.$el.querySelectorAll('tbody tr[data-row]').forEach(tr => {
-                            if (this.matchRow(tr)) c++;
+                            if (this.matchRow(tr)) {
+                                c++;
+                                const noCell = tr.querySelector('[data-col-no]');
+                                if (noCell) noCell.textContent = c;
+                            }
                         });
                         this.visibleCount = c;
                     });

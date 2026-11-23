@@ -15,7 +15,8 @@
 
     <div class="panel"
          x-data="trashedItemPage({{ $items->count() }})"
-         x-init="recalc()">
+         x-init="recalc()"
+         @table-refreshed.window="recalc()">
 
         <div class="panel-head">
             <div class="panel-title">
@@ -68,11 +69,11 @@
                             data-search="{{ strtolower(($item->part_no ?? '') . ' ' . $item->part_name . ' ' . $compCode) }}"
                             data-type="{{ $item->type }}"
                             x-show="matchRow($el)">
-                            <td class="text-center num font-semibold text-slate-500">{{ $idx + 1 }}</td>
+                            <td class="text-center num font-semibold text-slate-500" data-col-no>{{ $idx + 1 }}</td>
                             <td class="num text-left font-bold text-accent">{{ $item->part_no ?: '-' }}</td>
                             <td class="font-semibold text-slate-900">{{ $item->part_name }}</td>
                             <td class="text-center"><span class="ty {{ $tyCls }}">{{ $item->type }}</span></td>
-                            <td class="text-center"><span class="pill pill-neu">{{ $item->uom }}</span></td>
+                            <td class="text-center"><span class="num text-xs font-semibold text-slate-600">{{ $item->uom }}</span></td>
                             <td>
                                 <span class="font-bold text-xs text-accent">{{ $compCode }}</span>
                             </td>
@@ -85,7 +86,7 @@
                                     <button type="button" class="act-btn" title="Aktifkan Kembali (Restore)"
                                             @click="$dispatch('open-confirm', {
                                                 title: 'Aktifkan Kembali Master Item',
-                                                message: 'Aktifkan kembali item {{ addslashes($item->part_name) }} ke daftar Master Item aktif?',
+                                                message: {{ Js::from('Aktifkan kembali item ' . $item->part_name . ' ke daftar Master Item aktif?') }},
                                                 formId: 'restore-item-{{ $item->id }}'
                                             })">
                                         <x-icon name="restore" />
@@ -119,7 +120,11 @@
                     this.$nextTick(() => {
                         let c = 0;
                         this.$el.querySelectorAll('tbody tr[data-row]').forEach(tr => {
-                            if (this.matchRow(tr)) c++;
+                            if (this.matchRow(tr)) {
+                                c++;
+                                const noCell = tr.querySelector('[data-col-no]');
+                                if (noCell) noCell.textContent = c;
+                            }
                         });
                         this.visibleCount = c;
                     });

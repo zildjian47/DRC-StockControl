@@ -91,7 +91,7 @@
                             data-process="{{ $grp['process_id'] }}"
                             data-bomtype="{{ $bType }}"
                             x-show="matchRow($el)">
-                            <td class="text-center num font-semibold text-slate-500">{{ $idx + 1 }}</td>
+                            <td class="text-center num font-semibold text-slate-500" data-col-no>{{ $idx + 1 }}</td>
                             <td>
                                 <div class="font-semibold text-slate-900">{{ $grp['process_name'] }}</div>
                                 <div class="mt-1 flex items-center gap-1.5 flex-wrap">
@@ -171,7 +171,7 @@
 
                             <td class="text-center">
                                 <form action="{{ route('boms.destroy', $grp['first_id']) }}" method="POST" class="inline"
-                                      @submit.prevent="$dispatch('open-confirm', { form: $el, title: 'Hapus Kelompok BOM', message: 'Hapus seluruh resep BOM pada kelompok {{ $grp['group_key'] }}?' })">
+                                      @submit.prevent="$dispatch('open-confirm', { form: $el, title: 'Hapus Kelompok BOM', message: {{ Js::from('Hapus seluruh resep BOM pada kelompok ' . $grp['group_key'] . '?') }} })">
                                     @csrf
                                     @method('DELETE')
                                     <button type="submit" class="act-btn danger" title="Hapus Kelompok BOM">
@@ -438,6 +438,7 @@
                     const newIdx = this.formInputs.length;
                     this.formInputs.push({ item_id: '', qty_usage: '1' });
                     this.formOutputs.forEach(o => {
+                        if (!o.usages) o.usages = {};
                         if (o.usages[newIdx] === undefined) o.usages[newIdx] = '1';
                     });
                     this.$nextTick(() => this.drawLinks());
@@ -445,15 +446,35 @@
                 removeInput(idx) {
                     if (this.formInputs.length <= 1) return;
                     this.formInputs.splice(idx, 1);
+                    this.formOutputs.forEach(o => {
+                        const nextUsages = {};
+                        this.formInputs.forEach((_, newIdx) => {
+                            const oldIdx = newIdx >= idx ? newIdx + 1 : newIdx;
+                            nextUsages[newIdx] = (o.usages && o.usages[oldIdx] !== undefined) ? o.usages[oldIdx] : '1';
+                        });
+                        o.usages = nextUsages;
+                    });
+                    if (this.triggerIndex === idx) {
+                        this.triggerIndex = 0;
+                    } else if (this.triggerIndex > idx) {
+                        this.triggerIndex--;
+                    }
                     if (this.triggerIndex >= this.formInputs.length) {
                         this.triggerIndex = 0;
                     }
                     this.$nextTick(() => this.drawLinks());
                 },
                 addOutput() {
+                    if (this.formOutputs.length === 1) {
+                        const firstUsages = {};
+                        this.formInputs.forEach((inp, idx) => {
+                            firstUsages[idx] = (inp.qty_usage !== undefined && String(inp.qty_usage).trim() !== '') ? inp.qty_usage : '1';
+                        });
+                        this.formOutputs[0].usages = firstUsages;
+                    }
                     const usageInit = {};
                     this.formInputs.forEach((inp, idx) => {
-                        usageInit[idx] = inp.qty_usage || '1';
+                        usageInit[idx] = (inp.qty_usage !== undefined && String(inp.qty_usage).trim() !== '') ? inp.qty_usage : '1';
                     });
                     this.formOutputs.push({ item_id: '', usages: usageInit });
                     this.$nextTick(() => this.drawLinks());
@@ -461,6 +482,14 @@
                 removeOutput(idx) {
                     if (this.formOutputs.length <= 1) return;
                     this.formOutputs.splice(idx, 1);
+                    if (this.formOutputs.length === 1) {
+                        const remaining = this.formOutputs[0];
+                        this.formInputs.forEach((inp, iIdx) => {
+                            if (remaining.usages && remaining.usages[iIdx] !== undefined && String(remaining.usages[iIdx]).trim() !== '') {
+                                inp.qty_usage = remaining.usages[iIdx];
+                            }
+                        });
+                    }
                     this.$nextTick(() => this.drawLinks());
                 },
                 getItemName(id, isInput) {
@@ -562,7 +591,11 @@
                     this.$nextTick(() => {
                         let c = 0;
                         this.$el.querySelectorAll('tbody tr[data-bom-row]').forEach(tr => {
-                            if (this.matchRow(tr)) c++;
+                            if (this.matchRow(tr)) {
+                                c++;
+                                const noCell = tr.querySelector('[data-col-no]');
+                                if (noCell) noCell.textContent = c;
+                            }
                         });
                         this.visibleGroups = c;
                     });
