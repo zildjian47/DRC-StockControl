@@ -28,7 +28,7 @@
                     <span x-show="step === 2" x-cloak>Langkah 2 · Scan Output</span>
                     <span x-show="step === 3" x-cloak>Langkah 3 · Lot &amp; Qty</span>
                 </div>
-                <span class="pill pill-info">1X RETURN / LOT</span>
+                <span class="pill pill-info">LOT ON PROGRESS</span>
             </div>
 
             <div class="panel-body space-y-4">
@@ -179,7 +179,7 @@
                 </button>
             </div>
             <div class="divide-y divide-slate-200 max-h-80 overflow-y-auto">
-                <template x-for="s in filteredHistory" :key="s.lot_number">
+                <template x-for="s in filteredHistory" :key="s.batch_key || s.id">
                     <div class="p-3 flex items-center justify-between gap-3 text-xs bg-white hover:bg-slate-50">
                         <div class="min-w-0 flex-1">
                             <div class="flex items-center gap-1.5 flex-wrap">

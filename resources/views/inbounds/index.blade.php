@@ -95,6 +95,21 @@
                             $compCode   = $inb->item->company->company_code ?? '-';
                             $tyCls      = 'ty-' . ($itemType === 'FG/KOMPONEN' ? 'FGK' : $itemType);
                             $currStock  = floatval($stockMap[$inb->item_id] ?? 0);
+
+                            $editPayload = [
+                                'id'               => $inb->id,
+                                'part_no'          => $partNo,
+                                'part_name'        => $partName,
+                                'type'             => $itemType,
+                                'qty'              => floatval($inb->qty),
+                                'uom'              => $uom,
+                                'stock'            => $currStock,
+                                'status'           => $statusText,
+                                'qty_original'     => $inb->qty_original !== null ? floatval($inb->qty_original) : null,
+                                'corrected_by'     => $inb->correctedBy->name ?? null,
+                                'corrected_at_fmt' => $inb->corrected_at ? \Carbon\Carbon::parse($inb->corrected_at)->format('d M Y, H:i') : null,
+                                'correction_notes' => $inb->correction_notes ?: null,
+                            ];
                         @endphp
                         <tr data-row
                             data-search="{{ strtolower($partNo . ' ' . $partName . ' ' . $uName . ' ' . $compCode) }}"
@@ -129,14 +144,14 @@
                             </td>
                             <td class="text-center">
                                 @if($statusText === 'DIKOREKSI')
-                                    <span class="pill pill-info">DIKOREKSI</span>
+                                    <span class="pill pill-info" title="{{ $inb->correctedBy ? 'Dikoreksi oleh ' . $inb->correctedBy->name : 'DIKOREKSI' }}">DIKOREKSI</span>
                                 @else
                                     <span class="pill pill-good">TERCATAT</span>
                                 @endif
                             </td>
                             <td class="text-center">
                                 <button type="button" class="act-btn" title="Koreksi Qty Inbound"
-                                        @click="openEdit({{ $inb->id }}, {{ Js::from($partNo) }}, {{ Js::from($partName) }}, {{ Js::from($itemType) }}, {{ floatval($inb->qty) }}, {{ Js::from($uom) }}, {{ $currStock }})">
+                                        @click="openEdit({{ Js::from($editPayload) }})">
                                     <x-icon name="edit" />
                                 </button>
                             </td>
@@ -176,6 +191,20 @@
                                 <div><span>Qty Tercatat</span><b class="num" x-text="editOldQty + ' ' + editUom"></b></div>
                                 <div><span>Qty Koreksi</span><b class="num text-accent" x-text="(evalCalc(editNewQty) ?? editOldQty) + ' ' + editUom"></b></div>
                             </div>
+
+                            <div x-show="editStatus === 'DIKOREKSI'" x-cloak class="sumc text-xs space-y-1">
+                                <div class="dlg-k">Riwayat Koreksi</div>
+                                <div x-show="editQtyOriginal !== null">
+                                    <span class="text-slate-500">Qty Awal:</span>
+                                    <b class="num text-slate-900" x-text="editQtyOriginal + ' ' + editUom"></b>
+                                </div>
+                                <div x-show="editCorrectedBy">
+                                    <span class="text-slate-500">Oleh:</span>
+                                    <b class="text-slate-900" x-text="editCorrectedBy"></b>
+                                </div>
+                                <div x-show="editCorrectedAtFmt" class="num text-[11px] text-slate-500" x-text="editCorrectedAtFmt"></div>
+                                <div x-show="editSavedNotes" class="text-[11px] text-slate-700 break-words" x-text="'Alasan: ' + editSavedNotes"></div>
+                            </div>
                         </aside>
 
                         <div class="dlg-main">
@@ -205,9 +234,20 @@
                                     <span>Format perhitungan tidak valid</span>
                                 </div>
                             </div>
+
+                            <div>
+                                <label class="lbl" for="inb_corr_notes">Alasan Koreksi <span style="font-weight:400;color:var(--mut)">(Opsional)</span></label>
+                                <input id="inb_corr_notes" type="text"
+                                       :name="'items[' + editId + '][correction_notes]'"
+                                       x-model="editNotes"
+                                       placeholder="Contoh: Revisi sesuai surat jalan fisik supplier"
+                                       maxlength="500"
+                                       class="w-full h-9 text-xs">
+                            </div>
+
                             <div class="alert alert-info text-xs leading-relaxed">
                                 <x-icon name="info" />
-                                <div>Menyimpan koreksi akan otomatis menyesuaikan <b>Current Stock</b> di gudang dan menandai status transaksi menjadi <b>DIKOREKSI</b>.</div>
+                                <div>Menyimpan koreksi akan otomatis menyesuaikan <b>Current Stock</b> di gudang, menandai status menjadi <b>DIKOREKSI</b>, dan mencatat jejak audit koreksi.</div>
                             </div>
                         </div>
                     </div>
@@ -242,16 +282,28 @@
                 editNewQty: '',
                 editUom: '',
                 editStock: 0,
+                editStatus: 'TERCATAT',
+                editQtyOriginal: null,
+                editCorrectedBy: null,
+                editCorrectedAtFmt: null,
+                editSavedNotes: null,
+                editNotes: '',
 
-                openEdit(id, partNo, partName, type, qty, uom, stock) {
-                    this.editId = id;
-                    this.editPartNo = partNo;
-                    this.editPartName = partName;
-                    this.editType = type;
-                    this.editOldQty = qty;
-                    this.editNewQty = String(qty);
-                    this.editUom = uom;
-                    this.editStock = Number(stock) || 0;
+                openEdit(p) {
+                    this.editId = p.id;
+                    this.editPartNo = p.part_no;
+                    this.editPartName = p.part_name;
+                    this.editType = p.type;
+                    this.editOldQty = Number(p.qty) || 0;
+                    this.editNewQty = String(p.qty);
+                    this.editUom = p.uom;
+                    this.editStock = Number(p.stock) || 0;
+                    this.editStatus = p.status || 'TERCATAT';
+                    this.editQtyOriginal = p.qty_original ?? null;
+                    this.editCorrectedBy = p.corrected_by ?? null;
+                    this.editCorrectedAtFmt = p.corrected_at_fmt ?? null;
+                    this.editSavedNotes = p.correction_notes ?? null;
+                    this.editNotes = p.correction_notes || '';
                     this.editError = '';
                     this.editOpen = true;
                 },

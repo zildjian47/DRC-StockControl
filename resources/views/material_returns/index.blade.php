@@ -93,7 +93,24 @@
                             $matItem     = $first->materialItem;
                             $uName       = $first->user->name ?? 'Operator';
                             $currStock   = floatval($stockMap[$first->material_item_id] ?? 0);
-                            $maxRetAllow = floatval($maxAllowedMap[$grp['lot_number'] . '|' . $first->material_item_id] ?? $grp['qty_trigger']);
+                            $maxRetAllow = floatval($grp['max_allowed'] ?? $grp['qty_trigger']);
+
+                            $editPayload = [
+                                'id'               => $first->id,
+                                'lot'              => $grp['lot_number'],
+                                'part_no'          => $matItem->part_no ?: '-',
+                                'part_name'        => $matItem->part_name ?? '-',
+                                'qty'              => floatval($grp['qty_trigger']),
+                                'uom'              => $matItem->uom ?? '',
+                                'stock'            => $currStock,
+                                'max_allowed'      => $maxRetAllow,
+                                'lot_is_finish'    => (bool) ($grp['lot_is_finish'] ?? false),
+                                'status'           => $grp['status_label'],
+                                'qty_original'     => $grp['qty_original'] ?? null,
+                                'corrected_by'     => $grp['corrected_by_name'] ?? null,
+                                'corrected_at_fmt' => $grp['corrected_at_fmt'] ?? null,
+                                'correction_notes' => $grp['correction_notes'] ?? null,
+                            ];
                         @endphp
                         <tr data-row
                             data-search="{{ $grp['search_index'] }}"
@@ -182,14 +199,14 @@
 
                             <td class="text-center">
                                 @if($grp['status_label'] === 'DIKOREKSI')
-                                    <span class="pill pill-info">DIKOREKSI</span>
+                                    <span class="pill pill-info" title="{{ !empty($grp['corrected_by_name']) ? 'Dikoreksi oleh ' . $grp['corrected_by_name'] : 'DIKOREKSI' }}">DIKOREKSI</span>
                                 @else
                                     <span class="pill pill-good">TERCATAT</span>
                                 @endif
                             </td>
                             <td class="text-center">
                                 <button type="button" class="act-btn" title="Koreksi Qty Material Return"
-                                        @click="openEdit({{ $first->id }}, {{ Js::from($grp['lot_number']) }}, {{ Js::from($matItem->part_no ?: '-') }}, {{ Js::from($matItem->part_name ?? '-') }}, {{ floatval($grp['qty_trigger']) }}, {{ Js::from($matItem->uom ?? '') }}, {{ $currStock }}, {{ $maxRetAllow }})">
+                                        @click="openEdit({{ Js::from($editPayload) }})">
                                     <x-icon name="edit" />
                                 </button>
                             </td>
@@ -226,11 +243,31 @@
                             <div class="dlg-list">
                                 <div><span>Qty Return Awal</span><b class="num" x-text="editOldQty + ' ' + editUom"></b></div>
                                 <div><span>Qty Return Koreksi</span><b class="num text-accent" x-text="(evalCalc(editNewQty) ?? editOldQty) + ' ' + editUom"></b></div>
+                                <div><span>Batas Maksimal</span><b class="num text-emerald-700" x-text="editMaxAllowed + ' ' + editUom"></b></div>
+                            </div>
+
+                            <div x-show="editStatus === 'DIKOREKSI'" x-cloak class="sumc text-xs space-y-1">
+                                <div class="dlg-k">Riwayat Koreksi</div>
+                                <div x-show="editQtyOriginal !== null">
+                                    <span class="text-slate-500">Qty Awal:</span>
+                                    <b class="num text-slate-900" x-text="editQtyOriginal + ' ' + editUom"></b>
+                                </div>
+                                <div x-show="editCorrectedBy">
+                                    <span class="text-slate-500">Oleh:</span>
+                                    <b class="text-slate-900" x-text="editCorrectedBy"></b>
+                                </div>
+                                <div x-show="editCorrectedAtFmt" class="num text-[11px] text-slate-500" x-text="editCorrectedAtFmt"></div>
+                                <div x-show="editSavedNotes" class="text-[11px] text-slate-700 break-words" x-text="'Alasan: ' + editSavedNotes"></div>
                             </div>
                         </aside>
 
                         <div class="dlg-main">
-                            <div x-show="editError" x-cloak class="alert alert-crit text-xs" role="alert">
+                            <div x-show="editLotIsFinish" x-cloak class="alert alert-crit text-xs" role="alert">
+                                <x-icon name="alert" />
+                                <span x-text="'Lot ' + editLot + ' sudah berstatus FINISH sehingga Material Return tidak dapat dikoreksi.'"></span>
+                            </div>
+
+                            <div x-show="editError && !editLotIsFinish" x-cloak class="alert alert-crit text-xs" role="alert">
                                 <x-icon name="alert" />
                                 <span x-text="editError"></span>
                             </div>
@@ -242,30 +279,43 @@
                                     <input id="mr_actual_qty" type="text"
                                            :name="'items[' + editId + '][actual_qty]'"
                                            x-model="editNewQty" required
+                                           :disabled="editLotIsFinish"
                                            placeholder="Contoh: 5 atau 2+3"
                                            class="num w-full h-9 font-semibold">
                                     <span class="inp-calc-ic" title="Mendukung kalkulator (+, -, *, /)">
                                         <x-icon name="calc" />
                                     </span>
                                 </div>
-                                <div class="calc-preview" x-show="String(editNewQty || '').trim() !== '' && evalCalc(editNewQty) !== null" x-cloak>
+                                <div class="calc-preview" x-show="!editLotIsFinish && String(editNewQty || '').trim() !== '' && evalCalc(editNewQty) !== null" x-cloak>
                                     Hasil: <b x-text="evalCalc(editNewQty)"></b> <span x-text="editUom"></span>
                                 </div>
-                                <div class="calc-err" x-show="String(editNewQty || '').trim() !== '' && evalCalc(editNewQty) === null" x-cloak>
+                                <div class="calc-err" x-show="!editLotIsFinish && String(editNewQty || '').trim() !== '' && evalCalc(editNewQty) === null" x-cloak>
                                     <x-icon name="alert" />
                                     <span>Format perhitungan tidak valid</span>
                                 </div>
                             </div>
+
+                            <div>
+                                <label class="lbl" for="mr_corr_notes">Alasan Koreksi <span style="font-weight:400;color:var(--mut)">(Opsional)</span></label>
+                                <input id="mr_corr_notes" type="text"
+                                       :name="'items[' + editId + '][correction_notes]'"
+                                       x-model="editNotes"
+                                       :disabled="editLotIsFinish"
+                                       placeholder="Contoh: Revisi hasil timbang ulang sisa material retur"
+                                       maxlength="500"
+                                       class="w-full h-9 text-xs">
+                            </div>
+
                             <div class="alert alert-info text-xs leading-relaxed">
                                 <x-icon name="info" />
-                                <div>Koreksi ini otomatis menyesuaikan stok gudang (Trigger &amp; Pendamping) serta memperbarui <b>Target Estimasi &amp; WIP</b> di Lot Tracer.</div>
+                                <div>Koreksi ini otomatis menyesuaikan stok gudang (Trigger &amp; Pendamping), memperbarui <b>Target Estimasi &amp; WIP</b> di Lot Tracer, dan mencatat jejak audit koreksi.</div>
                             </div>
                         </div>
                     </div>
 
                     <div class="panel-foot">
                         <button type="button" class="btn" @click="editOpen = false">Batal</button>
-                        <button type="submit" class="btn btn-primary">Simpan Koreksi</button>
+                        <button type="submit" class="btn btn-primary" :disabled="editLotIsFinish">Simpan Koreksi</button>
                     </div>
                 </form>
             </div>
@@ -294,17 +344,31 @@
                 editUom: '',
                 editStock: 0,
                 editMaxAllowed: 0,
+                editLotIsFinish: false,
+                editStatus: 'TERCATAT',
+                editQtyOriginal: null,
+                editCorrectedBy: null,
+                editCorrectedAtFmt: null,
+                editSavedNotes: null,
+                editNotes: '',
 
-                openEdit(id, lot, partNo, partName, qty, uom, stock, maxAllowed) {
-                    this.editId = id;
-                    this.editLot = lot;
-                    this.editPartNo = partNo;
-                    this.editPartName = partName;
-                    this.editOldQty = qty;
-                    this.editNewQty = String(qty);
-                    this.editUom = uom;
-                    this.editStock = Number(stock) || 0;
-                    this.editMaxAllowed = Number(maxAllowed) || 0;
+                openEdit(p) {
+                    this.editId = p.id;
+                    this.editLot = p.lot;
+                    this.editPartNo = p.part_no;
+                    this.editPartName = p.part_name;
+                    this.editOldQty = Number(p.qty) || 0;
+                    this.editNewQty = String(p.qty);
+                    this.editUom = p.uom;
+                    this.editStock = Number(p.stock) || 0;
+                    this.editMaxAllowed = Number(p.max_allowed) || 0;
+                    this.editLotIsFinish = Boolean(p.lot_is_finish);
+                    this.editStatus = p.status || 'TERCATAT';
+                    this.editQtyOriginal = p.qty_original ?? null;
+                    this.editCorrectedBy = p.corrected_by ?? null;
+                    this.editCorrectedAtFmt = p.corrected_at_fmt ?? null;
+                    this.editSavedNotes = p.correction_notes ?? null;
+                    this.editNotes = p.correction_notes || '';
                     this.editError = '';
                     this.editOpen = true;
                 },
@@ -321,6 +385,10 @@
                 },
                 submitEdit(formEl) {
                     this.editError = '';
+                    if (this.editLotIsFinish) {
+                        this.editError = 'Lot ' + this.editLot + ' sudah berstatus FINISH sehingga Material Return tidak dapat dikoreksi.';
+                        return;
+                    }
                     if (String(this.editNewQty || '').trim() === '') {
                         this.editError = 'Qty koreksi wajib diisi.';
                         return;
