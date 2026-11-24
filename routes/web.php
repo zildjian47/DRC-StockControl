@@ -53,7 +53,6 @@ Route::middleware('auth')->group(function () {
 
     // 6. Lot Tracers (Meja Kontrol WIP)
     Route::get('/lot-tracers', [LotTracerController::class, 'index'])->name('lot_tracers.index');
-    Route::post('/lot-tracers/{lotTracer}/finish', [LotTracerController::class, 'finish'])->name('lot_tracers.finish');
     Route::patch('/lot-tracers/{lotTracer}/set-finish', [LotTracerController::class, 'finish'])->name('lot_tracers.set_finish');
 
     // 7. Inbounds (QR Scanner & Verifikasi PPIC)
@@ -110,8 +109,9 @@ Route::middleware('auth')->group(function () {
             'store' => 'stock_adjustments.store',
         ]);
 
-    // 14. Form Production NG (Desktop QC & Mobile Scanner)
+    // 14. Form Production NG (Desktop QC, Mobile Scanner & Koreksi PPIC)
     Route::get('/production-ngs/lookup', [ProductionNgController::class, 'lookup'])->name('production_ngs.lookup');
+    Route::post('/production-ngs/verify-batch', [ProductionNgController::class, 'verifyBatch'])->name('production_ngs.verify_batch');
     Route::resource('production-ngs', ProductionNgController::class)
         ->only(['index', 'store'])
         ->names([
@@ -121,10 +121,12 @@ Route::middleware('auth')->group(function () {
 
     // 15. Problem Delays / Delay Delivery (Desktop)
     Route::resource('problem-delays', ProblemDelayController::class)
-        ->only(['index', 'store'])
+        ->only(['index', 'store', 'update', 'destroy'])
         ->names([
-            'index' => 'problem_delays.index',
-            'store' => 'problem_delays.store',
+            'index'   => 'problem_delays.index',
+            'store'   => 'problem_delays.store',
+            'update'  => 'problem_delays.update',
+            'destroy' => 'problem_delays.destroy',
         ]);
 });
 

@@ -9,11 +9,24 @@ class Production extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['date_time', 'item_id', 'user_id', 'lot_number', 'qty', 'qty_check'];
+    protected $fillable = [
+        'date_time',
+        'item_id',
+        'user_id',
+        'lot_number',
+        'qty',
+        'qty_check',
+        'qty_original',
+        'corrected_by',
+        'corrected_at',
+        'correction_notes',
+    ];
 
     protected $casts = [
-        'date_time' => 'datetime',
-        'qty'       => 'decimal:2',
+        'date_time'    => 'datetime',
+        'qty'          => 'decimal:2',
+        'qty_original' => 'decimal:2',
+        'corrected_at' => 'datetime',
     ];
 
     public function item()
@@ -24,5 +37,10 @@ class Production extends Model
     public function user()
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function correctedBy()
+    {
+        return $this->belongsTo(User::class, 'corrected_by');
     }
 }
