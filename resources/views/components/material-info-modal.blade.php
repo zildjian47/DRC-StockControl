@@ -280,6 +280,16 @@
                                             </div>
                                             <div class="hint break-words" style="margin-top: 0" x-text="h.reference || '-'"></div>
                                             <div class="hint" style="margin-top: 0" x-text="cleanLabel(h.user_name || '-')"></div>
+                                            <div x-show="h.status === 'DIKOREKSI' && (h.qty_original !== null || h.corrected_by || h.correction_notes)"
+                                                 x-cloak
+                                                 class="mt-1 px-2 py-1 rounded bg-slate-50 border border-slate-200 text-[11px] text-slate-600 space-y-0.5">
+                                                <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                                                    <span x-show="h.qty_original !== null">Qty Awal: <b class="num text-slate-800" x-text="h.qty_original + ' ' + h.uom"></b></span>
+                                                    <span x-show="h.corrected_by">Koreksi: <b class="text-slate-800" x-text="cleanLabel(h.corrected_by)"></b></span>
+                                                    <span class="num text-slate-500" x-show="h.corrected_at_fmt" x-text="'(' + h.corrected_at_fmt + ')'"></span>
+                                                </div>
+                                                <div x-show="h.correction_notes" class="text-slate-600 break-words" x-text="'Alasan: ' + h.correction_notes"></div>
+                                            </div>
                                         </div>
                                         <div class="tl-qty num">
                                             <span x-text="(h.qty_change >= 0 ? '+' : '') + h.qty_change"></span>
@@ -491,7 +501,7 @@
                         .filter(h => {
                             if (this.histSearch) {
                                 const q = this.histSearch.toLowerCase();
-                                const hit = [h.type_label, h.reference, h.user_name, h.status]
+                                const hit = [h.type_label, h.reference, h.user_name, h.status, h.corrected_by, h.correction_notes]
                                     .some(v => String(v || '').toLowerCase().includes(q));
                                 if (!hit) return false;
                             }

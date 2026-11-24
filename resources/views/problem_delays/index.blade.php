@@ -84,14 +84,15 @@
             <table class="tbl">
                 <thead>
                     <tr>
-                        <th class="w-[5%] text-center">No</th>
-                        <th class="w-[13%] col-time">Tanggal Kejadian</th>
-                        <th class="w-[14%] col-time">Waktu Pencatatan</th>
-                        <th class="w-[13%]">Petugas</th>
-                        <th class="w-[15%]">Perusahaan</th>
-                        <th class="w-[21%]">Part No &amp; Part Name</th>
+                        <th class="w-[4%] text-center">No</th>
+                        <th class="w-[11%] col-time">Tanggal Kejadian</th>
+                        <th class="w-[12%] col-time">Waktu Pencatatan</th>
+                        <th class="w-[12%]">Petugas</th>
+                        <th class="w-[14%]">Perusahaan</th>
+                        <th class="w-[20%]">Part No &amp; Part Name</th>
                         <th class="w-[8%] text-center">Tipe</th>
                         <th class="w-[11%] text-center">Problem Reason</th>
+                        <th class="w-[8%] text-center">Aksi</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -107,6 +108,14 @@
                             $partName = $d->item->part_name ?? '-';
                             $itemType = $d->item->type ?? '-';
                             $tyCls    = 'ty-' . ($itemType === 'FG/KOMPONEN' ? 'FGK' : $itemType);
+
+                            $editPayload = [
+                                'id'             => $d->id,
+                                'incident_date'  => $incDt->format('Y-m-d'),
+                                'company_id'     => $d->company_id,
+                                'item_id'        => $d->item_id,
+                                'problem_reason' => $d->problem_reason,
+                            ];
                         @endphp
                         <tr data-row
                             data-search="{{ strtolower($compCode . ' ' . $compName . ' ' . $partNo . ' ' . $partName . ' ' . $uName . ' ' . $d->problem_reason) }}"
@@ -149,9 +158,25 @@
                             <td class="text-center">
                                 <span class="pill pill-neu">{{ $d->problem_reason }}</span>
                             </td>
+                            <td class="text-center">
+                                <div class="inline-flex items-center justify-center gap-1">
+                                    <button type="button" class="act-btn" title="Edit Log Delay"
+                                            @click="openEdit({{ Js::from($editPayload) }})">
+                                        <x-icon name="edit" />
+                                    </button>
+                                    <form action="{{ route('problem_delays.destroy', $d->id) }}" method="POST" class="inline"
+                                          @submit.prevent="$dispatch('open-confirm', { form: $el, title: 'Hapus Log Delay Delivery', message: {{ Js::from('Hapus log delay pengiriman untuk ' . $partName . ' (' . $incDt->format('d M Y') . ')?') }} })">
+                                        @csrf
+                                        @method('DELETE')
+                                        <button type="submit" class="act-btn danger" title="Hapus Log Delay">
+                                            <x-icon name="trash" />
+                                        </button>
+                                    </form>
+                                </div>
+                            </td>
                         </tr>
                     @empty
-                        <tr><td colspan="8"><div class="empty">Belum ada data log Delay Delivery.</div></td></tr>
+                        <tr><td colspan="9"><div class="empty">Belum ada data log Delay Delivery.</div></td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -218,7 +243,7 @@
                                 <select id="delay_item" name="item_id" x-model="selectedItemId" required class="w-full h-9 text-xs">
                                     <option value="">-- Pilih Item --</option>
                                     <template x-for="it in availableItems" :key="it.id">
-                                        <option :value="it.id" x-text="it.label"></option>
+                                        <option :value="String(it.id)" x-text="it.label"></option>
                                     </template>
                                 </select>
                             </div>
@@ -244,6 +269,95 @@
                 </form>
             </div>
         </div>
+
+        {{-- POP-UP MODAL EDIT DELAY DELIVERY (dua panel, panel kiri abu) --}}
+        <div x-show="editOpen" x-cloak class="modal-backdrop" @click.self="editOpen = false" @keydown.escape.window="editOpen = false">
+            <div class="panel dlg w-full max-w-3xl" role="dialog" aria-label="Edit Log Delay Delivery">
+                <div class="panel-head">
+                    <h3 class="panel-title">Edit Log Delay Delivery</h3>
+                    <button type="button" class="act-btn" @click="editOpen = false" aria-label="Tutup">
+                        <x-icon name="x" />
+                    </button>
+                </div>
+
+                <form :action="'{{ url('problem-delays') }}/' + editId" method="POST" novalidate
+                      @submit.prevent="submitEdit($el)"
+                      class="flex flex-col min-h-0 flex-1">
+                    @csrf
+                    @method('PUT')
+                    <div class="dlg-split">
+                        <aside class="dlg-side hide-sm">
+                            <div class="dlg-k">Pratinjau Perubahan</div>
+                            <div class="sumc">
+                                <div class="text-xs font-semibold text-slate-500 num" x-text="'Tgl Kejadian: ' + (editIncidentDate || '-')"></div>
+                                <div class="dlg-code num mt-1" x-text="editSelectedCompany ? editSelectedCompany.code : '–'"></div>
+                                <div class="dlg-name" x-text="editSelectedCompany ? editSelectedCompany.name : 'Pilih Perusahaan'"></div>
+                                <div class="mt-1" x-show="editSelectedCompany">
+                                    <span class="pill"
+                                          :class="editSelectedCompany?.type === 'CUSTOMER' ? 'pill-good' : (editSelectedCompany?.type === 'INTERNAL' ? 'pill-warn' : 'pill-info')"
+                                          x-text="editSelectedCompany?.type"></span>
+                                </div>
+                            </div>
+
+                            <div class="dlg-list">
+                                <div><span>Part</span><b class="num truncate" x-text="editSelectedItem ? editSelectedItem.part_name : '-'"></b></div>
+                                <div><span>Problem</span><b class="text-rose-700" x-text="editReason"></b></div>
+                            </div>
+                        </aside>
+
+                        <div class="dlg-main">
+                            <div x-show="editError" x-cloak class="alert alert-crit text-xs" role="alert">
+                                <x-icon name="alert" />
+                                <span x-text="editError"></span>
+                            </div>
+
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="lbl" for="edit_delay_inc_date">Tanggal Kejadian</label>
+                                    <input id="edit_delay_inc_date" type="date" name="incident_date" x-model="editIncidentDate" required class="w-full h-9 text-xs num">
+                                </div>
+                                <div>
+                                    <label class="lbl" for="edit_delay_comp">Pilih Perusahaan / Customer</label>
+                                    <select id="edit_delay_comp" name="company_id" x-model="editCompanyId" @change="editItemId = ''" required class="w-full h-9 text-xs">
+                                        <option value="">-- Pilih Perusahaan --</option>
+                                        @foreach($companies as $c)
+                                            <option value="{{ $c->id }}">{{ $c->company_code }} — {{ $c->company_name }} ({{ $c->type_company }})</option>
+                                        @endforeach
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label class="lbl" for="edit_delay_item">Pilih Item Terdampak</label>
+                                <select id="edit_delay_item" name="item_id" x-model="editItemId" required class="w-full h-9 text-xs">
+                                    <option value="">-- Pilih Item --</option>
+                                    <template x-for="it in editAvailableItems" :key="'ed-' + it.id">
+                                        <option :value="String(it.id)" :selected="String(it.id) === String(editItemId)" x-text="it.label"></option>
+                                    </template>
+                                </select>
+                            </div>
+
+                            <div>
+                                <span class="lbl">Problem Reason (Kategori Kendala)</span>
+                                <div class="opt-chips">
+                                    @foreach($reasons as $r)
+                                        <label>
+                                            <input type="radio" name="problem_reason" value="{{ $r }}" x-model="editReason" required>
+                                            <span>{{ $r }}</span>
+                                        </label>
+                                    @endforeach
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="panel-foot">
+                        <button type="button" class="btn" @click="editOpen = false">Batal</button>
+                        <button type="submit" class="btn btn-primary">Simpan Perubahan</button>
+                    </div>
+                </form>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -265,6 +379,14 @@
                 selectedItemId: '',
                 selectedReason: defaultReason || 'MATERIAL',
 
+                editOpen: false,
+                editError: '',
+                editId: null,
+                editIncidentDate: todayStr,
+                editCompanyId: '',
+                editItemId: '',
+                editReason: defaultReason || 'MATERIAL',
+
                 get selectedCompany() {
                     return this.companiesList.find(c => String(c.id) === String(this.selectedCompanyId)) || null;
                 },
@@ -278,6 +400,31 @@
                         return this.itemsList.filter(i => String(i.company_id) === String(comp.id) || ['FG/KOMPONEN', 'TRANSIT'].includes(i.type));
                     }
                     return this.itemsList.filter(i => String(i.company_id) === String(comp.id));
+                },
+                get editSelectedCompany() {
+                    return this.companiesList.find(c => String(c.id) === String(this.editCompanyId)) || null;
+                },
+                get editSelectedItem() {
+                    return this.itemsList.find(i => String(i.id) === String(this.editItemId)) || null;
+                },
+                get editAvailableItems() {
+                    const comp = this.editSelectedCompany;
+                    if (!comp) return [];
+                    if (comp.type === 'CUSTOMER') {
+                        return this.itemsList.filter(i => String(i.company_id) === String(comp.id) || ['FG/KOMPONEN', 'TRANSIT'].includes(i.type));
+                    }
+                    return this.itemsList.filter(i => String(i.company_id) === String(comp.id));
+                },
+                openEdit(payload) {
+                    this.editId = payload.id;
+                    this.editIncidentDate = payload.incident_date || todayStr;
+                    this.editCompanyId = String(payload.company_id || '');
+                    this.editReason = payload.problem_reason || 'MATERIAL';
+                    this.editError = '';
+                    this.editOpen = true;
+                    this.$nextTick(() => {
+                        this.editItemId = String(payload.item_id || '');
+                    });
                 },
                 submitAdd(formEl) {
                     this.addError = '';
@@ -295,6 +442,26 @@
                     }
                     if (!this.selectedReason) {
                         this.addError = 'Problem Reason wajib dipilih.';
+                        return;
+                    }
+                    formEl.submit();
+                },
+                submitEdit(formEl) {
+                    this.editError = '';
+                    if (!this.editIncidentDate) {
+                        this.editError = 'Tanggal Kejadian wajib diisi.';
+                        return;
+                    }
+                    if (!this.editCompanyId || !this.editSelectedCompany) {
+                        this.editError = 'Perusahaan / Customer wajib dipilih.';
+                        return;
+                    }
+                    if (!this.editItemId || !this.editAvailableItems.some(i => String(i.id) === String(this.editItemId))) {
+                        this.editError = 'Item Terdampak wajib dipilih sesuai perusahaan yang dipilih.';
+                        return;
+                    }
+                    if (!this.editReason) {
+                        this.editError = 'Problem Reason wajib dipilih.';
                         return;
                     }
                     formEl.submit();

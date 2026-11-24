@@ -1,6 +1,7 @@
 <x-app-layout>
     <x-slot name="header">
-        <x-page-header title="Lot Tracer" />
+        <x-page-header title="Lot Tracer"
+                       subtitle="Pemantauan progres Lot produksi, sisa material di mesin, komponen pendamping, WIP, Act FG, dan Top/End Coil" />
     </x-slot>
 
     <x-flash />

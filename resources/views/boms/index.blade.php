@@ -42,7 +42,7 @@
             <div class="panel-title">
                 <span>Daftar Struktur BOM</span>
                 <span class="count-chip"><span x-text="visibleGroups"></span><span>KELOMPOK</span></span>
-                <span class="count-chip count-chip-sub">{{ $boms->count() }} BARIS</span>
+                <span class="count-chip count-chip-sub"><span x-text="visibleRows">{{ $boms->count() }}</span><span>BARIS</span></span>
             </div>
 
             <div class="flex flex-wrap items-center gap-2">
@@ -90,6 +90,7 @@
                             data-search="{{ $grp['search_index'] }}"
                             data-process="{{ $grp['process_id'] }}"
                             data-bomtype="{{ $bType }}"
+                            data-rows="{{ $grp['rows']->count() }}"
                             x-show="matchRow($el)">
                             <td class="text-center num font-semibold text-slate-500" data-col-no>{{ $idx + 1 }}</td>
                             <td>
@@ -372,6 +373,7 @@
                 addProcessId: '',
                 addError: '',
                 visibleGroups: initialGroups,
+                visibleRows: initialRows,
                 inputItemsList: inputItemsList,
                 outputItemsList: outputItemsList,
                 triggerIndex: 0,
@@ -589,15 +591,18 @@
                 },
                 recalc() {
                     this.$nextTick(() => {
-                        let c = 0;
+                        let gCount = 0;
+                        let rCount = 0;
                         this.$el.querySelectorAll('tbody tr[data-bom-row]').forEach(tr => {
                             if (this.matchRow(tr)) {
-                                c++;
+                                gCount++;
+                                rCount += parseInt(tr.dataset.rows || '0', 10);
                                 const noCell = tr.querySelector('[data-col-no]');
-                                if (noCell) noCell.textContent = c;
+                                if (noCell) noCell.textContent = gCount;
                             }
                         });
-                        this.visibleGroups = c;
+                        this.visibleGroups = gCount;
+                        this.visibleRows = rCount;
                     });
                 }
             };

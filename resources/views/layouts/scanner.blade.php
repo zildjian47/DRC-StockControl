@@ -12,7 +12,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
     @vite(['resources/css/app.css', 'resources/js/app.js'])
-    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <script src="{{ asset('vendor/html5-qrcode/html5-qrcode.min.js') }}" type="text/javascript"></script>
 
     <style>
         body {
@@ -297,7 +297,12 @@
             async start(elementId, onDecode, onErrorMsg) {
                 await this.stop();
                 const el = document.getElementById(elementId);
-                if (!el || typeof Html5Qrcode === 'undefined') return false;
+                if (!el || typeof Html5Qrcode === 'undefined') {
+                    if (typeof onErrorMsg === 'function') {
+                        onErrorMsg('Pustaka kamera QR lokal belum termuat. Silakan ketik kode manual di bawah.');
+                    }
+                    return false;
+                }
 
                 try {
                     const qr = new Html5Qrcode(elementId);
@@ -474,16 +479,40 @@
             let filteredOptions = [];
             let highlightIndex = 0;
 
+            function isNativeSelect(sel) {
+                return sel.dataset.nativeSelect === '1' || sel.hasAttribute('data-native-select');
+            }
+
             function closePopover() {
                 if (!activeSelect) return;
                 popover.style.display = 'none';
                 activeSelect = null;
             }
 
+            function updatePosition() {
+                if (!activeSelect) return;
+                if (!document.body.contains(activeSelect) || activeSelect.offsetParent === null) {
+                    closePopover();
+                    return;
+                }
+                const rect = activeSelect.getBoundingClientRect();
+                const popW = Math.min(Math.max(rect.width, 240), window.innerWidth - 16);
+                popover.style.width = popW + 'px';
+                popover.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - popW - 8)) + 'px';
+
+                const spaceBelow = window.innerHeight - rect.bottom;
+                const popH = Math.min(260, popover.offsetHeight || 220);
+                if (spaceBelow < popH && rect.top > popH) {
+                    popover.style.top = Math.max(8, rect.top - popH - 4) + 'px';
+                } else {
+                    popover.style.top = Math.min(window.innerHeight - 60, rect.bottom + 4) + 'px';
+                }
+            }
+
             function renderOptions() {
                 if (!activeSelect) return;
                 const q = (searchInput.value || '').trim().toLowerCase();
-                const allOpts = Array.from(activeSelect.options);
+                const allOpts = Array.from(activeSelect.options).filter(o => !o.disabled || o.value === '');
 
                 filteredOptions = allOpts.filter(opt => {
                     if (!q) return true;
@@ -498,7 +527,7 @@
                 if (filteredOptions.length === 0) {
                     const empty = document.createElement('div');
                     empty.className = 'sselect-empty';
-                    empty.textContent = 'Data tidak ditemukan';
+                    empty.textContent = 'Pilihan tidak ditemukan.';
                     listEl.appendChild(empty);
                     return;
                 }
@@ -507,7 +536,22 @@
                     const item = document.createElement('div');
                     const isSelected = String(opt.value) === String(activeSelect.value);
                     item.className = 'sselect-opt' + (idx === highlightIndex ? ' active' : '') + (isSelected ? ' selected' : '');
-                    item.textContent = opt.text;
+
+                    const lblSpan = document.createElement('span');
+                    lblSpan.className = 'truncate';
+                    lblSpan.textContent = (opt.text || '').trim();
+                    item.appendChild(lblSpan);
+
+                    if (isSelected) {
+                        const chk = document.createElement('span');
+                        chk.className = 'text-accent font-bold text-xs';
+                        chk.textContent = '✓';
+                        item.appendChild(chk);
+                    }
+
+                    item.addEventListener('mouseenter', () => {
+                        highlightIndex = idx;
+                    });
                     item.addEventListener('mousedown', (e) => {
                         e.preventDefault();
                         selectOption(opt);
@@ -529,30 +573,22 @@
                 if (selectEl.disabled) return;
                 activeSelect = selectEl;
                 searchInput.value = '';
-                highlightIndex = 0;
+                const allOpts = Array.from(selectEl.options).filter(o => !o.disabled || o.value === '');
+                highlightIndex = Math.max(0, allOpts.findIndex(o => String(o.value) === String(selectEl.value)));
                 renderOptions();
                 popover.style.display = 'flex';
+                updatePosition();
 
-                const rect = selectEl.getBoundingClientRect();
-                const popW = Math.min(Math.max(rect.width, 240), window.innerWidth - 16);
-                popover.style.width = popW + 'px';
-                popover.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - popW - 8)) + 'px';
-
-                const spaceBelow = window.innerHeight - rect.bottom;
-                const popH = Math.min(250, popover.offsetHeight || 220);
-                if (spaceBelow < popH && rect.top > popH) {
-                    popover.style.top = Math.max(8, rect.top - popH - 4) + 'px';
-                } else {
-                    popover.style.top = (rect.bottom + 4) + 'px';
-                }
-
-                setTimeout(() => searchInput.focus(), 10);
+                setTimeout(() => {
+                    if (activeSelect) searchInput.focus();
+                }, 10);
             }
 
             document.addEventListener('mousedown', (e) => {
                 const sel = e.target.closest('select');
-                if (sel && !sel.disabled && !sel.hasAttribute('data-native-select')) {
+                if (sel && !sel.disabled && !isNativeSelect(sel)) {
                     e.preventDefault();
+                    sel.focus();
                     if (activeSelect === sel) closePopover();
                     else openForSelect(sel);
                     return;
@@ -560,11 +596,59 @@
                 if (activeSelect && !popover.contains(e.target)) {
                     closePopover();
                 }
+            }, true);
+
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && activeSelect) {
+                    closePopover();
+                    return;
+                }
+                const sel = document.activeElement;
+                if (!sel || sel.tagName !== 'SELECT' || sel.disabled || isNativeSelect(sel)) return;
+                if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    openForSelect(sel);
+                }
             });
 
             searchInput.addEventListener('input', () => {
                 highlightIndex = 0;
                 renderOptions();
+                updatePosition();
+            });
+
+            searchInput.addEventListener('keydown', (e) => {
+                if (!activeSelect) return;
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    if (filteredOptions.length > 0) {
+                        highlightIndex = Math.min(filteredOptions.length - 1, highlightIndex + 1);
+                        renderOptions();
+                    }
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    if (filteredOptions.length > 0) {
+                        highlightIndex = Math.max(0, highlightIndex - 1);
+                        renderOptions();
+                    }
+                } else if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const opt = filteredOptions[highlightIndex];
+                    if (opt) selectOption(opt);
+                } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    closePopover();
+                }
+            });
+
+            window.addEventListener('scroll', (e) => {
+                if (!activeSelect) return;
+                if (popover.contains(e.target)) return;
+                updatePosition();
+            }, true);
+
+            window.addEventListener('resize', () => {
+                if (activeSelect) updatePosition();
             });
         })();
 
