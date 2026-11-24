@@ -219,7 +219,7 @@ class DashboardController extends Controller
             }
         }
 
-        // Hitung mutasi setelah pukul 07:00 pagi hari ini (termasuk komponen pendamping MO & MR)
+        // Hitung mutasi setelah pukul 07:00 pagi hari ini (termasuk komponen pendamping MO & Multi-Return MR)
         $netAfter07 = [];
         if ($isPast07) {
             foreach (Inbound::where('date_time', '>=', $cutoff07)->get() as $r) {
@@ -254,13 +254,17 @@ class DashboardController extends Controller
                 }
             }
 
-            foreach (MaterialReturn::where('date_time', '>=', $cutoff07)->get()->groupBy('lot_number') as $lotRows) {
-                $f = $lotRows->first();
+            foreach (
+                MaterialReturn::where('date_time', '>=', $cutoff07)
+                    ->get()
+                    ->groupBy(fn ($r) => !empty($r->return_batch) ? $r->return_batch : ('LEGACY-' . $r->lot_number)) as $batchRows
+            ) {
+                $f = $batchRows->first();
                 if ($f) {
                     $netAfter07[$f->material_item_id] = ($netAfter07[$f->material_item_id] ?? 0) + (float) $f->qty;
                 }
 
-                foreach ($lotRows as $mr) {
+                foreach ($batchRows as $mr) {
                     $ctx = $this->resolveBomContext((int) $mr->material_item_id, (int) $mr->target_item_id, $allBomsFlat, $mr->bom_group);
                     $tb  = $ctx['trigger'];
                     if (!$tb || (float) $tb->qty_usage <= 0 || $ctx['companions']->isEmpty()) {

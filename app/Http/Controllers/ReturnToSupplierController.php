@@ -39,7 +39,7 @@ class ReturnToSupplierController extends Controller
             return view('return_to_suppliers.scanner', compact('allScansData'));
         }
 
-        $returns = ReturnToSupplier::with(['item.company', 'user'])
+        $returns = ReturnToSupplier::with(['item.company', 'user', 'correctedBy'])
             ->orderBy('date_time', 'desc')
             ->orderBy('id', 'desc')
             ->get();
@@ -186,6 +186,9 @@ class ReturnToSupplierController extends Controller
                         throw new \RuntimeException('Format Qty koreksi tidak valid (wajib > 0).');
                     }
 
+                    $notesRaw = trim((string) ($data['correction_notes'] ?? ''));
+                    $notes    = $notesRaw !== '' ? mb_substr($notesRaw, 0, 500) : null;
+
                     $ret    = ReturnToSupplier::with('item')->lockForUpdate()->findOrFail($id);
                     $oldQty = (float) $ret->qty;
                     $diff   = $newQty - $oldQty;
@@ -204,8 +207,14 @@ class ReturnToSupplierController extends Controller
                     $stock->status_stock  = $stock->calculateDynamicStatus();
                     $stock->save();
 
-                    $ret->qty       = $newQty;
-                    $ret->qty_check = 'DIKOREKSI';
+                    if ($ret->qty_original === null) {
+                        $ret->qty_original = $oldQty;
+                    }
+                    $ret->qty              = $newQty;
+                    $ret->qty_check        = 'DIKOREKSI';
+                    $ret->corrected_by     = Auth::id();
+                    $ret->corrected_at     = now();
+                    $ret->correction_notes = $notes;
                     $ret->save();
 
                     $processed++;

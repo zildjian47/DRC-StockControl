@@ -116,4 +116,49 @@ class ProblemDelayController extends Controller
         return redirect()->route('problem_delays.index')
             ->with('success', "Log kendala pengiriman untuk {$item->part_name} berhasil dicatat.");
     }
+
+    public function update(Request $request, ProblemDelay $problemDelay)
+    {
+        $request->validate([
+            'incident_date'  => 'required|date',
+            'company_id'     => 'required|exists:companies,id',
+            'item_id'        => 'required|exists:items,id',
+            'problem_reason' => 'required|in:' . implode(',', self::REASONS),
+        ]);
+
+        $company = Company::findOrFail($request->company_id);
+        $item    = Item::findOrFail($request->item_id);
+
+        if ($company->type_company === 'CUSTOMER') {
+            $allowedForCustomer = ((int) $item->company_id === (int) $company->id)
+                || in_array($item->type, ['FG/KOMPONEN', 'TRANSIT'], true);
+
+            if (!$allowedForCustomer) {
+                return back()->withInput()->with('error', 'Item yang dipilih tidak sesuai untuk pelanggan (Customer) tersebut.');
+            }
+        } else {
+            if ((int) $item->company_id !== (int) $company->id) {
+                return back()->withInput()->with('error', 'Item yang dipilih tidak terdaftar pada perusahaan tersebut.');
+            }
+        }
+
+        $problemDelay->update([
+            'incident_date'  => $request->incident_date,
+            'company_id'     => $request->company_id,
+            'item_id'        => $request->item_id,
+            'problem_reason' => strtoupper(trim($request->problem_reason)),
+        ]);
+
+        return redirect()->route('problem_delays.index')
+            ->with('success', "Log kendala pengiriman untuk {$item->part_name} berhasil diperbarui.");
+    }
+
+    public function destroy(ProblemDelay $problemDelay)
+    {
+        $partName = $problemDelay->item->part_name ?? 'Item';
+        $problemDelay->delete();
+
+        return redirect()->route('problem_delays.index')
+            ->with('success', "Log kendala pengiriman untuk {$partName} berhasil dihapus.");
+    }
 }

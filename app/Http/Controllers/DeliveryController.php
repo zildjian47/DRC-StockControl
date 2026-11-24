@@ -39,7 +39,7 @@ class DeliveryController extends Controller
             return view('deliveries.scanner', compact('allScansData'));
         }
 
-        $deliveries = Delivery::with(['item.company', 'user'])
+        $deliveries = Delivery::with(['item.company', 'user', 'correctedBy'])
             ->orderBy('date_time', 'desc')
             ->orderBy('id', 'desc')
             ->get();
@@ -214,6 +214,9 @@ class DeliveryController extends Controller
                         throw new \RuntimeException('Format Qty koreksi tidak valid (wajib > 0).');
                     }
 
+                    $notesRaw = trim((string) ($data['correction_notes'] ?? ''));
+                    $notes    = $notesRaw !== '' ? mb_substr($notesRaw, 0, 500) : null;
+
                     $delivery = Delivery::with('item')->lockForUpdate()->findOrFail($id);
                     $oldQty   = (float) $delivery->qty;
                     $diff     = $newQty - $oldQty;
@@ -232,8 +235,14 @@ class DeliveryController extends Controller
                     $stock->status_stock  = $stock->calculateDynamicStatus();
                     $stock->save();
 
-                    $delivery->qty       = $newQty;
-                    $delivery->qty_check = 'DIKOREKSI';
+                    if ($delivery->qty_original === null) {
+                        $delivery->qty_original = $oldQty;
+                    }
+                    $delivery->qty              = $newQty;
+                    $delivery->qty_check        = 'DIKOREKSI';
+                    $delivery->corrected_by     = Auth::id();
+                    $delivery->corrected_at     = now();
+                    $delivery->correction_notes = $notes;
                     $delivery->save();
 
                     $processed++;

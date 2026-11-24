@@ -39,7 +39,7 @@ class InboundController extends Controller
             return view('inbounds.scanner', compact('allScansData'));
         }
 
-        $inbounds = Inbound::with(['item.company', 'user'])
+        $inbounds = Inbound::with(['item.company', 'user', 'correctedBy'])
             ->orderBy('date_time', 'desc')
             ->orderBy('id', 'desc')
             ->get();
@@ -169,6 +169,9 @@ class InboundController extends Controller
                         throw new \RuntimeException('Format Qty koreksi tidak valid (wajib > 0).');
                     }
 
+                    $notesRaw = trim((string) ($data['correction_notes'] ?? ''));
+                    $notes    = $notesRaw !== '' ? mb_substr($notesRaw, 0, 500) : null;
+
                     $inbound = Inbound::with('item')->lockForUpdate()->findOrFail($id);
                     $oldQty  = (float) $inbound->qty;
                     $diff    = $newQty - $oldQty;
@@ -187,8 +190,14 @@ class InboundController extends Controller
                     $stock->status_stock  = $stock->calculateDynamicStatus();
                     $stock->save();
 
-                    $inbound->qty       = $newQty;
-                    $inbound->qty_check = 'DIKOREKSI';
+                    if ($inbound->qty_original === null) {
+                        $inbound->qty_original = $oldQty;
+                    }
+                    $inbound->qty              = $newQty;
+                    $inbound->qty_check        = 'DIKOREKSI';
+                    $inbound->corrected_by     = Auth::id();
+                    $inbound->corrected_at     = now();
+                    $inbound->correction_notes = $notes;
                     $inbound->save();
 
                     $processed++;

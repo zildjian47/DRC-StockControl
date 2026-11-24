@@ -40,7 +40,7 @@ class ProductionController extends Controller
             return view('productions.scanner', compact('allScansData'));
         }
 
-        $productions = Production::with(['item.company', 'user'])
+        $productions = Production::with(['item.company', 'user', 'correctedBy'])
             ->orderBy('date_time', 'desc')
             ->orderBy('id', 'desc')
             ->get();
@@ -231,6 +231,9 @@ class ProductionController extends Controller
                         throw new \RuntimeException('Format Qty koreksi tidak valid (wajib > 0).');
                     }
 
+                    $notesRaw = trim((string) ($data['correction_notes'] ?? ''));
+                    $notes    = $notesRaw !== '' ? mb_substr($notesRaw, 0, 500) : null;
+
                     $prod = Production::with('item')->lockForUpdate()->findOrFail($id);
                     $lot  = LotTracer::where('lot_number', $prod->lot_number)
                         ->where('target_item_id', $prod->item_id)
@@ -263,8 +266,14 @@ class ProductionController extends Controller
                     $stock->status_stock  = $stock->calculateDynamicStatus();
                     $stock->save();
 
-                    $prod->qty       = $newQty;
-                    $prod->qty_check = 'DIKOREKSI';
+                    if ($prod->qty_original === null) {
+                        $prod->qty_original = $oldQty;
+                    }
+                    $prod->qty              = $newQty;
+                    $prod->qty_check        = 'DIKOREKSI';
+                    $prod->corrected_by     = Auth::id();
+                    $prod->corrected_at     = now();
+                    $prod->correction_notes = $notes;
                     $prod->save();
 
                     $lot->actual_qty_prod = $newActualLot;
