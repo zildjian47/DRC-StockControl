@@ -2,9 +2,9 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Item;
 use App\Models\Company;
 use App\Models\InventoryStock;
+use App\Models\Item;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -84,7 +84,7 @@ class ItemController extends Controller
             $layout = 'a4_3';
         }
 
-        $ids = [];
+        $ids    = [];
         $rawIds = $request->input('ids');
         if (is_array($rawIds)) {
             $ids = array_values(array_unique(array_filter(array_map('intval', $rawIds), fn ($v) => $v > 0)));
@@ -190,19 +190,22 @@ class ItemController extends Controller
             ],
             'type'       => 'required|in:RM,FG,FG/KOMPONEN,KOMPONEN,TRANSIT',
             'uom'        => 'required|in:PCS,KG,SHEET,BATANG,MTR,LTR,SET',
-            'company_id' => 'required|exists:companies,id',
+            'company_id' => ['required', 'integer', Rule::exists('companies', 'id')->whereNull('deleted_at')],
         ];
 
         if ($allowsPo) {
-            $rules['qty_po']       = 'nullable|numeric|min:0';
-            $rules['working_days'] = 'nullable|integer|min:0';
-            $rules['qty_kanban']   = 'nullable|numeric|min:0';
+            $rules['qty_po']       = 'nullable|numeric|min:0|max:' . Item::MAX_QTY;
+            $rules['working_days'] = 'nullable|integer|min:0|max:366';
+            $rules['qty_kanban']   = 'nullable|numeric|min:0|max:' . Item::MAX_QTY;
         }
 
         $request->validate($rules, [
-            'part_no.required' => 'Part No wajib diisi untuk tipe item selain RM.',
-            'part_no.unique'   => "Part No {$request->part_no} sudah terdaftar pada item aktif lain.",
-            'part_name.unique' => "Part Name {$request->part_name} sudah terdaftar pada item aktif lain.",
+            'part_no.required'  => 'Part No wajib diisi untuk tipe item selain RM.',
+            'part_no.unique'    => "Part No {$request->part_no} sudah terdaftar pada item aktif lain.",
+            'part_name.unique'  => "Part Name {$request->part_name} sudah terdaftar pada item aktif lain.",
+            'company_id.exists' => 'Perusahaan tidak ditemukan atau sudah dinonaktifkan.',
+            'qty_po.max'        => 'Qty PO maksimal 99.999.999,99.',
+            'qty_kanban.max'    => 'Qty Kanban maksimal 99.999.999,99.',
         ]);
 
         // Validasi kesesuaian Type Item vs Type Company
@@ -217,9 +220,9 @@ class ItemController extends Controller
         }
 
         DB::transaction(function () use ($request, $allowsPo) {
-            $qtyPo       = ($allowsPo && $request->filled('qty_po')) ? (float) $request->qty_po : 0;
+            $qtyPo       = ($allowsPo && $request->filled('qty_po')) ? round((float) $request->qty_po, 2) : 0;
             $workingDays = ($allowsPo && $request->filled('working_days')) ? (int) $request->working_days : 0;
-            $qtyKanban   = ($allowsPo && $request->filled('qty_kanban')) ? (float) $request->qty_kanban : 0;
+            $qtyKanban   = ($allowsPo && $request->filled('qty_kanban')) ? round((float) $request->qty_kanban, 2) : 0;
 
             $calc = $allowsPo
                 ? Item::calculatePoKanbanStd($qtyPo, $workingDays, $qtyKanban)
@@ -275,19 +278,22 @@ class ItemController extends Controller
                 ],
                 'type'       => 'required|in:RM,FG,FG/KOMPONEN,KOMPONEN,TRANSIT',
                 'uom'        => 'required|in:PCS,KG,SHEET,BATANG,MTR,LTR,SET',
-                'company_id' => 'required|exists:companies,id',
+                'company_id' => ['required', 'integer', Rule::exists('companies', 'id')->whereNull('deleted_at')],
             ];
 
             if ($allowsPo) {
-                $rules['qty_po']       = 'nullable|numeric|min:0';
-                $rules['working_days'] = 'nullable|integer|min:0';
-                $rules['qty_kanban']   = 'nullable|numeric|min:0';
+                $rules['qty_po']       = 'nullable|numeric|min:0|max:' . Item::MAX_QTY;
+                $rules['working_days'] = 'nullable|integer|min:0|max:366';
+                $rules['qty_kanban']   = 'nullable|numeric|min:0|max:' . Item::MAX_QTY;
             }
 
             $request->validate($rules, [
-                'part_no.required' => 'Part No wajib diisi untuk tipe item selain RM.',
-                'part_no.unique'   => "Part No {$request->part_no} sudah terdaftar pada item aktif lain.",
-                'part_name.unique' => "Part Name {$request->part_name} sudah terdaftar pada item aktif lain.",
+                'part_no.required'  => 'Part No wajib diisi untuk tipe item selain RM.',
+                'part_no.unique'    => "Part No {$request->part_no} sudah terdaftar pada item aktif lain.",
+                'part_name.unique'  => "Part Name {$request->part_name} sudah terdaftar pada item aktif lain.",
+                'company_id.exists' => 'Perusahaan tidak ditemukan atau sudah dinonaktifkan.',
+                'qty_po.max'        => 'Qty PO maksimal 99.999.999,99.',
+                'qty_kanban.max'    => 'Qty Kanban maksimal 99.999.999,99.',
             ]);
 
             $company      = Company::findOrFail($request->company_id);
@@ -300,55 +306,66 @@ class ItemController extends Controller
                 );
             }
 
-            $qtyPo       = ($allowsPo && $request->filled('qty_po')) ? (float) $request->qty_po : 0;
+            $qtyPo       = ($allowsPo && $request->filled('qty_po')) ? round((float) $request->qty_po, 2) : 0;
             $workingDays = ($allowsPo && $request->filled('working_days')) ? (int) $request->working_days : 0;
-            $qtyKanban   = ($allowsPo && $request->filled('qty_kanban')) ? (float) $request->qty_kanban : 0;
+            $qtyKanban   = ($allowsPo && $request->filled('qty_kanban')) ? round((float) $request->qty_kanban, 2) : 0;
 
             $calc = $allowsPo
                 ? Item::calculatePoKanbanStd($qtyPo, $workingDays, $qtyKanban)
                 : ['std_day_1_po_wd' => 0, 'std_day_1' => 0];
 
-            $item->update([
-                'part_no'         => $request->part_no,
-                'part_name'       => $request->part_name,
-                'type'            => $type,
-                'uom'             => $request->uom,
-                'company_id'      => $request->company_id,
-                'qty_po'          => $qtyPo,
-                'working_days'    => $workingDays,
-                'qty_kanban'      => $qtyKanban,
-                'std_day_1_po_wd' => $calc['std_day_1_po_wd'],
-                'std_day_1'       => $calc['std_day_1'],
-            ]);
+            DB::transaction(function () use ($item, $request, $type, $qtyPo, $workingDays, $qtyKanban, $calc) {
+                $item->update([
+                    'part_no'         => $request->part_no,
+                    'part_name'       => $request->part_name,
+                    'type'            => $type,
+                    'uom'             => $request->uom,
+                    'company_id'      => $request->company_id,
+                    'qty_po'          => $qtyPo,
+                    'working_days'    => $workingDays,
+                    'qty_kanban'      => $qtyKanban,
+                    'std_day_1_po_wd' => $calc['std_day_1_po_wd'],
+                    'std_day_1'       => $calc['std_day_1'],
+                ]);
+
+                InventoryStock::with('item')->get()->each(function ($st) {
+                    $st->update(['status_stock' => $st->calculateDynamicStatus()]);
+                });
+            });
         } else {
             if (in_array($item->type, ['RM', 'KOMPONEN'], true)) {
                 return back()->with('error', 'Parameter item bertipe ' . $item->type . ' yang sudah memiliki riwayat transaksi mengikuti perhitungan BOM secara otomatis.');
             }
 
             $request->validate([
-                'qty_po'       => 'nullable|numeric|min:0',
-                'working_days' => 'nullable|integer|min:0',
-                'qty_kanban'   => 'nullable|numeric|min:0',
+                'qty_po'       => 'nullable|numeric|min:0|max:' . Item::MAX_QTY,
+                'working_days' => 'nullable|integer|min:0|max:366',
+                'qty_kanban'   => 'nullable|numeric|min:0|max:' . Item::MAX_QTY,
+            ], [
+                'qty_po.max'     => 'Qty PO maksimal 99.999.999,99.',
+                'qty_kanban.max' => 'Qty Kanban maksimal 99.999.999,99.',
             ]);
 
-            $qtyPo       = $request->filled('qty_po') ? (float) $request->qty_po : 0;
+            $qtyPo       = $request->filled('qty_po') ? round((float) $request->qty_po, 2) : 0;
             $workingDays = $request->filled('working_days') ? (int) $request->working_days : 0;
-            $qtyKanban   = $request->filled('qty_kanban') ? (float) $request->qty_kanban : 0;
+            $qtyKanban   = $request->filled('qty_kanban') ? round((float) $request->qty_kanban, 2) : 0;
 
             $calc = Item::calculatePoKanbanStd($qtyPo, $workingDays, $qtyKanban);
 
-            $item->update([
-                'qty_po'          => $qtyPo,
-                'working_days'    => $workingDays,
-                'qty_kanban'      => $qtyKanban,
-                'std_day_1_po_wd' => $calc['std_day_1_po_wd'],
-                'std_day_1'       => $calc['std_day_1'],
-            ]);
-        }
+            DB::transaction(function () use ($item, $qtyPo, $workingDays, $qtyKanban, $calc) {
+                $item->update([
+                    'qty_po'          => $qtyPo,
+                    'working_days'    => $workingDays,
+                    'qty_kanban'      => $qtyKanban,
+                    'std_day_1_po_wd' => $calc['std_day_1_po_wd'],
+                    'std_day_1'       => $calc['std_day_1'],
+                ]);
 
-        InventoryStock::with('item')->get()->each(function ($st) {
-            $st->update(['status_stock' => $st->calculateDynamicStatus()]);
-        });
+                InventoryStock::with('item')->get()->each(function ($st) {
+                    $st->update(['status_stock' => $st->calculateDynamicStatus()]);
+                });
+            });
+        }
 
         return redirect()->route('items.index')->with('success', 'Data Master Item berhasil diperbarui.');
     }
@@ -356,7 +373,15 @@ class ItemController extends Controller
     public function destroy(Item $item)
     {
         if ($item->hasTransactionHistory()) {
-            $item->delete();
+            DB::transaction(function () use ($item) {
+                $item->delete();
+
+                // Segarkan status_stock seluruh item aktif (termasuk RM & KOMPONEN yang terhubung via BOM)
+                InventoryStock::with('item')->whereHas('item')->get()->each(function ($st) {
+                    $st->update(['status_stock' => $st->calculateDynamicStatus()]);
+                });
+            });
+
             return redirect()->route('items.index')->with('success', 'Item berhasil dinonaktifkan karena sudah memiliki riwayat transaksi.');
         }
 
@@ -380,13 +405,19 @@ class ItemController extends Controller
             return back()->with('error', "Gagal mengaktifkan kembali: Part Name {$item->part_name} sudah digunakan oleh item aktif lain.");
         }
 
-        $item->restore();
+        DB::transaction(function () use ($item) {
+            $item->restore();
 
-        if ($item->inventoryStock) {
-            $item->inventoryStock->update([
-                'status_stock' => $item->inventoryStock->calculateDynamicStatus(),
-            ]);
-        }
+            InventoryStock::firstOrCreate(
+                ['item_id' => $item->id],
+                ['current_stock' => 0, 'status_stock' => 'EMPTY STOCK']
+            );
+
+            // Segarkan status_stock seluruh item aktif (termasuk RM & KOMPONEN pembentuknya di BOM)
+            InventoryStock::with('item')->whereHas('item')->get()->each(function ($st) {
+                $st->update(['status_stock' => $st->calculateDynamicStatus()]);
+            });
+        });
 
         return redirect()->route('items.trashed')->with('success', 'Item berhasil diaktifkan kembali.');
     }

@@ -194,10 +194,10 @@ class ItemPoImportController extends Controller
         $highestCol = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($sheet->getHighestDataColumn());
 
         // Cari baris header (mendukung template resmi di baris 5 maupun sheet sederhana di baris 1)
-        $headerRow  = null;
-        $colId      = null;
-        $colPartNo  = null;
-        $colNewPo   = null;
+        $headerRow = null;
+        $colId     = null;
+        $colPartNo = null;
+        $colNewPo  = null;
 
         $scanMax = min(10, $highestRow);
         for ($r = 1; $r <= $scanMax; $r++) {
@@ -237,9 +237,9 @@ class ItemPoImportController extends Controller
         }
 
         // Preload seluruh item aktif untuk pencocokan cepat tanpa N+1
-        $activeItems     = Item::with('company')->get();
-        $itemsById       = $activeItems->keyBy('id');
-        $itemsByPartNo   = $activeItems
+        $activeItems   = Item::with('company')->get();
+        $itemsById     = $activeItems->keyBy('id');
+        $itemsByPartNo = $activeItems
             ->filter(fn ($it) => !empty($it->part_no))
             ->keyBy(fn ($it) => mb_strtoupper(trim((string) $it->part_no), 'UTF-8'));
 
@@ -253,8 +253,20 @@ class ItemPoImportController extends Controller
             $rawId     = $colId ? trim((string) $sheet->getCell("{$colId}{$r}")->getValue()) : '';
             $rawPartNo = $colPartNo ? trim((string) $sheet->getCell("{$colPartNo}{$r}")->getValue()) : '';
             $cellPo    = $sheet->getCell("{$colNewPo}{$r}");
-            $rawPoVal  = $cellPo->getCalculatedValue();
-            $rawPoStr  = $rawPoVal === null ? '' : trim((string) $rawPoVal);
+
+            // Lindungi pembacaan sel formula rusak (mis. =1/0 atau #REF!) agar tidak memicu HTTP 500
+            try {
+                $rawPoVal = $cellPo->getCalculatedValue();
+            } catch (Throwable $e) {
+                $errors[] = [
+                    'row'     => $r,
+                    'ref'     => $rawPartNo ?: ($rawId !== '' ? ('ID #' . $rawId) : "Baris {$r}"),
+                    'message' => 'Formula pada kolom Qty PO Baru tidak valid atau menghasilkan error Excel.',
+                ];
+                continue;
+            }
+
+            $rawPoStr = $rawPoVal === null ? '' : trim((string) $rawPoVal);
 
             // Lewati baris kosong total
             if ($rawId === '' && $rawPartNo === '' && $rawPoStr === '') {
@@ -340,13 +352,22 @@ class ItemPoImportController extends Controller
             }
             $seenItemIds[$item->id] = $r;
 
-            // 4. Validasi angka Qty PO Baru (>= 0)
+            // 4. Validasi angka Qty PO Baru (>= 0 & <= kapasitas decimal(10,2))
             $normalized = $this->parseNumericPo($rawPoVal);
             if ($normalized === null || $normalized < 0) {
                 $errors[] = [
                     'row'     => $r,
                     'ref'     => $item->part_no ?: $item->part_name,
                     'message' => "Nilai Qty PO Baru \"{$rawPoStr}\" tidak valid (wajib angka >= 0).",
+                ];
+                continue;
+            }
+
+            if ($normalized > Item::MAX_QTY) {
+                $errors[] = [
+                    'row'     => $r,
+                    'ref'     => $item->part_no ?: $item->part_name,
+                    'message' => "Nilai Qty PO Baru \"{$rawPoStr}\" melebihi batas maksimal 99.999.999,99.",
                 ];
                 continue;
             }
@@ -433,7 +454,7 @@ class ItemPoImportController extends Controller
                     continue;
                 }
 
-                $newQtyPo = max(0, round((float) $row['new_qty_po'], 2));
+                $newQtyPo = min(Item::MAX_QTY, max(0, round((float) $row['new_qty_po'], 2)));
                 $calc     = Item::calculatePoKanbanStd(
                     $newQtyPo,
                     (int) $item->working_days,

@@ -207,7 +207,7 @@ class ExportController extends Controller
     }
 
     /**
-     * 2. Export Lot Tracer (WIP & Top/End Coil) — .xlsx
+     * 2. Export Lot Tracer (WIP & Top/End Coil) — .xlsx (preloaded anti-N+1)
      */
     public function lotTracers(Request $request)
     {
@@ -229,11 +229,11 @@ class ExportController extends Controller
                 $haystack = mb_strtolower(implode(' ', [
                     $lt->lot_number,
                     $lt->bom_group,
-                    $lt->process->process_name ?? '',
-                    $lt->materialItem->part_no ?? '',
-                    $lt->materialItem->part_name ?? '',
-                    $lt->targetItem->part_no ?? '',
-                    $lt->targetItem->part_name ?? '',
+                    $lt->process?->process_name ?? '',
+                    $lt->materialItem?->part_no ?? '',
+                    $lt->materialItem?->part_name ?? '',
+                    $lt->targetItem?->part_no ?? '',
+                    $lt->targetItem?->part_name ?? '',
                 ]), 'UTF-8');
                 return str_contains($haystack, $q);
             })->values();
@@ -242,6 +242,9 @@ class ExportController extends Controller
         if ($request->boolean('coil_only')) {
             $records = $records->filter(fn ($lt) => $lt->is_coil)->values();
         }
+
+        // Preload sibling Lot & daftar BOM dalam 2 query untuk menghindari N+1 di loop export
+        LotTracer::preloadForCollection($records);
 
         $filterParts = [];
         if ($q !== '') {
@@ -300,9 +303,9 @@ class ExportController extends Controller
                 $idx + 1,
                 $lt->lot_number,
                 $lt->status_lot,
-                $lt->process->process_name ?? '-',
-                $lt->materialItem->part_name ?? '-',
-                $lt->materialItem->uom ?? '-',
+                $lt->process?->process_name ?? '-',
+                $lt->materialItem?->part_name ?? '-',
+                $lt->materialItem?->uom ?? '-',
                 (float) $lt->qty_material_out,
                 (float) $lt->qty_material_return,
                 (float) $lt->material_saat_ini,
@@ -1360,11 +1363,11 @@ class ExportController extends Controller
             if ($q !== '') {
                 $haystack = mb_strtolower(implode(' ', [
                     $b->bom_group ?? '',
-                    $b->process->process_name ?? '',
-                    $b->outputItem->part_no ?? '',
-                    $b->outputItem->part_name ?? '',
-                    $b->inputItem->part_no ?? '',
-                    $b->inputItem->part_name ?? '',
+                    $b->process?->process_name ?? '',
+                    $b->outputItem?->part_no ?? '',
+                    $b->outputItem?->part_name ?? '',
+                    $b->inputItem?->part_no ?? '',
+                    $b->inputItem?->part_name ?? '',
                 ]), 'UTF-8');
                 if (!str_contains($haystack, $q)) {
                     return false;
@@ -1408,7 +1411,7 @@ class ExportController extends Controller
                 $idx + 1,
                 $b->bom_group ?: ('SG-' . $b->id),
                 $b->group_type,
-                $b->process->process_name ?? '-',
+                $b->process?->process_name ?? '-',
                 $b->outputItem?->part_no ?: '-',
                 $b->outputItem?->part_name ?? '-',
                 $b->outputItem?->type ?? '-',
