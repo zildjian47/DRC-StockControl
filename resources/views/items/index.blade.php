@@ -4,6 +4,24 @@
                        subtitle="Daftar barang aktif beserta kalkulasi standar stok harian (PO/WD/Kanban & Resep BOM)">
             <x-slot name="actions">
                 <span class="btn-group">
+                    <button type="button" class="btn" @click="$dispatch('export-items')"
+                            title="Export Master Item sesuai filter aktif ke Excel (.xlsx)">
+                        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="7 10 12 15 17 10"/>
+                            <line x1="12" y1="15" x2="12" y2="3"/>
+                        </svg>
+                        <span>Export Excel</span>
+                    </button>
+                    <a href="{{ route('items.po_import.index') }}" class="btn"
+                       title="Import update Qty PO bulanan via Excel (.xlsx)">
+                        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="17 8 12 3 7 8"/>
+                            <line x1="12" y1="3" x2="12" y2="15"/>
+                        </svg>
+                        <span>Import Qty PO</span>
+                    </a>
                     <button type="button" class="btn" @click="$dispatch('print-qr-smart')"
                             title="Cetak label QR item yang dicentang (atau seluruh item tampil jika belum ada yang dicentang)">
                         <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -40,9 +58,10 @@
     @endphp
 
     <div class="panel"
-         x-data="masterItemPage({{ $items->count() }}, {{ Js::from($companiesJs) }}, {{ $errors->any() ? 'true' : 'false' }}, {{ Js::from(route('items.qr_print')) }})"
+         x-data="masterItemPage({{ $items->count() }}, {{ Js::from($companiesJs) }}, {{ $errors->any() ? 'true' : 'false' }}, {{ Js::from(route('items.qr_print')) }}, {{ Js::from(route('exports.items')) }})"
          @open-add-item.window="addOpen = true; addError = ''; syncAddCompany()"
          @print-qr-smart.window="openQrPrint('smart')"
+         @export-items.window="exportData()"
          x-init="syncAddCompany(); recalc()"
          @table-refreshed.window="recalc()">
 
@@ -597,7 +616,7 @@
     <x-material-info-modal />
 
     <script>
-        function masterItemPage(initialCount, companiesList, openInitially, qrPrintBase) {
+        function masterItemPage(initialCount, companiesList, openInitially, qrPrintBase, exportBase) {
             return {
                 q: '',
                 fType: '',
@@ -606,6 +625,7 @@
                 visibleIds: [],
                 selectedIds: [],
                 qrPrintBase: qrPrintBase,
+                exportBase: exportBase,
                 companiesList: companiesList,
                 addOpen: openInitially,
                 addType: 'FG',
@@ -645,6 +665,14 @@
                     has_history: false
                 },
 
+                exportData() {
+                    const params = new URLSearchParams();
+                    if (this.q.trim()) params.set('q', this.q.trim());
+                    if (this.fType) params.set('type', this.fType);
+                    if (this.fCompType) params.set('company_type', this.fCompType);
+                    const qs = params.toString();
+                    window.location.href = qs ? `${this.exportBase}?${qs}` : this.exportBase;
+                },
                 isSelected(id) {
                     return this.selectedIds.includes(Number(id));
                 },

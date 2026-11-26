@@ -422,12 +422,18 @@ class ExportController extends Controller
         $records = $this->applyTimeRangeFilter($query->get(), 'date_time', $request);
         $records = $this->applyMaterialLotTxFilters($records, $request);
 
+        $extraParts = [];
+        if ($request->filled('bom_type')) {
+            $extraParts[] = 'Tipe BOM: ' . $request->query('bom_type');
+        }
+
         $columns = [
             ['label' => 'No', 'type' => 'center', 'width' => 6],
             ['label' => 'Tanggal', 'type' => 'center', 'width' => 13],
             ['label' => 'Jam', 'type' => 'center', 'width' => 9],
             ['label' => 'Nomor Lot', 'type' => 'center', 'width' => 13],
             ['label' => 'BOM Group', 'type' => 'center', 'width' => 15],
+            ['label' => 'Tipe BOM', 'type' => 'center', 'width' => 14],
             ['label' => 'Material Part No', 'type' => 'text', 'width' => 16],
             ['label' => 'Material Name', 'type' => 'text', 'width' => 26],
             ['label' => 'Qty Out', 'type' => 'number', 'width' => 12],
@@ -450,6 +456,7 @@ class ExportController extends Controller
                 $dt->format('H:i'),
                 $r->lot_number,
                 $r->bom_group ?: '-',
+                $this->resolveBomType($r->bom_group),
                 $r->materialItem?->part_no ?: '-',
                 $r->materialItem?->part_name ?? '-',
                 (float) $r->qty,
@@ -467,7 +474,7 @@ class ExportController extends Controller
         $uniqueLotQty = $records->groupBy('lot_number')->sum(fn ($grp) => (float) $grp->first()->qty);
 
         $totals = [
-            '', 'TOTAL', $records->count() . ' Baris', '', '', '', 'Total Fisik Lot Unik:',
+            '', 'TOTAL', $records->count() . ' Baris', '', '', '', '', 'Total Fisik Lot Unik:',
             round((float) $uniqueLotQty, 2),
             '', '', '', '', '', '', '', '',
         ];
@@ -476,7 +483,7 @@ class ExportController extends Controller
             'DRC_MaterialOut_' . Carbon::now()->format('Ymd_His') . '.xlsx',
             'Material Out',
             'Laporan Transaksi Material Out',
-            $this->buildTxFilterSummary($request),
+            $this->buildTxFilterSummary($request, $extraParts),
             $columns,
             $rows,
             $totals
@@ -495,12 +502,18 @@ class ExportController extends Controller
         $records = $this->applyTimeRangeFilter($query->get(), 'date_time', $request);
         $records = $this->applyMaterialLotTxFilters($records, $request);
 
+        $extraParts = [];
+        if ($request->filled('bom_type')) {
+            $extraParts[] = 'Tipe BOM: ' . $request->query('bom_type');
+        }
+
         $columns = [
             ['label' => 'No', 'type' => 'center', 'width' => 6],
             ['label' => 'Tanggal', 'type' => 'center', 'width' => 13],
             ['label' => 'Jam', 'type' => 'center', 'width' => 9],
             ['label' => 'Batch Retur', 'type' => 'center', 'width' => 16],
             ['label' => 'Nomor Lot', 'type' => 'center', 'width' => 13],
+            ['label' => 'Tipe BOM', 'type' => 'center', 'width' => 14],
             ['label' => 'Material Part No', 'type' => 'text', 'width' => 16],
             ['label' => 'Material Name', 'type' => 'text', 'width' => 26],
             ['label' => 'Qty Return', 'type' => 'number', 'width' => 12],
@@ -523,6 +536,7 @@ class ExportController extends Controller
                 $dt->format('H:i'),
                 $r->return_batch ?: '-',
                 $r->lot_number,
+                $this->resolveBomType($r->bom_group),
                 $r->materialItem?->part_no ?: '-',
                 $r->materialItem?->part_name ?? '-',
                 (float) $r->qty,
@@ -542,7 +556,7 @@ class ExportController extends Controller
             ->sum(fn ($grp) => (float) $grp->first()->qty);
 
         $totals = [
-            '', 'TOTAL', $records->count() . ' Baris', '', '', '', 'Total Fisik Batch Unik:',
+            '', 'TOTAL', $records->count() . ' Baris', '', '', '', '', 'Total Fisik Batch Unik:',
             round((float) $uniqueBatchQty, 2),
             '', '', '', '', '', '', '', '',
         ];
@@ -551,7 +565,7 @@ class ExportController extends Controller
             'DRC_MaterialReturn_' . Carbon::now()->format('Ymd_His') . '.xlsx',
             'Material Return',
             'Laporan Transaksi Material Return',
-            $this->buildTxFilterSummary($request),
+            $this->buildTxFilterSummary($request, $extraParts),
             $columns,
             $rows,
             $totals
@@ -1532,6 +1546,21 @@ class ExportController extends Controller
     // HELPER FILTER KONSISTEN (KOMPATIBEL MYSQL & SQLITE)
     // =========================================================================
 
+    private function resolveBomType(?string $bomGroup): string
+    {
+        $grp = (string) $bomGroup;
+        if (str_starts_with($grp, 'CB-')) {
+            return 'KOMBINASI';
+        }
+        if (str_starts_with($grp, 'MO-')) {
+            return 'MULTI-OUTPUT';
+        }
+        if (str_starts_with($grp, 'MI-')) {
+            return 'MULTI-INPUT';
+        }
+        return 'SINGLE';
+    }
+
     private function applyQtyCheckFilter($query, Request $request): void
     {
         $status = strtoupper(trim((string) $request->query('qty_check', '')));
@@ -1635,24 +1664,34 @@ class ExportController extends Controller
 
     private function applyMaterialLotTxFilters(Collection $records, Request $request): Collection
     {
-        $q = mb_strtolower(trim((string) $request->query('q', '')), 'UTF-8');
-        if ($q === '') {
+        $q       = mb_strtolower(trim((string) $request->query('q', '')), 'UTF-8');
+        $bomType = strtoupper(trim((string) $request->query('bom_type', '')));
+
+        if ($q === '' && $bomType === '') {
             return $records;
         }
 
-        return $records->filter(function ($r) use ($q) {
-            $haystack = mb_strtolower(implode(' ', [
-                $r->lot_number ?? '',
-                $r->return_batch ?? '',
-                $r->bom_group ?? '',
-                $r->materialItem?->part_no ?? '',
-                $r->materialItem?->part_name ?? '',
-                $r->targetItem?->part_no ?? '',
-                $r->targetItem?->part_name ?? '',
-                $r->user?->name ?? '',
-                $r->correction_notes ?? '',
-            ]), 'UTF-8');
-            return str_contains($haystack, $q);
+        return $records->filter(function ($r) use ($q, $bomType) {
+            if ($bomType !== '' && $this->resolveBomType($r->bom_group) !== $bomType) {
+                return false;
+            }
+            if ($q !== '') {
+                $haystack = mb_strtolower(implode(' ', [
+                    $r->lot_number ?? '',
+                    $r->return_batch ?? '',
+                    $r->bom_group ?? '',
+                    $r->materialItem?->part_no ?? '',
+                    $r->materialItem?->part_name ?? '',
+                    $r->targetItem?->part_no ?? '',
+                    $r->targetItem?->part_name ?? '',
+                    $r->user?->name ?? '',
+                    $r->correction_notes ?? '',
+                ]), 'UTF-8');
+                if (!str_contains($haystack, $q)) {
+                    return false;
+                }
+            }
+            return true;
         })->values();
     }
 

@@ -1,4 +1,4 @@
-<div x-data="materialInfo({{ Js::from(url('/items')) }})"
+<div x-data="materialInfo({{ Js::from(url('/items')) }}, {{ Js::from(url('/exports/items')) }})"
      @open-material-info.window="showModal($event.detail)"
      @keydown.escape.window="open = false"
      x-show="open"
@@ -233,13 +233,29 @@
 
                 {{-- RIWAYAT PENAMBAHAN & PENGURANGAN STOCK --}}
                 <section>
-                    <h4 class="sec-h flex items-center gap-2">
-                        <span>Riwayat Penambahan &amp; Pengurangan Stock</span>
-                        <span class="count-chip">
-                            <span x-text="filteredHistory.length"></span>
-                            <span>TRANSAKSI</span>
-                        </span>
-                    </h4>
+                    <div class="flex items-center justify-between gap-2 flex-wrap mb-2">
+                        <h4 class="sec-h flex items-center gap-2" style="margin-bottom: 0">
+                            <span>Riwayat Penambahan &amp; Pengurangan Stock</span>
+                            <span class="count-chip">
+                                <span x-text="filteredHistory.length"></span>
+                                <span>TRANSAKSI</span>
+                            </span>
+                        </h4>
+
+                        @if(auth()->user()?->isPpic())
+                            <button type="button" class="btn btn-sm"
+                                    x-show="info && info.id" x-cloak
+                                    @click="exportHistory()"
+                                    title="Export Kartu Mutasi item ini sesuai filter riwayat aktif ke Excel (.xlsx)">
+                                <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                    <polyline points="7 10 12 15 17 10"/>
+                                    <line x1="12" y1="15" x2="12" y2="3"/>
+                                </svg>
+                                <span>Export Kartu Mutasi</span>
+                            </button>
+                        @endif
+                    </div>
 
                     <div class="fbar">
                         <input type="text" x-model="histSearch" placeholder="Cari transaksi, lot, petugas..."
@@ -313,10 +329,11 @@
     </div>
 
     <script>
-        function materialInfo(endpointBase) {
+        function materialInfo(endpointBase, exportBase) {
             const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
             return {
                 endpointBase: String(endpointBase || '/items').replace(/\/+$/, ''),
+                exportBase: String(exportBase || '/exports/items').replace(/\/+$/, ''),
                 open: false,
                 loading: false,
                 loadError: '',
@@ -330,6 +347,18 @@
                 histStartTime: '',
                 histEndTime: '',
 
+                exportHistory() {
+                    if (!this.info || !this.info.id) return;
+                    const params = new URLSearchParams();
+                    if (this.histSearch.trim()) params.set('q', this.histSearch.trim());
+                    if (this.histStartDate) params.set('start_date', this.histStartDate);
+                    if (this.histEndDate) params.set('end_date', this.histEndDate);
+                    if (this.histStartTime) params.set('start_time', this.histStartTime);
+                    if (this.histEndTime) params.set('end_time', this.histEndTime);
+                    const qs = params.toString();
+                    const base = `${this.exportBase}/${encodeURIComponent(this.info.id)}/history`;
+                    window.location.href = qs ? `${base}?${qs}` : base;
+                },
                 async showModal(payload) {
                     this.resetHistoryFilter();
                     this.loadError = '';
