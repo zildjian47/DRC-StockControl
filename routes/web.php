@@ -34,7 +34,7 @@ Route::get('/', function () {
 });
 
 Route::get('/dashboard', [DashboardController::class, 'index'])
-    ->middleware(['auth', 'active', 'role:PPIC', 'verified'])
+    ->middleware(['auth', 'active', 'role:PPIC'])
     ->name('dashboard');
 
 Route::middleware(['auth', 'active'])->group(function () {
