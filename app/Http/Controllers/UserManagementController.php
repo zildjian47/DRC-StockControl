@@ -6,6 +6,7 @@ use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
@@ -107,7 +108,7 @@ class UserManagementController extends Controller
         }
 
         // Guardrail wajib minimal 1 akun PPIC aktif
-        $wasActivePpic = $user->isPpic() && $user->isActive();
+        $wasActivePpic        = $user->isPpic() && $user->isActive();
         $willRemainActivePpic = $validated['role'] === User::ROLE_PPIC && $validated['status'] === User::STATUS_ACTIVE;
 
         if ($wasActivePpic && !$willRemainActivePpic) {
@@ -161,7 +162,14 @@ class UserManagementController extends Controller
         try {
             $status = Password::broker()->sendResetLink(['email' => $user->email]);
         } catch (\Throwable $e) {
-            return back()->with('error', 'Gagal mengirim email reset password. Periksa konfigurasi Gmail SMTP + App Password di file .env (' . $e->getMessage() . ').');
+            Log::error('Gagal mengirim tautan reset password dari Manajemen User.', [
+                'target_user_id' => $user->id,
+                'target_email'   => $user->email,
+                'triggered_by'   => Auth::id(),
+                'error'          => $e->getMessage(),
+            ]);
+
+            return back()->with('error', 'Gagal mengirim email reset password. Periksa koneksi internet dan konfigurasi SMTP pada server.');
         }
 
         if ($status === Password::RESET_LINK_SENT) {

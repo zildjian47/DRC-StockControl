@@ -31,20 +31,40 @@ class NewPasswordController extends Controller
      */
     public function store(Request $request): RedirectResponse
     {
+        $request->merge([
+            'email' => Str::lower(trim((string) $request->input('email'))),
+        ]);
+
         $request->validate([
-            'token' => ['required'],
-            'email' => ['required', 'email'],
+            'token'    => ['required'],
+            'email'    => ['required', 'email'],
             'password' => ['required', 'confirmed', Rules\Password::defaults()],
         ]);
 
-        // Here we will attempt to reset the user's password. If it is successful we
-        // will update the password on an actual user model and persist it to the
-        // database. Otherwise we will parse the error and return the response.
+        $email = (string) $request->input('email');
+        $user  = User::whereRaw('LOWER(email) = ?', [$email])->first();
+
+        if ($user && !$user->isActive()) {
+            $message = $user->isPending()
+                ? 'Akun Anda masih menunggu persetujuan (ACC) dari PPIC sehingga belum dapat mengatur ulang password.'
+                : 'Akun Anda telah dinonaktifkan oleh PPIC. Silakan hubungi PPIC untuk bantuan.';
+
+            return back()->withInput($request->only('email'))
+                ->withErrors(['email' => $message]);
+        }
+
+        $credentials = [
+            'email'                 => $user ? $user->email : $email,
+            'password'              => $request->input('password'),
+            'password_confirmation' => $request->input('password_confirmation'),
+            'token'                 => $request->input('token'),
+        ];
+
         $status = Password::reset(
-            $request->only('email', 'password', 'password_confirmation', 'token'),
+            $credentials,
             function (User $user) use ($request) {
                 $user->forceFill([
-                    'password' => Hash::make($request->password),
+                    'password'       => Hash::make($request->password),
                     'remember_token' => Str::random(60),
                 ])->save();
 
@@ -52,12 +72,9 @@ class NewPasswordController extends Controller
             }
         );
 
-        // If the password was successfully reset, we will redirect the user back to
-        // the application's home authenticated view. If there is an error we can
-        // redirect them back to where they came from with their error message.
         return $status == Password::PASSWORD_RESET
-                    ? redirect()->route('login')->with('status', __($status))
-                    : back()->withInput($request->only('email'))
-                        ->withErrors(['email' => __($status)]);
+            ? redirect()->route('login')->with('status', __($status))
+            : back()->withInput($request->only('email'))
+                ->withErrors(['email' => __($status)]);
     }
 }
