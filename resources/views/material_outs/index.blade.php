@@ -3,10 +3,21 @@
         <x-page-header title="Material Out"
                        subtitle="Riwayat pengeluaran material ke produksi (Trigger & Komponen Pendamping) beserta pembukaan Lot Tracer">
             <x-slot name="actions">
-                <a href="{{ route('material_outs.index', ['mode' => 'scanner']) }}" class="btn btn-primary">
-                    <x-icon name="scan" />
-                    <span>Scan</span>
-                </a>
+                <span class="btn-group">
+                    <button type="button" class="btn" @click="$dispatch('export-material-outs')"
+                            title="Export data Material Out sesuai filter aktif ke Excel (.xlsx)">
+                        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="7 10 12 15 17 10"/>
+                            <line x1="12" y1="15" x2="12" y2="3"/>
+                        </svg>
+                        <span>Export Excel</span>
+                    </button>
+                    <a href="{{ route('material_outs.index', ['mode' => 'scanner']) }}" class="btn btn-primary">
+                        <x-icon name="scan" />
+                        <span>Scan</span>
+                    </a>
+                </span>
             </x-slot>
         </x-page-header>
     </x-slot>
@@ -14,7 +25,8 @@
     <x-flash />
 
     <div class="panel"
-         x-data="matOutPage({{ $groupedOuts->count() }})"
+         x-data="matOutPage({{ $groupedOuts->count() }}, {{ Js::from(route('exports.material_outs')) }})"
+         @export-material-outs.window="exportData()"
          x-init="recalc()"
          @table-refreshed.window="recalc()">
 
@@ -325,7 +337,7 @@
     </div>
 
     <script>
-        function matOutPage(initialCount) {
+        function matOutPage(initialCount, exportBase) {
             return {
                 q: '',
                 startDate: '',
@@ -334,6 +346,7 @@
                 endTime: '',
                 fBomType: '',
                 fStatus: '',
+                exportBase: exportBase,
                 visibleCount: initialCount,
                 editOpen: false,
                 editError: '',
@@ -354,6 +367,18 @@
                 editSavedNotes: null,
                 editNotes: '',
 
+                exportData() {
+                    const params = new URLSearchParams();
+                    if (this.q.trim()) params.set('q', this.q.trim());
+                    if (this.startDate) params.set('start_date', this.startDate);
+                    if (this.endDate) params.set('end_date', this.endDate);
+                    if (this.startTime) params.set('start_time', this.startTime);
+                    if (this.endTime) params.set('end_time', this.endTime);
+                    if (this.fBomType) params.set('bom_type', this.fBomType);
+                    if (this.fStatus) params.set('qty_check', this.fStatus);
+                    const qs = params.toString();
+                    window.location.href = qs ? `${this.exportBase}?${qs}` : this.exportBase;
+                },
                 openEdit(p) {
                     this.editId = p.id;
                     this.editLot = p.lot;
