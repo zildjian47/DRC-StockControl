@@ -1,4 +1,10 @@
 @props(['backUrl' => null])
+@php
+    $scanUser          = Auth::user();
+    $isPpicUser        = $scanUser && $scanUser->isPpic();
+    $resolvedBackUrl   = $isPpicUser ? ($backUrl ?: route('dashboard')) : route('scanner.portal');
+    $resolvedBackLabel = $isPpicUser ? 'Kembali ke Desktop' : 'Portal Scanner';
+@endphp
 <!DOCTYPE html>
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
 <head>
@@ -339,8 +345,8 @@
 </head>
 <body class="min-h-screen pb-10">
     <header class="scanner-header">
-        <a href="{{ $backUrl ?: url()->current() }}">
-            <x-icon name="chevron-left" /> Kembali ke Desktop
+        <a href="{{ $resolvedBackUrl }}">
+            <x-icon name="chevron-left" /> {{ $resolvedBackLabel }}
         </a>
         <div class="ttl">{{ $header ?? 'Mobile Scanner' }}</div>
     </header>

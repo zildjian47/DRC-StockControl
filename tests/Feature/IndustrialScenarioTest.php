@@ -2,9 +2,7 @@
 
 namespace Tests\Feature;
 
-use App\Models\Bom;
 use App\Models\Company;
-use App\Models\Delivery;
 use App\Models\Inbound;
 use App\Models\InventoryStock;
 use App\Models\Item;
@@ -16,7 +14,6 @@ use App\Models\Process;
 use App\Models\Production;
 use App\Models\ProductionNg;
 use App\Models\ReturnToSupplier;
-use App\Models\StockAdjustment;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -28,7 +25,8 @@ class IndustrialScenarioTest extends TestCase
     use RefreshDatabase;
 
     private User $ppic;
-    private User $operator;
+    private User $staffMaterial;
+    private User $staffFg;
 
     protected function setUp(): void
     {
@@ -39,16 +37,28 @@ class IndustrialScenarioTest extends TestCase
             'name'              => 'Budi Santoso (PPIC)',
             'username'          => 'ppic',
             'email'             => 'ppic@drc.co.id',
-            'role'              => 'PPIC',
+            'role'              => User::ROLE_PPIC,
+            'status'            => User::STATUS_ACTIVE,
             'password'          => Hash::make('password'),
             'email_verified_at' => now(),
         ]);
 
-        $this->operator = User::create([
-            'name'              => 'Andi Pratama (Operator)',
-            'username'          => 'operator',
-            'email'             => 'operator@drc.co.id',
-            'role'              => 'STAFF',
+        $this->staffMaterial = User::create([
+            'name'              => 'Andi Pratama (Material)',
+            'username'          => 'material',
+            'email'             => 'material@drc.co.id',
+            'role'              => User::ROLE_STAFF_MATERIAL,
+            'status'            => User::STATUS_ACTIVE,
+            'password'          => Hash::make('password'),
+            'email_verified_at' => now(),
+        ]);
+
+        $this->staffFg = User::create([
+            'name'              => 'Riko Saputra (FG)',
+            'username'          => 'fg',
+            'email'             => 'fg@drc.co.id',
+            'role'              => User::ROLE_STAFF_FG,
+            'status'            => User::STATUS_ACTIVE,
             'password'          => Hash::make('password'),
             'email_verified_at' => now(),
         ]);
@@ -68,7 +78,6 @@ class IndustrialScenarioTest extends TestCase
     {
         $this->actingAs($this->ppic);
 
-        // 1. Master Companies
         foreach ([
             ['company_code' => 'SUP-KS',  'company_name' => 'PT Krakatau Steel',   'type_company' => 'SUPPLIER'],
             ['company_code' => 'SUP-BJT', 'company_name' => 'PT Baja Teknik',      'type_company' => 'SUPPLIER'],
@@ -83,7 +92,6 @@ class IndustrialScenarioTest extends TestCase
         $intDrc = Company::where('company_code', 'INT-DRC')->firstOrFail();
         $cusDpm = Company::where('company_code', 'CUS-DPM')->firstOrFail();
 
-        // 2. Master Processes
         foreach (['STAMPING', 'SPOT WELDING', 'ASSY WELDING'] as $procName) {
             $this->post(route('processes.store'), ['process_name' => $procName])->assertSessionHasNoErrors();
         }
@@ -92,7 +100,6 @@ class IndustrialScenarioTest extends TestCase
         $pSpot  = Process::where('process_name', 'SPOT WELDING')->firstOrFail();
         $pAssy  = Process::where('process_name', 'ASSY WELDING')->firstOrFail();
 
-        // 3. Master Items (5 Tipe + RM Coil + Karakter kutip ganda ")
         $itemsData = [
             ['part_no' => null,          'part_name' => 'COIL SPHC 2.3 X 120',   'type' => 'RM',          'uom' => 'KG',     'company_id' => $supKs->id,  'qty_po' => 0,    'working_days' => 20, 'qty_kanban' => 0],
             ['part_no' => null,          'part_name' => 'SHEET SPHC 2.0 X 1000', 'type' => 'RM',          'uom' => 'SHEET',  'company_id' => $supKs->id,  'qty_po' => 0,    'working_days' => 20, 'qty_kanban' => 0],
@@ -113,21 +120,20 @@ class IndustrialScenarioTest extends TestCase
         }
 
         $items = [
-            'coil'   => Item::where('part_name', 'COIL SPHC 2.3 X 120')->firstOrFail(),
-            'sheet'  => Item::where('part_name', 'SHEET SPHC 2.0 X 1000')->firstOrFail(),
-            'pipa'   => Item::where('part_name', 'PIPA 2" SCH40')->firstOrFail(),
-            'nut'    => Item::where('part_no', 'KMP-NUT-M8')->firstOrFail(),
-            'brk'    => Item::where('part_no', 'KMP-BRK-01')->firstOrFail(),
-            'fgk'    => Item::where('part_no', 'FGK-PLT-01')->firstOrFail(),
-            'stay'   => Item::where('part_no', 'FG-STAY-01')->firstOrFail(),
-            'gusL'   => Item::where('part_no', 'FG-GUS-L')->firstOrFail(),
-            'gusR'   => Item::where('part_no', 'FG-GUS-R')->firstOrFail(),
-            'assyA'  => Item::where('part_no', 'FG-ASSY-A')->firstOrFail(),
-            'assyB'  => Item::where('part_no', 'FG-ASSY-B')->firstOrFail(),
-            'transit'=> Item::where('part_no', 'TRS-BOLT-01')->firstOrFail(),
+            'coil'    => Item::where('part_name', 'COIL SPHC 2.3 X 120')->firstOrFail(),
+            'sheet'   => Item::where('part_name', 'SHEET SPHC 2.0 X 1000')->firstOrFail(),
+            'pipa'    => Item::where('part_name', 'PIPA 2" SCH40')->firstOrFail(),
+            'nut'     => Item::where('part_no', 'KMP-NUT-M8')->firstOrFail(),
+            'brk'     => Item::where('part_no', 'KMP-BRK-01')->firstOrFail(),
+            'fgk'     => Item::where('part_no', 'FGK-PLT-01')->firstOrFail(),
+            'stay'    => Item::where('part_no', 'FG-STAY-01')->firstOrFail(),
+            'gusL'    => Item::where('part_no', 'FG-GUS-L')->firstOrFail(),
+            'gusR'    => Item::where('part_no', 'FG-GUS-R')->firstOrFail(),
+            'assyA'   => Item::where('part_no', 'FG-ASSY-A')->firstOrFail(),
+            'assyB'   => Item::where('part_no', 'FG-ASSY-B')->firstOrFail(),
+            'transit' => Item::where('part_no', 'TRS-BOLT-01')->firstOrFail(),
         ];
 
-        // 4. Master BOM (4 Tipe: SINGLE, MULTI-INPUT, MULTI-OUTPUT pecahan 1/3, KOMBINASI)
         // 4a. SINGLE: COIL (0.5 KG) -> KMP-BRK-01
         $this->post(route('boms.store'), [
             'process_id'    => $pStamp->id,
@@ -202,22 +208,19 @@ class IndustrialScenarioTest extends TestCase
         $companies = $m['companies'];
         $processes = $m['processes'];
 
-        // Cek part karakter khusus kutip ganda tersimpan utuh
         $this->assertSame('PIPA 2" SCH40', $items['pipa']->part_name);
 
-        // Cek hitungan Std Day 1/2/3 rekursif dari FG -> Komponen -> RM (termasuk MO- & CB- sharedMax)
         $this->assertEquals(100.0, $items['stay']->fresh()->calculated_std_day_1);
         $this->assertEquals(50.0,  $items['gusL']->fresh()->calculated_std_day_1);
-        $this->assertEquals(75.0,  $items['gusR']->fresh()->calculated_std_day_1); // ceil(60/25)*25 = 75
-        $this->assertEquals(100.0, $items['brk']->fresh()->calculated_std_day_1);  // 100 * 1
-        $this->assertEquals(50.0,  $items['coil']->fresh()->calculated_std_day_1); // 100 * 0.5
+        $this->assertEquals(75.0,  $items['gusR']->fresh()->calculated_std_day_1);
+        $this->assertEquals(100.0, $items['brk']->fresh()->calculated_std_day_1);
+        $this->assertEquals(50.0,  $items['coil']->fresh()->calculated_std_day_1);
         $this->assertEquals(100.0, $items['coil']->fresh()->std_day_2);
         $this->assertEquals(150.0, $items['coil']->fresh()->std_day_3);
-        $this->assertEquals(25.0,  $items['sheet']->fresh()->calculated_std_day_1); // max(50/3, 75/3) = 25
-        $this->assertEquals(20.0,  $items['pipa']->fresh()->calculated_std_day_1);  // max(40*0.5, 40*0.5) = 20
-        $this->assertEquals(320.0, $items['nut']->fresh()->calculated_std_day_1);   // 100*2 + 40*2 + 40*1 = 320
+        $this->assertEquals(25.0,  $items['sheet']->fresh()->calculated_std_day_1);
+        $this->assertEquals(20.0,  $items['pipa']->fresh()->calculated_std_day_1);
+        $this->assertEquals(320.0, $items['nut']->fresh()->calculated_std_day_1);
 
-        // Proteksi duplikat Part No
         $this->post(route('items.store'), [
             'part_no'    => 'FG-STAY-01',
             'part_name'  => 'DUPLIKAT STAY',
@@ -226,7 +229,6 @@ class IndustrialScenarioTest extends TestCase
             'company_id' => $companies['cusDpm']->id,
         ])->assertSessionHasErrors('part_no');
 
-        // Proteksi salah pasangan tipe Item vs tipe Company (FG wajib CUSTOMER, bukan SUPPLIER)
         $this->post(route('items.store'), [
             'part_no'    => 'FG-SALAH-01',
             'part_name'  => 'FG SALAH COMPANY',
@@ -236,14 +238,12 @@ class IndustrialScenarioTest extends TestCase
         ])->assertSessionHas('error');
         $this->assertDatabaseMissing('items', ['part_no' => 'FG-SALAH-01']);
 
-        // Proteksi hapus Company & Process yang sudah terpakai
         $this->delete(route('companies.destroy', $companies['supKs']->id))->assertSessionHas('error');
         $this->assertDatabaseHas('companies', ['id' => $companies['supKs']->id, 'deleted_at' => null]);
 
         $this->delete(route('processes.destroy', $processes['pStamp']->id))->assertSessionHas('error');
         $this->assertDatabaseHas('processes', ['id' => $processes['pStamp']->id]);
 
-        // Item tanpa riwayat -> hapus permanen (atau soft delete sesuai controller) vs Item ber-riwayat BOM -> soft delete & restore
         $this->post(route('items.store'), [
             'part_no'    => 'TEMP-DEL-01',
             'part_name'  => 'ITEM SEMENTARA',
@@ -256,7 +256,6 @@ class IndustrialScenarioTest extends TestCase
         $this->delete(route('items.destroy', $tempItem->id))->assertSessionHas('success');
         $this->assertDatabaseMissing('items', ['id' => $tempItem->id]);
 
-        // Item yang sudah terdaftar di BOM -> soft delete (arsip), lalu restore kembali
         $this->delete(route('items.destroy', $items['stay']->id))->assertSessionHas('success');
         $this->assertSoftDeleted('items', ['id' => $items['stay']->id]);
 
@@ -272,8 +271,8 @@ class IndustrialScenarioTest extends TestCase
         $m = $this->setupIndustrialMasterViaHttp();
         $it = $m['items'];
 
-        // 1. Inbound pakai ekspresi kalkulator
-        $this->actingAs($this->operator);
+        // 1. Inbound oleh STAFF_MATERIAL pakai ekspresi kalkulator
+        $this->actingAs($this->staffMaterial);
         $this->post(route('inbounds.store'), ['item_id' => $it['coil']->id,    'qty' => '4*25', 'mode' => 'scanner'])->assertSessionHas('success');
         $this->post(route('inbounds.store'), ['item_id' => $it['sheet']->id,   'qty' => '50',   'mode' => 'scanner'])->assertSessionHas('success');
         $this->post(route('inbounds.store'), ['item_id' => $it['pipa']->id,    'qty' => '50',   'mode' => 'scanner'])->assertSessionHas('success');
@@ -283,7 +282,7 @@ class IndustrialScenarioTest extends TestCase
         $this->assertEquals(100.0, $this->stockOf($it['coil']));
         $this->assertEquals(500.0, $this->stockOf($it['nut']));
 
-        // 2. Material Out SINGLE (Coil): 60 KG -> est 120 PCS KMP-BRK-01
+        // 2. Material Out SINGLE (Coil) oleh STAFF_MATERIAL: 60 KG -> est 120 PCS KMP-BRK-01
         $this->post(route('material_outs.store'), [
             'material_item_id' => $it['coil']->id,
             'target_item_id'   => $it['brk']->id,
@@ -297,7 +296,8 @@ class IndustrialScenarioTest extends TestCase
         $this->assertEquals(120.0, (float) $lotCoil->target_qty_estimasi);
         $this->assertEquals(120.0, (float) $lotCoil->qty_wip);
 
-        // 3. Production bertahap (60 + 40 = 100 PCS) -> sisa coil di mesin = 10 KG
+        // 3. Production bertahap oleh STAFF_FG (60 + 40 = 100 PCS) -> sisa coil di mesin = 10 KG
+        $this->actingAs($this->staffFg);
         $this->post(route('productions.store'), ['item_id' => $it['brk']->id, 'lot_number' => 'A260001', 'qty' => '60'])->assertSessionHas('success');
         $this->post(route('productions.store'), ['item_id' => $it['brk']->id, 'lot_number' => 'A260001', 'qty' => '40'])->assertSessionHas('success');
 
@@ -307,7 +307,7 @@ class IndustrialScenarioTest extends TestCase
         $this->assertEquals(20.0,  (float) $lotCoil->qty_wip);
         $this->assertEquals(10.0,  (float) $lotCoil->material_saat_ini);
 
-        // Tutup Lot Coil -> sisa 10 KG berpindah jadi Top/End Coil, Material Saat Ini & WIP jadi 0
+        // Tutup Lot Coil oleh PPIC -> sisa 10 KG berpindah jadi Top/End Coil
         $this->actingAs($this->ppic);
         $this->patch(route('lot_tracers.set_finish', $lotCoil->id))->assertSessionHas('success');
         $lotCoil->refresh();
@@ -316,8 +316,8 @@ class IndustrialScenarioTest extends TestCase
         $this->assertEquals(0.0,  (float) $lotCoil->material_saat_ini);
         $this->assertEquals(10.0, (float) $lotCoil->top_end_coil);
 
-        // 4. Material Out MULTI-INPUT: 40 KMP-BRK-01 + otomatis potong 80 KMP-NUT-M8 -> FG-STAY-01
-        $this->actingAs($this->operator);
+        // 4. Material Out MULTI-INPUT oleh STAFF_MATERIAL: 40 BRK + otomatis potong 80 NUT -> FG-STAY-01
+        $this->actingAs($this->staffMaterial);
         $this->post(route('material_outs.store'), [
             'material_item_id' => $it['brk']->id,
             'target_item_id'   => $it['stay']->id,
@@ -326,9 +326,10 @@ class IndustrialScenarioTest extends TestCase
         ])->assertSessionHas('success');
 
         $this->assertEquals(60.0,  $this->stockOf($it['brk']));
-        $this->assertEquals(420.0, $this->stockOf($it['nut'])); // 500 - (40*2)
+        $this->assertEquals(420.0, $this->stockOf($it['nut']));
 
-        // Production 40 FG-STAY-01 & Delivery FG + TRANSIT (pakai kalkulator)
+        // Production & Delivery oleh STAFF_FG
+        $this->actingAs($this->staffFg);
         $this->post(route('productions.store'), ['item_id' => $it['stay']->id, 'lot_number' => 'B260002', 'qty' => '40'])->assertSessionHas('success');
         $this->post(route('deliveries.store'),  ['item_id' => $it['stay']->id, 'qty' => '15'])->assertSessionHas('success');
         $this->post(route('deliveries.store'),  ['item_id' => $it['transit']->id, 'qty' => '2*15'])->assertSessionHas('success');
@@ -336,7 +337,8 @@ class IndustrialScenarioTest extends TestCase
         $this->assertEquals(25.0, $this->stockOf($it['stay']));
         $this->assertEquals(70.0, $this->stockOf($it['transit']));
 
-        // 5. Material Out MULTI-OUTPUT (pecahan 1/3): 10 SHEET -> 30 GUS-L & 30 GUS-R (persis 30, tidak 29.99)
+        // 5. Material Out MULTI-OUTPUT (pecahan 1/3) oleh STAFF_MATERIAL
+        $this->actingAs($this->staffMaterial);
         $this->post(route('material_outs.store'), [
             'material_item_id' => $it['sheet']->id,
             'target_item_id'   => $it['gusL']->id,
@@ -352,7 +354,7 @@ class IndustrialScenarioTest extends TestCase
             $this->assertEquals(30.0, (float) $row->qty_wip);
         }
 
-        // Tutup Lot Multi-Output lewat 1 baris -> seluruh sibling wajib ikut FINISH
+        // Tutup Lot Multi-Output oleh PPIC -> seluruh sibling ikut FINISH
         $this->actingAs($this->ppic);
         $this->patch(route('lot_tracers.set_finish', $moLots->first()->id))->assertSessionHas('success');
         foreach (LotTracer::where('lot_number', 'C260003')->get() as $row) {
@@ -361,8 +363,8 @@ class IndustrialScenarioTest extends TestCase
             $this->assertEquals(0.0, (float) $row->material_saat_ini);
         }
 
-        // 6. Material Out KOMBINASI: 10 BATANG PIPA -> 20 ASSY-A (40 Nut) + 20 ASSY-B (20 Nut) = potong 60 Nut
-        $this->actingAs($this->operator);
+        // 6. Material Out KOMBINASI oleh STAFF_MATERIAL
+        $this->actingAs($this->staffMaterial);
         $this->post(route('material_outs.store'), [
             'material_item_id' => $it['pipa']->id,
             'target_item_id'   => $it['assyA']->id,
@@ -371,7 +373,7 @@ class IndustrialScenarioTest extends TestCase
         ])->assertSessionHas('success');
 
         $this->assertEquals(40.0,  $this->stockOf($it['pipa']));
-        $this->assertEquals(360.0, $this->stockOf($it['nut'])); // 420 - 60
+        $this->assertEquals(360.0, $this->stockOf($it['nut']));
         $this->assertCount(2, LotTracer::where('lot_number', 'D260004')->get());
     }
 
@@ -383,14 +385,16 @@ class IndustrialScenarioTest extends TestCase
         $m = $this->setupIndustrialMasterViaHttp();
         $it = $m['items'];
 
-        // Siapkan stok: KMP-BRK-01 = 50 (lewat coil -> prod), tapi KMP-NUT-M8 hanya 10 (butuh 40 untuk 20 BRK)
-        $this->actingAs($this->operator);
+        $this->actingAs($this->staffMaterial);
         $this->post(route('inbounds.store'), ['item_id' => $it['coil']->id, 'qty' => '35'])->assertSessionHas('success');
         $this->post(route('inbounds.store'), ['item_id' => $it['nut']->id,  'qty' => '10'])->assertSessionHas('success');
         $this->post(route('material_outs.store'), ['material_item_id' => $it['coil']->id, 'target_item_id' => $it['brk']->id, 'lot_number' => 'E260001', 'qty' => '25'])->assertSessionHas('success');
+
+        $this->actingAs($this->staffFg);
         $this->post(route('productions.store'), ['item_id' => $it['brk']->id, 'lot_number' => 'E260001', 'qty' => '50'])->assertSessionHas('success');
 
-        // 1. Material Out gagal karena pendamping kurang -> stok Trigger TIDAK boleh ikut terpotong (rollback penuh)
+        // 1. Material Out gagal karena pendamping kurang -> stok Trigger TIDAK ikut terpotong
+        $this->actingAs($this->staffMaterial);
         $this->post(route('material_outs.store'), [
             'material_item_id' => $it['brk']->id,
             'target_item_id'   => $it['stay']->id,
@@ -402,7 +406,7 @@ class IndustrialScenarioTest extends TestCase
         $this->assertEquals(10.0, $this->stockOf($it['nut']));
         $this->assertDatabaseMissing('lot_tracers', ['lot_number' => 'E260002']);
 
-        // 2. Nomor Lot duplikat & format Lot tidak valid harus ditolak
+        // 2. Nomor Lot duplikat & format Lot salah ditolak
         $this->post(route('material_outs.store'), [
             'material_item_id' => $it['coil']->id,
             'target_item_id'   => $it['brk']->id,
@@ -417,25 +421,27 @@ class IndustrialScenarioTest extends TestCase
             'qty'              => '5',
         ])->assertSessionHasErrors('lot_number');
 
-        // 3. Over-yield di scanner Production (melebihi WIP) wajib ditolak
+        // 3. Over-yield di scanner Production (melebihi WIP) ditolak
         $this->post(route('material_outs.store'), [
             'material_item_id' => $it['coil']->id,
             'target_item_id'   => $it['brk']->id,
             'lot_number'       => 'E260003',
-            'qty'              => '10', // est 20 PCS
+            'qty'              => '10',
         ])->assertSessionHas('success');
 
+        $this->actingAs($this->staffFg);
         $this->post(route('productions.store'), [
             'item_id'    => $it['brk']->id,
             'lot_number' => 'E260003',
-            'qty'        => '25', // > 20 WIP
+            'qty'        => '25',
         ])->assertSessionHas('error');
         $this->assertEquals(50.0, $this->stockOf($it['brk']));
 
-        // 4. Delivery & Return to Supplier melebihi stok wajib ditolak
+        // 4. Delivery & Return to Supplier melebihi stok ditolak
         $this->post(route('deliveries.store'), ['item_id' => $it['stay']->id, 'qty' => '1'])->assertSessionHas('error');
         $this->assertEquals(0.0, $this->stockOf($it['stay']));
 
+        $this->actingAs($this->staffMaterial);
         $this->post(route('return_to_suppliers.store'), ['item_id' => $it['coil']->id, 'qty' => '5'])->assertSessionHas('error');
         $this->assertEquals(0.0, $this->stockOf($it['coil']));
     }
@@ -449,16 +455,18 @@ class IndustrialScenarioTest extends TestCase
         $it = $m['items'];
         $cusDpm = $m['companies']['cusDpm'];
 
-        // Siapkan stok: KMP-BRK-01 = 100, KMP-NUT-M8 = 300, COIL = 50, TRANSIT = 100
-        $this->actingAs($this->operator);
+        $this->actingAs($this->staffMaterial);
         $this->post(route('inbounds.store'), ['item_id' => $it['coil']->id,    'qty' => '100'])->assertSessionHas('success');
         $this->post(route('inbounds.store'), ['item_id' => $it['nut']->id,     'qty' => '300'])->assertSessionHas('success');
         $this->post(route('inbounds.store'), ['item_id' => $it['transit']->id, 'qty' => '100'])->assertSessionHas('success');
 
         $this->post(route('material_outs.store'), ['material_item_id' => $it['coil']->id, 'target_item_id' => $it['brk']->id, 'lot_number' => 'F260000', 'qty' => '50'])->assertSessionHas('success');
-        $this->post(route('productions.store'),   ['item_id' => $it['brk']->id, 'lot_number' => 'F260000', 'qty' => '100'])->assertSessionHas('success');
 
-        // Buka Lot MULTI-INPUT F260001: 50 BRK (+100 NUT) -> est 50 FG-STAY-01
+        $this->actingAs($this->staffFg);
+        $this->post(route('productions.store'), ['item_id' => $it['brk']->id, 'lot_number' => 'F260000', 'qty' => '100'])->assertSessionHas('success');
+
+        // Buka Lot MULTI-INPUT F260001
+        $this->actingAs($this->staffMaterial);
         $this->post(route('material_outs.store'), [
             'material_item_id' => $it['brk']->id,
             'target_item_id'   => $it['stay']->id,
@@ -469,10 +477,11 @@ class IndustrialScenarioTest extends TestCase
         $this->assertEquals(50.0,  $this->stockOf($it['brk']));
         $this->assertEquals(200.0, $this->stockOf($it['nut']));
 
-        // Produksi 20 PCS -> sisa di mesin = 30 BRK
+        $this->actingAs($this->staffFg);
         $this->post(route('productions.store'), ['item_id' => $it['stay']->id, 'lot_number' => 'F260001', 'qty' => '20'])->assertSessionHas('success');
 
-        // MULTI-RETURN #1: Retur 10 BRK (+20 NUT)
+        // MULTI-RETURN #1 & #2 oleh STAFF_MATERIAL
+        $this->actingAs($this->staffMaterial);
         $this->post(route('material_returns.store'), [
             'material_item_id' => $it['brk']->id,
             'target_item_id'   => $it['stay']->id,
@@ -480,7 +489,6 @@ class IndustrialScenarioTest extends TestCase
             'qty'              => '10',
         ])->assertSessionHas('success');
 
-        // MULTI-RETURN #2 pada Lot yang sama (sebelumnya diblokir 1x, kini diizinkan selama ON PROGRESS): Retur 5 BRK (+10 NUT)
         $this->post(route('material_returns.store'), [
             'material_item_id' => $it['brk']->id,
             'target_item_id'   => $it['stay']->id,
@@ -488,20 +496,19 @@ class IndustrialScenarioTest extends TestCase
             'qty'              => '5',
         ])->assertSessionHas('success');
 
-        $this->assertEquals(65.0,  $this->stockOf($it['brk'])); // 50 + 10 + 5
-        $this->assertEquals(230.0, $this->stockOf($it['nut'])); // 200 + 20 + 10
+        $this->assertEquals(65.0,  $this->stockOf($it['brk']));
+        $this->assertEquals(230.0, $this->stockOf($it['nut']));
 
         $lotF = LotTracer::where('lot_number', 'F260001')->firstOrFail();
         $this->assertEquals(15.0, (float) $lotF->qty_material_return);
         $this->assertEquals(35.0, (float) $lotF->target_qty_estimasi);
         $this->assertEquals(15.0, (float) $lotF->qty_wip);
 
-        // Pastikan 2 return_batch berbeda tercatat
         $mrRows = MaterialReturn::where('lot_number', 'F260001')->orderBy('id')->get();
         $this->assertCount(2, $mrRows);
         $this->assertNotSame($mrRows[0]->return_batch, $mrRows[1]->return_batch);
 
-        // Retur #3 melebihi sisa 15 -> wajib ditolak
+        // Retur #3 melebihi sisa 15 -> ditolak
         $this->post(route('material_returns.store'), [
             'material_item_id' => $it['brk']->id,
             'target_item_id'   => $it['stay']->id,
@@ -509,7 +516,7 @@ class IndustrialScenarioTest extends TestCase
             'qty'              => '20',
         ])->assertSessionHas('error');
 
-        // PPIC koreksi Retur #2 dari 5 -> 8 (+3 BRK, +6 NUT) + Audit Trail
+        // PPIC koreksi Retur #2 dari 5 -> 8 + Audit Trail
         $this->actingAs($this->ppic);
         $this->post(route('material_returns.verify_batch'), [
             'items' => [
@@ -535,15 +542,14 @@ class IndustrialScenarioTest extends TestCase
         $this->assertSame($this->ppic->id, $mr2->corrected_by);
         $this->assertSame('Timbang ulang retur shift 2', $mr2->correction_notes);
 
-        // PRODUCTION NG + KOREKSI NG (Tahap A)
-        // Input melebihi Act FG (20) -> ditolak
+        // PRODUCTION NG oleh STAFF_FG + KOREKSI NG oleh PPIC
+        $this->actingAs($this->staffFg);
         $this->post(route('production_ngs.store'), [
             'lot_tracer_id'  => $lotF->id,
             'qty_ng'         => '25',
             'problem_reason' => 'MATERIAL',
         ])->assertSessionHas('error');
 
-        // Input NG valid = 4
         $this->post(route('production_ngs.store'), [
             'lot_tracer_id'  => $lotF->id,
             'qty_ng'         => '4',
@@ -553,7 +559,7 @@ class IndustrialScenarioTest extends TestCase
         $this->assertEquals(16.0, $this->stockOf($it['stay']));
         $ngRow = ProductionNg::firstOrFail();
 
-        // Koreksi NG: 4 -> 6, reason -> DIES/TOOLING
+        $this->actingAs($this->ppic);
         $this->post(route('production_ngs.verify_batch'), [
             'items' => [
                 $ngRow->id => [
@@ -574,10 +580,13 @@ class IndustrialScenarioTest extends TestCase
         $this->assertSame('DIES/TOOLING', $ngRow->problem_reason);
         $this->assertSame('DIKOREKSI', $ngRow->qty_check);
 
-        // RETURN TO SUPPLIER + KOREKSI
+        // RETURN TO SUPPLIER oleh STAFF_MATERIAL + KOREKSI oleh PPIC
+        $this->actingAs($this->staffMaterial);
         $this->post(route('return_to_suppliers.store'), ['item_id' => $it['coil']->id, 'qty' => '12'])->assertSessionHas('success');
-        $this->assertEquals(38.0, $this->stockOf($it['coil'])); // 50 - 12
+        $this->assertEquals(38.0, $this->stockOf($it['coil']));
         $rtsRow = ReturnToSupplier::firstOrFail();
+
+        $this->actingAs($this->ppic);
         $this->post(route('return_to_suppliers.verify_batch'), [
             'items' => [
                 $rtsRow->id => ['qty_check' => 'DIKOREKSI', 'actual_qty' => '10', 'correction_notes' => 'Revisi surat retur'],
@@ -586,8 +595,7 @@ class IndustrialScenarioTest extends TestCase
         $this->assertEquals(40.0, $this->stockOf($it['coil']));
         $this->assertEquals(12.0, (float) $rtsRow->fresh()->qty_original);
 
-        // STOCK ADJUSTMENT (5 Kategori + Validasi Arah + Uji Konkurensi input_mode=diff)
-        // TRANSIT saat ini = 100
+        // STOCK ADJUSTMENT (khusus PPIC) + Konkurensi Delivery (STAFF_FG)
         $this->post(route('stock_adjustments.store'), ['item_id' => $it['transit']->id, 'adjustment_type' => 'LOSS', 'input_mode' => 'actual', 'qty_actual' => '110'])->assertSessionHas('error');
         $this->post(route('stock_adjustments.store'), ['item_id' => $it['transit']->id, 'adjustment_type' => 'LOSS', 'input_mode' => 'actual', 'qty_actual' => '95', 'notes' => 'Hilang rak'])->assertSessionHas('success');
         $this->assertEquals(95.0, $this->stockOf($it['transit']));
@@ -602,19 +610,22 @@ class IndustrialScenarioTest extends TestCase
         $this->post(route('stock_adjustments.store'), ['item_id' => $it['transit']->id, 'adjustment_type' => 'STOCK OPNAME', 'input_mode' => 'actual', 'qty_actual' => '112'])->assertSessionHas('success');
         $this->assertEquals(112.0, $this->stockOf($it['transit']));
 
-        // Simulasi konkurensi: Perangkat B Delivery -12 (stok jadi 100), Perangkat A kirim input_mode=diff -5 (qty_actual lama 107)
+        // Konkurensi: STAFF_FG Delivery -12 (stok jadi 100), PPIC kirim input_mode=diff -5
+        $this->actingAs($this->staffFg);
         $this->post(route('deliveries.store'), ['item_id' => $it['transit']->id, 'qty' => '12'])->assertSessionHas('success');
         $this->assertEquals(100.0, $this->stockOf($it['transit']));
+
+        $this->actingAs($this->ppic);
         $this->post(route('stock_adjustments.store'), [
             'item_id'         => $it['transit']->id,
             'adjustment_type' => 'LOSS',
             'input_mode'      => 'diff',
-            'qty_actual'      => '107', // nilai basi sebelum perangkat B kirim
+            'qty_actual'      => '107',
             'qty_diff'        => '-5',
         ])->assertSessionHas('success');
-        $this->assertEquals(95.0, $this->stockOf($it['transit'])); // 100 - 5 = 95, bukan 107
+        $this->assertEquals(95.0, $this->stockOf($it['transit']));
 
-        // PROBLEM DELAY CRUD (Tambah, Edit, Hapus)
+        // PROBLEM DELAY CRUD (khusus PPIC)
         $this->post(route('problem_delays.store'), [
             'incident_date'  => '2026-11-23',
             'company_id'     => $cusDpm->id,
@@ -643,18 +654,23 @@ class IndustrialScenarioTest extends TestCase
         $m = $this->setupIndustrialMasterViaHttp();
         $it = $m['items'];
 
-        // 1. Uji Salah Scan Lintas Tipe di 8 Endpoint AJAX Lookup
-        $this->actingAs($this->operator);
+        // 1. Uji Salah Scan Lintas Tipe di 8 Endpoint AJAX Lookup sesuai role masing-masing
+        $this->actingAs($this->staffMaterial);
         $this->getJson(route('inbounds.lookup', ['code' => 'FG-STAY-01']))->assertOk()->assertJson(['ok' => false]);
-        $this->getJson(route('deliveries.lookup', ['code' => 'COIL SPHC 2.3 X 120']))->assertOk()->assertJson(['ok' => false]);
         $this->getJson(route('return_to_suppliers.lookup', ['code' => 'FG-STAY-01']))->assertOk()->assertJson(['ok' => false]);
-        $this->getJson(route('productions.lookup', ['code' => 'COIL SPHC 2.3 X 120']))->assertOk()->assertJson(['ok' => false]);
-        $this->getJson(route('production_ngs.lookup', ['code' => 'COIL SPHC 2.3 X 120']))->assertOk()->assertJson(['ok' => false]);
         $this->getJson(route('material_outs.lookup', ['step' => 1, 'code' => 'FG-STAY-01']))->assertOk()->assertJson(['ok' => false]);
         $this->getJson(route('material_returns.lookup', ['step' => 1, 'code' => 'TRS-BOLT-01']))->assertOk()->assertJson(['ok' => false]);
+
+        $this->actingAs($this->staffFg);
+        $this->getJson(route('deliveries.lookup', ['code' => 'COIL SPHC 2.3 X 120']))->assertOk()->assertJson(['ok' => false]);
+        $this->getJson(route('productions.lookup', ['code' => 'COIL SPHC 2.3 X 120']))->assertOk()->assertJson(['ok' => false]);
+        $this->getJson(route('production_ngs.lookup', ['code' => 'COIL SPHC 2.3 X 120']))->assertOk()->assertJson(['ok' => false]);
+
+        $this->actingAs($this->ppic);
         $this->getJson(route('stock_adjustments.lookup', ['code' => 'KODE-TIDAK-ADA']))->assertOk()->assertJson(['ok' => false]);
 
-        // 2. Setup Lot G260001 untuk uji Override Over-Yield & Audit Trail 2x koreksi
+        // 2. Setup Lot G260001
+        $this->actingAs($this->staffMaterial);
         $this->post(route('inbounds.store'), ['item_id' => $it['coil']->id, 'qty' => '100'])->assertSessionHas('success');
         $inbRow = Inbound::firstOrFail();
 
@@ -662,14 +678,15 @@ class IndustrialScenarioTest extends TestCase
             'material_item_id' => $it['coil']->id,
             'target_item_id'   => $it['brk']->id,
             'lot_number'       => 'G260001',
-            'qty'              => '20', // est 40 PCS
+            'qty'              => '20',
         ])->assertSessionHas('success');
         $mo1 = MaterialOut::where('lot_number', 'G260001')->firstOrFail();
 
+        $this->actingAs($this->staffFg);
         $this->post(route('productions.store'), ['item_id' => $it['brk']->id, 'lot_number' => 'G260001', 'qty' => '40'])->assertSessionHas('success');
         $prod1 = Production::where('lot_number', 'G260001')->firstOrFail();
 
-        // Override Over-Yield PPIC: 40 -> 45 PCS (> estimasi 40) harus lolos dan WIP tetap 0 (tidak minus)
+        // Override Over-Yield PPIC: 40 -> 45 PCS (> estimasi 40)
         $this->actingAs($this->ppic);
         $this->post(route('productions.verify_batch'), [
             'items' => [
@@ -686,7 +703,7 @@ class IndustrialScenarioTest extends TestCase
         $this->assertEquals(0.0,  (float) $lotG1->qty_wip);
         $this->assertEquals(45.0, $this->stockOf($it['brk']));
 
-        // Koreksi ke-2: 45 -> 44 -> qty_original WAJIB tetap 40 (angka scan awal), tidak tertimpa 45
+        // Koreksi ke-2: 45 -> 44 -> qty_original WAJIB tetap 40
         $this->post(route('productions.verify_batch'), [
             'items' => [
                 $prod1->id => [
@@ -703,35 +720,35 @@ class IndustrialScenarioTest extends TestCase
         $this->assertSame('Revisi hitung ulang box akhir', $prod1->correction_notes);
         $this->assertSame($this->ppic->id, $prod1->corrected_by);
 
-        // Input NG 4 PCS di Lot G260001
+        // Input NG 4 PCS oleh STAFF_FG
+        $this->actingAs($this->staffFg);
         $this->post(route('production_ngs.store'), [
             'lot_tracer_id'  => $lotG1->id,
             'qty_ng'         => '4',
             'problem_reason' => 'PROSES',
         ])->assertSessionHas('success');
 
-        // 3. Guardrail batas koreksi turun
-        // 3a. Koreksi Production di bawah qty_ng (4) -> ditolak
+        // 3. Guardrail batas koreksi turun (PPIC)
+        $this->actingAs($this->ppic);
         $this->post(route('productions.verify_batch'), [
             'items' => [$prod1->id => ['qty_check' => 'DIKOREKSI', 'actual_qty' => '2']],
         ])->assertSessionHas('error');
 
-        // 3b. Koreksi Material Out di bawah terpakai produksi (44 * 0.5 = 22) -> ditolak
         $this->post(route('material_outs.verify_batch'), [
             'items' => [$mo1->id => ['qty_check' => 'DIKOREKSI', 'actual_qty' => '10']],
         ])->assertSessionHas('error');
 
-        // 3c. Koreksi Inbound turun melebihi stok gudang (stok 80, turun -90 -> minus) -> ditolak
         $this->post(route('inbounds.verify_batch'), [
             'items' => [$inbRow->id => ['qty_check' => 'DIKOREKSI', 'actual_qty' => '10']],
         ])->assertSessionHas('error');
 
-        // 4. Kunci Lot FINISH pada 4 modul (Material Out, Material Return, Production, Production NG)
-        $this->actingAs($this->operator);
+        // 4. Kunci Lot FINISH pada 4 modul
+        $this->actingAs($this->staffMaterial);
         $this->post(route('material_outs.store'), ['material_item_id' => $it['coil']->id, 'target_item_id' => $it['brk']->id, 'lot_number' => 'G260002', 'qty' => '20'])->assertSessionHas('success');
         $this->post(route('material_returns.store'), ['material_item_id' => $it['coil']->id, 'target_item_id' => $it['brk']->id, 'lot_number' => 'G260002', 'qty' => '5'])->assertSessionHas('success');
-        $this->post(route('productions.store'), ['item_id' => $it['brk']->id, 'lot_number' => 'G260002', 'qty' => '10'])->assertSessionHas('success');
 
+        $this->actingAs($this->staffFg);
+        $this->post(route('productions.store'), ['item_id' => $it['brk']->id, 'lot_number' => 'G260002', 'qty' => '10'])->assertSessionHas('success');
         $lotG2 = LotTracer::where('lot_number', 'G260002')->firstOrFail();
         $this->post(route('production_ngs.store'), ['lot_tracer_id' => $lotG2->id, 'qty_ng' => '2', 'problem_reason' => 'MATERIAL'])->assertSessionHas('success');
 
@@ -740,11 +757,9 @@ class IndustrialScenarioTest extends TestCase
         $prod2 = Production::where('lot_number', 'G260002')->firstOrFail();
         $ng2   = ProductionNg::where('lot_number', 'G260002')->firstOrFail();
 
-        // Tutup Lot G260002 -> FINISH
         $this->actingAs($this->ppic);
         $this->patch(route('lot_tracers.set_finish', $lotG2->id))->assertSessionHas('success');
 
-        // Keempat modul wajib menolak koreksi pada Lot FINISH
         $this->post(route('material_outs.verify_batch'),    ['items' => [$mo2->id   => ['qty_check' => 'DIKOREKSI', 'actual_qty' => '25']]])->assertSessionHas('error');
         $this->post(route('material_returns.verify_batch'), ['items' => [$mr2->id   => ['qty_check' => 'DIKOREKSI', 'actual_qty' => '6']]])->assertSessionHas('error');
         $this->post(route('productions.verify_batch'),      ['items' => [$prod2->id => ['qty_check' => 'DIKOREKSI', 'actual_qty' => '12']]])->assertSessionHas('error');
@@ -755,7 +770,7 @@ class IndustrialScenarioTest extends TestCase
         $this->assertEquals(10.0, (float) $prod2->fresh()->qty);
         $this->assertEquals(2.0,  (float) $ng2->fresh()->qty_ng);
 
-        // 5. Pastikan JSON Modal Informasi Item memuat Audit Trail koreksi
+        // 5. JSON Modal Informasi Item memuat Audit Trail koreksi
         $infoRes = $this->getJson(route('items.info', $it['brk']->id))->assertOk()->json();
         $correctedEvent = collect($infoRes['history'])->first(fn ($h) => $h['type_label'] === 'Production' && $h['status'] === 'DIKOREKSI');
         $this->assertNotNull($correctedEvent);
@@ -769,26 +784,28 @@ class IndustrialScenarioTest extends TestCase
      */
     public function test_06_dashboard_snapshot_0700_pendamping_multi_return_dan_neraca_riwayat(): void
     {
-        // Bekukan waktu pukul 06:30 WIB (sebelum cut-off 07:00)
         Carbon::setTestNow(Carbon::create(2026, 11, 24, 6, 30, 0, config('app.timezone')));
 
         $m = $this->setupIndustrialMasterViaHttp();
         $it = $m['items'];
 
-        // Transaksi sebelum 07:00 -> saldo tepat pukul 07:00: COIL=50, BRK=100, NUT=200, STAY=0
-        $this->actingAs($this->operator);
+        // Sebelum 07:00
+        $this->actingAs($this->staffMaterial);
         $this->post(route('inbounds.store'), ['item_id' => $it['coil']->id, 'qty' => '100'])->assertSessionHas('success');
         $this->post(route('inbounds.store'), ['item_id' => $it['nut']->id,  'qty' => '200'])->assertSessionHas('success');
         $this->post(route('material_outs.store'), ['material_item_id' => $it['coil']->id, 'target_item_id' => $it['brk']->id, 'lot_number' => 'H260000', 'qty' => '50'])->assertSessionHas('success');
-        $this->post(route('productions.store'),   ['item_id' => $it['brk']->id, 'lot_number' => 'H260000', 'qty' => '100'])->assertSessionHas('success');
 
-        // Maju ke 08:30 WIB (setelah cut-off 07:00): Material Out Multi-Input + 2x Multi-Return + Prod + NG + Delivery
+        $this->actingAs($this->staffFg);
+        $this->post(route('productions.store'), ['item_id' => $it['brk']->id, 'lot_number' => 'H260000', 'qty' => '100'])->assertSessionHas('success');
+
+        // Setelah 07:00: MO + 2x Multi-Return oleh STAFF_MATERIAL
         Carbon::setTestNow(Carbon::create(2026, 11, 24, 8, 30, 0, config('app.timezone')));
+        $this->actingAs($this->staffMaterial);
         $this->post(route('material_outs.store'), [
             'material_item_id' => $it['brk']->id,
             'target_item_id'   => $it['stay']->id,
             'lot_number'       => 'H260001',
-            'qty'              => '40', // BRK: 100->60, NUT: 200->120
+            'qty'              => '40',
         ])->assertSessionHas('success');
 
         Carbon::setTestNow(Carbon::create(2026, 11, 24, 9, 0, 0, config('app.timezone')));
@@ -796,7 +813,7 @@ class IndustrialScenarioTest extends TestCase
             'material_item_id' => $it['brk']->id,
             'target_item_id'   => $it['stay']->id,
             'lot_number'       => 'H260001',
-            'qty'              => '10', // BRK: 60->70, NUT: 120->140
+            'qty'              => '10',
         ])->assertSessionHas('success');
 
         Carbon::setTestNow(Carbon::create(2026, 11, 24, 9, 30, 0, config('app.timezone')));
@@ -804,36 +821,32 @@ class IndustrialScenarioTest extends TestCase
             'material_item_id' => $it['brk']->id,
             'target_item_id'   => $it['stay']->id,
             'lot_number'       => 'H260001',
-            'qty'              => '5', // BRK: 70->75, NUT: 140->150
+            'qty'              => '5',
         ])->assertSessionHas('success');
 
+        // Produksi, NG, & Delivery oleh STAFF_FG
         Carbon::setTestNow(Carbon::create(2026, 11, 24, 10, 0, 0, config('app.timezone')));
+        $this->actingAs($this->staffFg);
         $this->post(route('productions.store'), ['item_id' => $it['stay']->id, 'lot_number' => 'H260001', 'qty' => '20'])->assertSessionHas('success');
 
         $lotH = LotTracer::where('lot_number', 'H260001')->firstOrFail();
         $this->post(route('production_ngs.store'), ['lot_tracer_id' => $lotH->id, 'qty_ng' => '2', 'problem_reason' => 'MATERIAL'])->assertSessionHas('success');
         $this->post(route('deliveries.store'), ['item_id' => $it['stay']->id, 'qty' => '8'])->assertSessionHas('success');
 
-        // Pukul 11:00 WIB: Cek Dashboard + Stock 07:00
+        // Pukul 11:00 WIB: PPIC cek Dashboard + Stock 07:00 + Neraca Riwayat Item
         Carbon::setTestNow(Carbon::create(2026, 11, 24, 11, 0, 0, config('app.timezone')));
         $this->actingAs($this->ppic);
         $resp = $this->get(route('dashboard'))->assertOk();
 
         $dashItems = collect($resp->viewData('dashboardItems'))->keyBy('id');
 
-        // Verifikasi Trigger (BRK): sekarang 75, pukul 07:00 = 100
         $this->assertEquals(75.0,  (float) $dashItems[$it['brk']->id]['current_stock']);
         $this->assertEquals(100.0, (float) $dashItems[$it['brk']->id]['stock_07']);
-
-        // Verifikasi Pendamping (NUT): sekarang 150, pukul 07:00 = 200 (akumulasi MO + 2x Multi-Return tepat!)
         $this->assertEquals(150.0, (float) $dashItems[$it['nut']->id]['current_stock']);
         $this->assertEquals(200.0, (float) $dashItems[$it['nut']->id]['stock_07']);
+        $this->assertEquals(10.0,  (float) $dashItems[$it['stay']->id]['current_stock']);
+        $this->assertEquals(0.0,   (float) $dashItems[$it['stay']->id]['stock_07']);
 
-        // Verifikasi FG (STAY): sekarang 10, pukul 07:00 = 0
-        $this->assertEquals(10.0, (float) $dashItems[$it['stay']->id]['current_stock']);
-        $this->assertEquals(0.0,  (float) $dashItems[$it['stay']->id]['stock_07']);
-
-        // Verifikasi neraca linimasa Informasi Item (jumlah seluruh mutasi == current_stock)
         foreach ([$it['coil'], $it['brk'], $it['nut'], $it['stay']] as $checkItem) {
             $info = $this->getJson(route('items.info', $checkItem->id))->assertOk()->json();
             $sumHistory = round(collect($info['history'])->sum('qty_change'), 2);

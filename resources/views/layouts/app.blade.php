@@ -114,7 +114,7 @@
                 <span class="avatar">{{ $initials }}</span>
                 <span class="hidden sm:flex flex-col leading-tight text-left">
                     <b class="text-[12.5px] font-semibold" style="color:var(--ink)">{{ $displayName }}</b>
-                    <small class="text-[11px] font-semibold uppercase" style="color:var(--mut)">{{ $u->role }}</small>
+                    <small class="text-[11px] font-semibold uppercase" style="color:var(--mut)">{{ $u->role_label }}</small>
                 </span>
             </a>
         </header>

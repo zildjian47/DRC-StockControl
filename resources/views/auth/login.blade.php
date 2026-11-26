@@ -1,7 +1,7 @@
 <x-guest-layout variant="split">
     <div class="mb-6">
         <h2 class="page-title" style="font-size:26px">Masuk</h2>
-        <p class="page-sub">Gunakan email dan password akun DRC Stock Control Anda.</p>
+        <p class="page-sub">Gunakan username atau email beserta password akun DRC Stock Control Anda.</p>
     </div>
 
     <x-auth-session-status class="mb-4" :status="session('status')" />
@@ -9,8 +9,10 @@
     <form method="POST" action="{{ route('login') }}" class="space-y-4">
         @csrf
         <div>
-            <x-input-label for="email" value="Email" />
-            <x-text-input id="email" class="block w-full" type="email" name="email" :value="old('email')" required autofocus autocomplete="username" />
+            <x-input-label for="email" value="Username atau Email" />
+            <x-text-input id="email" class="block w-full" type="text" name="email" :value="old('email')"
+                          placeholder="Contoh: ppic atau andi@gmail.com"
+                          required autofocus autocomplete="username" />
             <x-input-error :messages="$errors->get('email')" class="mt-1.5" />
         </div>
 
@@ -36,5 +38,12 @@
         </div>
 
         <button type="submit" class="btn btn-primary btn-lg w-full">Masuk</button>
+
+        @if (Route::has('register'))
+            <div class="pt-3 border-t border-slate-200 text-center text-[13px]" style="color:var(--mut)">
+                Belum punya akun?
+                <a class="link-act font-semibold ml-1" href="{{ route('register') }}">Daftar akun baru</a>
+            </div>
+        @endif
     </form>
 </x-guest-layout>
