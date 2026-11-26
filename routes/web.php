@@ -7,6 +7,7 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ProcessController;
 use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\ItemController;
+use App\Http\Controllers\ItemCardController;
 use App\Http\Controllers\BomController;
 use App\Http\Controllers\InventoryStockController;
 use App\Http\Controllers\LotTracerController;
@@ -38,6 +39,13 @@ Route::middleware(['auth', 'active'])->group(function () {
     // Portal Scanner (Halaman Utama STAFF_MATERIAL & STAFF_FG, juga dapat diakses PPIC)
     Route::get('/scanner-portal', [ScannerPortalController::class, 'index'])->name('scanner.portal');
 
+    // Kartu Info Item Mobile (Read-Only untuk semua role aktif + Scanner Cek Info Stok)
+    Route::get('/item-card/scan', [ItemCardController::class, 'scanner'])->name('item_cards.scanner');
+    Route::get('/item-card/lookup', [ItemCardController::class, 'lookup'])->name('item_cards.lookup');
+    Route::get('/item-card/{item}', [ItemCardController::class, 'show'])
+        ->whereNumber('item')
+        ->name('item_cards.show');
+
     // Profile (Semua role aktif — hapus akun mandiri dinonaktifkan di controller)
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
@@ -53,8 +61,9 @@ Route::middleware(['auth', 'active'])->group(function () {
         // 2. Master Companies
         Route::resource('companies', CompanyController::class)->only(['index', 'store', 'update', 'destroy']);
 
-        // 3. Master Items & Archive (Soft Deletes) + AJAX Info Modal
+        // 3. Master Items & Archive (Soft Deletes) + AJAX Info Modal + Cetak Label QR
         Route::get('/items/trashed', [ItemController::class, 'trashed'])->name('items.trashed');
+        Route::get('/items/qr-print', [ItemController::class, 'qrPrint'])->name('items.qr_print');
         Route::post('/items/{id}/restore', [ItemController::class, 'restore'])->name('items.restore');
         Route::get('/items/{item}/info', [ItemController::class, 'info'])->name('items.info');
         Route::resource('items', ItemController::class)->only(['index', 'store', 'update', 'destroy']);

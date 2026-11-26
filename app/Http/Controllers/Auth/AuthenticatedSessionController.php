@@ -26,6 +26,21 @@ class AuthenticatedSessionController extends Controller
         $defaultUrl = route($user->homeRouteName(), absolute: false);
 
         if (!$user->isPpic()) {
+            $intended = (string) $request->session()->get('url.intended', '');
+            if ($intended !== '') {
+                $path = (string) parse_url($intended, PHP_URL_PATH);
+                $host = parse_url($intended, PHP_URL_HOST);
+
+                $sameHost = empty($host) || strcasecmp($host, $request->getHost()) === 0;
+                $isItemCard = preg_match('#^/item-card(?:/\d+|/scan)?/?$#', $path) === 1;
+
+                if ($sameHost && $isItemCard) {
+                    return redirect()->intended($defaultUrl);
+                }
+            }
+
+            $request->session()->forget('url.intended');
+
             return redirect($defaultUrl);
         }
 

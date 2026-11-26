@@ -4,6 +4,16 @@
                        subtitle="Daftar barang aktif beserta kalkulasi standar stok harian (PO/WD/Kanban & Resep BOM)">
             <x-slot name="actions">
                 <span class="btn-group">
+                    <button type="button" class="btn" @click="$dispatch('print-qr-smart')"
+                            title="Cetak label QR item yang dicentang (atau seluruh item tampil jika belum ada yang dicentang)">
+                        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="3" width="7" height="7" rx="1"/>
+                            <rect x="14" y="3" width="7" height="7" rx="1"/>
+                            <rect x="3" y="14" width="7" height="7" rx="1"/>
+                            <path d="M14 14h3v3h-3zM20 14h1v3M14 20h7"/>
+                        </svg>
+                        <span>Cetak QR</span>
+                    </button>
                     <a href="{{ route('items.trashed') }}" class="btn">
                         <x-icon name="ban" />
                         <span>Item Nonaktif</span>
@@ -30,8 +40,9 @@
     @endphp
 
     <div class="panel"
-         x-data="masterItemPage({{ $items->count() }}, {{ Js::from($companiesJs) }}, {{ $errors->any() ? 'true' : 'false' }})"
+         x-data="masterItemPage({{ $items->count() }}, {{ Js::from($companiesJs) }}, {{ $errors->any() ? 'true' : 'false' }}, {{ Js::from(route('items.qr_print')) }})"
          @open-add-item.window="addOpen = true; addError = ''; syncAddCompany()"
+         @print-qr-smart.window="openQrPrint('smart')"
          x-init="syncAddCompany(); recalc()"
          @table-refreshed.window="recalc()">
 
@@ -67,21 +78,50 @@
             </div>
         </div>
 
+        {{-- BAR AKSI MASSAL CETAK QR (MUNCUL SAAT ADA ITEM DICENTANG) --}}
+        <div x-show="selectedIds.length > 0" x-cloak
+             class="px-4 py-2.5 bg-blue-50/80 border-b border-blue-200 flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div class="flex items-center gap-2 text-slate-700">
+                <span class="pill pill-info num" x-text="selectedIds.length + ' TERPILIH'"></span>
+                <span>Siap dicetak sebagai label QR Info Rak (URL permanen).</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <button type="button" class="btn btn-sm" @click="clearSelection()">Batal Pilih</button>
+                <button type="button" class="btn btn-sm btn-primary" @click="openQrPrint('selected')">
+                    <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M6 9V2h12v7"/>
+                        <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+                        <rect x="6" y="14" width="12" height="8"/>
+                    </svg>
+                    <span>Cetak QR Terpilih (<span class="num" x-text="selectedIds.length"></span>)</span>
+                </button>
+            </div>
+        </div>
+
         <div class="tbl-wrap">
             <table class="tbl">
                 <thead>
                     <tr>
-                        <th class="w-[4%] text-center">No</th>
-                        <th class="w-[22%]">Part No &amp; Part Name</th>
+                        <th class="w-[3%] text-center">
+                            <input type="checkbox"
+                                   :checked="allVisibleSelected"
+                                   :disabled="visibleIds.length === 0"
+                                   @change="toggleSelectAllVisible()"
+                                   title="Pilih semua item yang tampil"
+                                   aria-label="Pilih semua item yang tampil"
+                                   class="cursor-pointer">
+                        </th>
+                        <th class="w-[3%] text-center">No</th>
+                        <th class="w-[20%]">Part No &amp; Part Name</th>
                         <th class="w-[9%] text-center">Tipe &amp; UOM</th>
-                        <th class="w-[11%]">Perusahaan</th>
-                        <th class="num w-[8%]">Qty PO</th>
+                        <th class="w-[10%]">Perusahaan</th>
+                        <th class="num w-[7%]">Qty PO</th>
                         <th class="num w-[5%]">WD</th>
                         <th class="num w-[7%]">Kanban</th>
                         <th class="num w-[8%]">Std Day 1</th>
                         <th class="num w-[8%]">Std Day 2</th>
                         <th class="num w-[8%]">Std Day 3</th>
-                        <th class="w-[10%] text-center">Aksi</th>
+                        <th class="w-[12%] text-center">Aksi</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -135,10 +175,18 @@
                             ];
                         @endphp
                         <tr data-item-row
+                            data-item-id="{{ $item->id }}"
                             data-search="{{ strtolower(($item->part_no ?? '') . ' ' . $item->part_name . ' ' . $compCode) }}"
                             data-type="{{ $item->type }}"
                             data-comptype="{{ $compType }}"
                             x-show="matchRow($el)">
+                            <td class="text-center">
+                                <input type="checkbox"
+                                       :checked="isSelected({{ $item->id }})"
+                                       @change="toggleSelect({{ $item->id }})"
+                                       aria-label="Pilih {{ $item->part_name }} untuk cetak QR"
+                                       class="cursor-pointer">
+                            </td>
                             <td class="text-center num font-semibold text-slate-500" data-col-no>{{ $idx + 1 }}</td>
                             <td>
                                 <div class="num text-xs font-bold text-accent">{{ $item->part_no ?: '-' }}</div>
@@ -172,6 +220,17 @@
                                             @click="$dispatch('open-material-info', {{ Js::from(['id' => $item->id, 'part_no' => $item->part_no ?: '-', 'part_name' => $item->part_name]) }})">
                                         <x-icon name="info" />
                                     </button>
+                                    <a href="{{ route('items.qr_print', ['item_id' => $item->id]) }}"
+                                       target="_blank"
+                                       class="act-btn"
+                                       title="Cetak Label QR Info Rak">
+                                        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <rect x="3" y="3" width="7" height="7" rx="1"/>
+                                            <rect x="14" y="3" width="7" height="7" rx="1"/>
+                                            <rect x="3" y="14" width="7" height="7" rx="1"/>
+                                            <path d="M14 14h3v3h-3zM20 14h1v3M14 20h7"/>
+                                        </svg>
+                                    </a>
                                     <button type="button" class="act-btn" title="Edit Item"
                                             @click="openEdit({{ Js::from($editPayload) }})">
                                         <x-icon name="edit" />
@@ -185,7 +244,7 @@
                             </td>
                         </tr>
                     @empty
-                        <tr><td colspan="11"><div class="empty">Belum ada data Master Item.</div></td></tr>
+                        <tr><td colspan="12"><div class="empty">Belum ada data Master Item.</div></td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -538,12 +597,15 @@
     <x-material-info-modal />
 
     <script>
-        function masterItemPage(initialCount, companiesList, openInitially) {
+        function masterItemPage(initialCount, companiesList, openInitially, qrPrintBase) {
             return {
                 q: '',
                 fType: '',
                 fCompType: '',
                 visibleCount: initialCount,
+                visibleIds: [],
+                selectedIds: [],
+                qrPrintBase: qrPrintBase,
                 companiesList: companiesList,
                 addOpen: openInitially,
                 addType: 'FG',
@@ -581,6 +643,50 @@
                     history: 0,
                     bom: 0,
                     has_history: false
+                },
+
+                isSelected(id) {
+                    return this.selectedIds.includes(Number(id));
+                },
+                toggleSelect(id) {
+                    const num = Number(id);
+                    if (this.selectedIds.includes(num)) {
+                        this.selectedIds = this.selectedIds.filter(x => x !== num);
+                    } else {
+                        this.selectedIds = [...this.selectedIds, num];
+                    }
+                },
+                get allVisibleSelected() {
+                    return this.visibleIds.length > 0
+                        && this.visibleIds.every(id => this.selectedIds.includes(id));
+                },
+                toggleSelectAllVisible() {
+                    if (this.allVisibleSelected) {
+                        const visSet = new Set(this.visibleIds);
+                        this.selectedIds = this.selectedIds.filter(id => !visSet.has(id));
+                    } else {
+                        const merged = new Set([...this.selectedIds, ...this.visibleIds]);
+                        this.selectedIds = Array.from(merged);
+                    }
+                },
+                clearSelection() {
+                    this.selectedIds = [];
+                },
+                openQrPrint(mode = 'smart') {
+                    if (mode === 'selected' || (mode === 'smart' && this.selectedIds.length > 0)) {
+                        if (this.selectedIds.length === 0) return;
+                        window.open(`${this.qrPrintBase}?ids=${this.selectedIds.join(',')}`, '_blank');
+                        return;
+                    }
+
+                    const hasFilter = Boolean(this.q || this.fType || this.fCompType);
+                    if (hasFilter) {
+                        if (this.visibleIds.length === 0) return;
+                        window.open(`${this.qrPrintBase}?ids=${this.visibleIds.join(',')}`, '_blank');
+                        return;
+                    }
+
+                    window.open(`${this.qrPrintBase}?all=1`, '_blank');
                 },
 
                 tyClass(t) {
@@ -747,14 +853,18 @@
                 recalc() {
                     this.$nextTick(() => {
                         let c = 0;
+                        const vis = [];
                         this.$el.querySelectorAll('tbody tr[data-item-row]').forEach(tr => {
                             if (this.matchRow(tr)) {
                                 c++;
                                 const noCell = tr.querySelector('[data-col-no]');
                                 if (noCell) noCell.textContent = c;
+                                const rowId = Number(tr.dataset.itemId || 0);
+                                if (rowId > 0) vis.push(rowId);
                             }
                         });
                         this.visibleCount = c;
+                        this.visibleIds = vis;
                     });
                 }
             };

@@ -12,6 +12,18 @@ class ScannerPortalController extends Controller
     {
         $user = $request->user();
 
+        $infoModule = [
+            [
+                'label' => 'Cek Info Stok',
+                'desc'  => 'Scan QR rak atau label part untuk melihat stok, WIP, & riwayat',
+                'badge' => 'INFO ONLY',
+                'pill'  => 'pill-info',
+                'icon'  => 'info',
+                'flip'  => false,
+                'url'   => route('item_cards.scanner'),
+            ],
+        ];
+
         $materialModules = [
             [
                 'label' => 'Inbound',
@@ -94,9 +106,9 @@ class ScannerPortalController extends Controller
         ];
 
         $modules = match ($user->role) {
-            User::ROLE_STAFF_MATERIAL => $materialModules,
-            User::ROLE_STAFF_FG       => $fgModules,
-            User::ROLE_PPIC           => array_merge($materialModules, $fgModules, $ppicExtraModules),
+            User::ROLE_STAFF_MATERIAL => array_merge($infoModule, $materialModules),
+            User::ROLE_STAFF_FG       => array_merge($infoModule, $fgModules),
+            User::ROLE_PPIC           => array_merge($infoModule, $materialModules, $fgModules, $ppicExtraModules),
             default                   => [],
         };
 

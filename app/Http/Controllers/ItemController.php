@@ -73,6 +73,76 @@ class ItemController extends Controller
         return response()->json($item->material_info_payload);
     }
 
+    /**
+     * Halaman cetak stiker QR Info Rak (satuan, centang massal, atau semua item aktif).
+     * URL QR otomatis mengikuti domain aktif saat dicetak (route item_cards.show).
+     */
+    public function qrPrint(Request $request)
+    {
+        $layout = (string) $request->query('layout', 'a4_3');
+        if (!in_array($layout, ['a4_3', 'a4_4', 'thermal'], true)) {
+            $layout = 'a4_3';
+        }
+
+        $ids = [];
+        $rawIds = $request->input('ids');
+        if (is_array($rawIds)) {
+            $ids = array_values(array_unique(array_filter(array_map('intval', $rawIds), fn ($v) => $v > 0)));
+        } elseif (is_string($rawIds) && trim($rawIds) !== '') {
+            $ids = array_values(array_unique(array_filter(array_map('intval', explode(',', $rawIds)), fn ($v) => $v > 0)));
+        }
+
+        if (empty($ids) && $request->filled('item_id')) {
+            $singleId = (int) $request->input('item_id');
+            if ($singleId > 0) {
+                $ids = [$singleId];
+            }
+        }
+
+        $query = Item::with('company')->orderBy('type')->orderBy('part_name');
+
+        if (!empty($ids)) {
+            $query->whereIn('id', $ids);
+        } elseif ($request->boolean('all')) {
+            if ($request->filled('type')) {
+                $query->where('type', $request->query('type'));
+            }
+        } else {
+            return redirect()->route('items.index')
+                ->with('error', 'Pilih minimal 1 item untuk mencetak label QR.');
+        }
+
+        $items = $query->get();
+
+        if ($items->isEmpty()) {
+            return redirect()->route('items.index')
+                ->with('error', 'Tidak ada item aktif yang cocok untuk dicetak.');
+        }
+
+        $labels = $items->map(function ($it) {
+            return [
+                'id'           => $it->id,
+                'part_no'      => $it->part_no ?: '-',
+                'part_name'    => $it->part_name,
+                'type'         => $it->type,
+                'uom'          => $it->uom,
+                'company_code' => $it->company->company_code ?? 'INTERNAL',
+                'company_type' => $it->company->type_company ?? 'INTERNAL',
+                'qr_url'       => route('item_cards.show', $it->id),
+            ];
+        })->values();
+
+        return view('items.qr-print', [
+            'labels'     => $labels,
+            'layout'     => $layout,
+            'currentUrl' => $request->getSchemeAndHttpHost(),
+            'isLocalUrl' => str_contains($request->getHost(), 'trycloudflare')
+                || str_contains($request->getHost(), 'ngrok')
+                || in_array($request->getHost(), ['127.0.0.1', 'localhost'], true)
+                || str_ends_with($request->getHost(), '.test'),
+        ]);
+    }
+
     public function trashed(Request $request)
     {
         $query = Item::onlyTrashed()->with(['company', 'inventoryStock']);
