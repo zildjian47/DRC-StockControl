@@ -19,11 +19,43 @@ use Illuminate\Support\Collection;
 class StockSnapshotService
 {
     /**
+     * Sumber tunggal perhitungan Stock 07:00 untuk 1 item (digunakan oleh Kartu Info Item Mobile)
+     * agar 100% identik dengan rumus Dashboard & Export (cut-off hari ini >= 07:00 WIB & max(0, ...)).
+     *
+     * @param  iterable<int, array<string, mixed>>  $history
+     * @return array{stock_07: float, cutoff_label: string, is_past_07: bool}
+     */
+    public function computeItemStock07(float $currentStock, iterable $history): array
+    {
+        $today    = Carbon::today();
+        $cutoff07 = $today->copy()->setTime(7, 0, 0);
+        $isPast07 = now()->greaterThanOrEqualTo($cutoff07);
+
+        $netAfter07 = 0.0;
+        if ($isPast07) {
+            $cutoffTs = $cutoff07->timestamp;
+            foreach ($history as $h) {
+                if ((int) ($h['timestamp'] ?? 0) >= $cutoffTs) {
+                    $netAfter07 = round($netAfter07 + (float) ($h['qty_change'] ?? 0), 2);
+                }
+            }
+        }
+
+        return [
+            'stock_07'     => round(max(0, $currentStock - $netAfter07), 2),
+            'cutoff_label' => $cutoff07->format('d M Y, H:i') . ' WIB',
+            'is_past_07'   => $isPast07,
+        ];
+    }
+
+    /**
      * Membangun snapshot seluruh item aktif (Stock Saat Ini, Stock 07:00, WIP, Potensi Max,
-     * Std Day 1/2/3, Ratio, Status) dengan rumus 100% identik dengan DashboardController.
+     * Rincian Material, Std Day 1/2/3, Ratio, Status) sebagai sumber tunggal untuk
+     * DashboardController dan ExportController.
      *
      * @return array{
      *     items: Collection<int, array<string, mixed>>,
+     *     shared_materials_list: array<int, array<string, mixed>>,
      *     cutoff_label: string,
      *     is_past_07: bool
      * }
@@ -43,13 +75,19 @@ class StockSnapshotService
 
         $allBomsFlat = Bom::with(['inputItem.inventoryStock', 'outputItem'])->get();
 
+        $outputCountByInputId = $allBomsFlat
+            ->groupBy('input_item_id')
+            ->map(fn ($rows) => $rows->pluck('output_item_id')->unique()->count())
+            ->all();
+
         $allRunningLots = LotTracer::with('process')
             ->where('status_lot', 'ON PROGRESS')
             ->orderBy('id', 'desc')
             ->get();
 
-        $wipByTargetItem    = [];
-        $matInMachineByItem = [];
+        $wipByTargetItem        = [];
+        $wipDetailsByTargetItem = [];
+        $matInMachineByItem     = [];
 
         foreach ($allRunningLots->groupBy('lot_number') as $lotRows) {
             $firstLot        = $lotRows->first();
@@ -59,6 +97,14 @@ class StockSnapshotService
                 $tId    = (int) $lr->target_item_id;
                 $wipVal = (float) $lr->qty_wip;
                 $wipByTargetItem[$tId] = round(($wipByTargetItem[$tId] ?? 0) + $wipVal, 2);
+
+                if ($wipVal > 0) {
+                    $wipDetailsByTargetItem[$tId][] = [
+                        'lot_number'   => $lr->lot_number,
+                        'process_name' => $lr->process->process_name ?? '-',
+                        'qty_wip'      => floatval($wipVal),
+                    ];
+                }
 
                 $ctx   = $this->resolveBomContext((int) $lr->material_item_id, $tId, $allBomsFlat, $lr->bom_group, (int) $lr->process_id);
                 $tb    = $ctx['trigger'];
@@ -191,10 +237,27 @@ class StockSnapshotService
             }
         }
 
+        // Daftar material pembentuk aktif untuk filter Detail Stock di Dashboard
+        $sharedMaterialsList = [];
+        foreach ($allBomsFlat->groupBy('input_item_id') as $bRows) {
+            $inItm = $bRows->first()?->inputItem;
+            if (!$inItm || $inItm->trashed()) {
+                continue;
+            }
+            $uniqueOuts = $bRows->pluck('output_item_id')->unique();
+            $sharedMaterialsList[] = [
+                'id'         => $inItm->id,
+                'label'      => ($inItm->part_no ? $inItm->part_no . ' — ' : '') . $inItm->part_name,
+                'output_ids' => $uniqueOuts->values()->all(),
+            ];
+        }
+
         $items = $allActiveItems->map(function ($itm) use (
             $wipByTargetItem,
+            $wipDetailsByTargetItem,
             $matInMachineByItem,
-            $netAfter07
+            $netAfter07,
+            $outputCountByInputId
         ) {
             $st        = $itm->inventoryStock;
             $currStock = $st ? (float) $st->current_stock : 0.0;
@@ -206,89 +269,121 @@ class StockSnapshotService
 
             $deltaAfter07 = (float) ($netAfter07[$itm->id] ?? 0.0);
             $stock07      = round(max(0, $currStock - $deltaAfter07), 2);
-            if ($stock07 <= 0) {
-                $status07 = 'EMPTY STOCK';
-            } elseif ($std1 <= 0) {
-                $status07 = 'NORMAL STOCK';
-            } elseif ($stock07 < $std1) {
-                $status07 = 'VERY LOW';
-            } elseif ($stock07 < $std2) {
-                $status07 = 'LOW STOCK';
-            } elseif ($stock07 <= $std3) {
-                $status07 = 'NORMAL STOCK';
-            } else {
-                $status07 = 'OVERSTOCK';
-            }
-            $ratio07 = $std1 > 0 ? round($stock07 / $std1, 2) : 0.0;
+            $status07     = $this->classifyStockStatus($stock07, $std1, $std2, $std3);
+            $ratio07      = $std1 > 0 ? round($stock07 / $std1, 2) : 0.0;
 
             $wipTarget = (float) ($wipByTargetItem[$itm->id] ?? 0);
             $matInMach = (float) ($matInMachineByItem[$itm->id] ?? 0);
             $wipActive = $itm->type === 'RM' ? $matInMach : round($wipTarget, 2);
 
-            $outBoms      = $itm->bomsAsOutput;
-            $hasBomInputs = $outBoms->isNotEmpty();
-            $potMax       = 0.0;
+            $outBoms           = $itm->bomsAsOutput;
+            $hasBomInputs      = $outBoms->isNotEmpty();
+            $potMax            = 0.0;
+            $hasSharedInput    = false;
+            $materialsDetail   = [];
+            $bottleneckFormula = '';
 
             if ($hasBomInputs) {
-                $groupMaxVals = [];
+                $byGroupMax = [];
+
                 foreach ($outBoms->groupBy(fn ($b) => $b->bom_group ?: ('SG-' . $b->id)) as $gRows) {
-                    $minMax = null;
+                    $minMax       = null;
+                    $minInputMeta = null;
+
                     foreach ($gRows as $bRow) {
                         $inItm = $bRow->inputItem;
                         $usage = (float) $bRow->qty_usage;
-                        if (!$inItm || $usage <= 0) {
+                        if (!$inItm || $inItm->trashed() || $usage <= 0) {
                             continue;
                         }
-                        $inStock    = $inItm->inventoryStock ? (float) $inItm->inventoryStock->current_stock : 0.0;
+
+                        $inStock   = $inItm->inventoryStock ? (float) $inItm->inventoryStock->current_stock : 0.0;
+                        $usedCount = (int) ($outputCountByInputId[$inItm->id] ?? 1);
+                        if ($usedCount > 1) {
+                            $hasSharedInput = true;
+                        }
+
                         $canMakeMax = floor($inStock / $usage);
                         if ($minMax === null || $canMakeMax < $minMax) {
-                            $minMax = $canMakeMax;
+                            $minMax       = $canMakeMax;
+                            $minInputMeta = [
+                                'stock' => floatval($inStock),
+                                'uom'   => $inItm->uom,
+                                'usage' => $bRow->formatted_qty_usage,
+                                'make'  => (int) $canMakeMax,
+                            ];
                         }
+
+                        $materialsDetail[] = [
+                            'name'       => ($inItm->part_no ? $inItm->part_no . ' — ' : '') . $inItm->part_name,
+                            'stock'      => floatval($inStock),
+                            'uom'        => $inItm->uom,
+                            'usage'      => $bRow->formatted_qty_usage,
+                            'make_max'   => (int) $canMakeMax,
+                            'is_shared'  => $usedCount > 1,
+                            'used_count' => $usedCount,
+                        ];
                     }
+
                     if ($minMax !== null) {
-                        $groupMaxVals[] = $minMax;
+                        $byGroupMax[] = [
+                            'val'  => $minMax,
+                            'meta' => $minInputMeta,
+                        ];
                     }
                 }
-                if (!empty($groupMaxVals)) {
-                    $potMax = round(max($groupMaxVals), 0);
+
+                if (!empty($byGroupMax)) {
+                    usort($byGroupMax, fn ($a, $b) => $b['val'] <=> $a['val']);
+                    $bestGrp = $byGroupMax[0];
+                    $potMax  = round($bestGrp['val'], 0);
+                    if (!empty($bestGrp['meta'])) {
+                        $m = $bestGrp['meta'];
+                        $bottleneckFormula = $m['stock'] . ' ' . $m['uom'] . ' ÷ ' . $m['usage'] . ' = ' . $m['make'] . ' ' . $itm->uom;
+                    }
                 }
             }
 
             $inputIds = $outBoms->pluck('input_item_id')->unique()->values()->all();
 
             return [
-                'id'             => $itm->id,
-                'part_no'        => $itm->part_no ?: '-',
-                'part_name'      => $itm->part_name,
-                'type'           => $itm->type,
-                'uom'            => $itm->uom,
-                'company_id'     => $itm->company_id,
-                'company_code'   => $itm->company->company_code ?? 'INTERNAL',
-                'company_name'   => $itm->company->company_name ?? 'PT. Dian Raya Cipta',
-                'company_type'   => $itm->company->type_company ?? 'INTERNAL',
-                'qty_po'         => (float) $itm->qty_po,
-                'working_days'   => (int) $itm->working_days,
-                'qty_kanban'     => (float) $itm->qty_kanban,
-                'current_stock'  => $currStock,
-                'stock_07'       => $stock07,
-                'status_07'      => $status07,
-                'ratio_07'       => $ratio07,
-                'wip_active'     => $wipActive,
-                'has_bom_inputs' => $hasBomInputs,
-                'pot_max'        => $potMax,
-                'input_ids'      => $inputIds,
-                'std_day_1'      => $std1,
-                'std_day_2'      => $std2,
-                'std_day_3'      => $std3,
-                'ratio_stock'    => $ratioFg,
-                'status_stock'   => $statusNow,
+                'id'                 => $itm->id,
+                'part_no'            => $itm->part_no ?: '-',
+                'part_name'          => $itm->part_name,
+                'type'               => $itm->type,
+                'uom'                => $itm->uom,
+                'company_id'         => $itm->company_id,
+                'company_code'       => $itm->company->company_code ?? 'INTERNAL',
+                'company_name'       => $itm->company->company_name ?? 'PT. Dian Raya Cipta',
+                'company_type'       => $itm->company->type_company ?? 'INTERNAL',
+                'qty_po'             => (float) $itm->qty_po,
+                'working_days'       => (int) $itm->working_days,
+                'qty_kanban'         => (float) $itm->qty_kanban,
+                'current_stock'      => $currStock,
+                'stock_07'           => $stock07,
+                'status_07'          => $status07,
+                'ratio_07'           => $ratio07,
+                'wip_active'         => $wipActive,
+                'wip_details'        => $wipDetailsByTargetItem[$itm->id] ?? [],
+                'has_bom_inputs'     => $hasBomInputs,
+                'pot_max'            => $potMax,
+                'bottleneck_formula' => $bottleneckFormula,
+                'has_shared_input'   => $hasSharedInput,
+                'input_ids'          => $inputIds,
+                'materials_detail'   => $materialsDetail,
+                'std_day_1'          => $std1,
+                'std_day_2'          => $std2,
+                'std_day_3'          => $std3,
+                'ratio_stock'        => $ratioFg,
+                'status_stock'       => $statusNow,
             ];
         })->values();
 
         return [
-            'items'        => $items,
-            'cutoff_label' => $cutoff07->format('d M Y, H:i') . ' WIB',
-            'is_past_07'   => $isPast07,
+            'items'                 => $items,
+            'shared_materials_list' => $sharedMaterialsList,
+            'cutoff_label'          => $cutoff07->format('d M Y, H:i') . ' WIB',
+            'is_past_07'            => $isPast07,
         ];
     }
 
@@ -417,6 +512,27 @@ class StockSnapshotService
         }
 
         return $filtered;
+    }
+
+    private function classifyStockStatus(float $stock, float $std1, float $std2, float $std3): string
+    {
+        if ($stock <= 0) {
+            return 'EMPTY STOCK';
+        }
+        if ($std1 <= 0) {
+            return 'NORMAL STOCK';
+        }
+        if ($stock < $std1) {
+            return 'VERY LOW';
+        }
+        if ($stock < $std2) {
+            return 'LOW STOCK';
+        }
+        if ($stock <= $std3) {
+            return 'NORMAL STOCK';
+        }
+
+        return 'OVERSTOCK';
     }
 
     private function resolveBomContext(

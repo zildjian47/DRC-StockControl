@@ -9,7 +9,16 @@ class StockAdjustment extends Model
 {
     use HasFactory;
 
-    protected $guarded = ['id'];
+    protected $fillable = [
+        'date_time',
+        'item_id',
+        'user_id',
+        'qty_system',
+        'qty_actual',
+        'qty_diff',
+        'adjustment_type',
+        'notes',
+    ];
 
     protected $casts = [
         'date_time'  => 'datetime',

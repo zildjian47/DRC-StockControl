@@ -2,14 +2,19 @@
 
 namespace App\Models;
 
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use Carbon\Carbon;
 
 class Item extends Model
 {
     use HasFactory, SoftDeletes;
+
+    /**
+     * Batas maksimum nilai kolom decimal(10, 2) pada MySQL.
+     */
+    public const MAX_QTY = 99999999.99;
 
     protected ?float $cachedStdDay1 = null;
 
@@ -39,6 +44,50 @@ class Item extends Model
         static::saved(function (self $item) {
             $item->cachedStdDay1 = null;
         });
+    }
+
+    /**
+     * Pencarian item AKTIF (anti-bypass SoftDeletes) dari hasil scan QR maupun ketik manual.
+     * Mendukung:
+     * 1. URL QR Rak permanen (/item-card/{id}) — kebal ganti domain/tunnel
+     * 2. Kode pendek ITEM:{id} / ITEM-{id}
+     * 3. Part No atau Part Name (case-insensitive)
+     */
+    public static function findActiveByScanCode(string $rawCode, array $with = []): ?self
+    {
+        $trimmed = trim($rawCode);
+        if ($trimmed === '') {
+            return null;
+        }
+
+        if (preg_match('#/item-card/(\d+)(?:[/?\#]|$)#i', $trimmed, $matches)) {
+            $query = self::query();
+            if (!empty($with)) {
+                $query->with($with);
+            }
+            return $query->find((int) $matches[1]);
+        }
+
+        if (preg_match('/^ITEM[:\-](\d+)$/i', $trimmed, $matches)) {
+            $query = self::query();
+            if (!empty($with)) {
+                $query->with($with);
+            }
+            return $query->find((int) $matches[1]);
+        }
+
+        $upper = mb_strtoupper($trimmed, 'UTF-8');
+        $query = self::query();
+        if (!empty($with)) {
+            $query->with($with);
+        }
+
+        return $query
+            ->where(function ($q) use ($upper) {
+                $q->whereRaw('UPPER(part_no) = ?', [$upper])
+                  ->orWhereRaw('UPPER(part_name) = ?', [$upper]);
+            })
+            ->first();
     }
 
     public function company()
@@ -196,9 +245,10 @@ class Item extends Model
             return ['std_day_1_po_wd' => 0.0, 'std_day_1' => 0.0];
         }
 
+        // Pembulatan 6 desimal sebelum ceil() mencegah artefak IEEE-754 pada kanban desimal
         $std1 = $qtyKanban > 0
-            ? ceil($poWd / $qtyKanban) * $qtyKanban
-            : ceil($poWd);
+            ? ceil(round($poWd / $qtyKanban, 6)) * $qtyKanban
+            : ceil(round($poWd, 6));
 
         return [
             'std_day_1_po_wd' => round($poWd, 2),
@@ -314,11 +364,11 @@ class Item extends Model
 
         // 2. Material Out Trigger (-) — dikelompokkan per Lot agar Multi-Output tampil 1 baris sesuai pemotongan stok fisik
         foreach ($this->materialOutsAsMaterial()->with(['targetItem', 'user', 'correctedBy'])->get()->groupBy('lot_number') as $lotNo => $moRows) {
-            $first = $moRows->first();
-            $dt = Carbon::parse($first->date_time);
-            $targets = $moRows->map(fn ($r) => $r->targetItem->part_name ?? '-')->unique()->values()->implode(', ');
+            $first       = $moRows->first();
+            $dt          = Carbon::parse($first->date_time);
+            $targets     = $moRows->map(fn ($r) => $r->targetItem->part_name ?? '-')->unique()->values()->implode(', ');
             $isCorrected = $moRows->contains('qty_check', 'DIKOREKSI');
-            $auditRow = $moRows->first(fn ($r) => $r->qty_check === 'DIKOREKSI') ?? $first;
+            $auditRow    = $moRows->first(fn ($r) => $r->qty_check === 'DIKOREKSI') ?? $first;
 
             $events[] = array_merge([
                 'timestamp'    => $dt->timestamp,
@@ -341,12 +391,12 @@ class Item extends Model
                 ->get()
                 ->groupBy(fn ($r) => !empty($r->return_batch) ? $r->return_batch : ('LEGACY-' . $r->lot_number)) as $mrRows
         ) {
-            $first = $mrRows->first();
-            $lotNo = $first->lot_number;
-            $dt = Carbon::parse($first->date_time);
-            $targets = $mrRows->map(fn ($r) => $r->targetItem->part_name ?? '-')->unique()->values()->implode(', ');
+            $first       = $mrRows->first();
+            $lotNo       = $first->lot_number;
+            $dt          = Carbon::parse($first->date_time);
+            $targets     = $mrRows->map(fn ($r) => $r->targetItem->part_name ?? '-')->unique()->values()->implode(', ');
             $isCorrected = $mrRows->contains('qty_check', 'DIKOREKSI');
-            $auditRow = $mrRows->first(fn ($r) => $r->qty_check === 'DIKOREKSI') ?? $first;
+            $auditRow    = $mrRows->first(fn ($r) => $r->qty_check === 'DIKOREKSI') ?? $first;
 
             $events[] = array_merge([
                 'timestamp'    => $dt->timestamp,
@@ -369,7 +419,7 @@ class Item extends Model
             ->get();
 
         if ($companionBoms->isNotEmpty()) {
-            $compMoByLot = [];
+            $compMoByLot   = [];
             $compMrByBatch = [];
 
             foreach ($companionBoms as $cb) {
@@ -406,8 +456,8 @@ class Item extends Model
                     if ($deducted <= 0) {
                         continue;
                     }
-                    $lotKey = $mo->lot_number;
-                    $tgtName = $cb->outputItem->part_name ?? '-';
+                    $lotKey      = $mo->lot_number;
+                    $tgtName     = $cb->outputItem->part_name ?? '-';
                     $isCorrected = $mo->qty_check === 'DIKOREKSI';
 
                     $origComp = null;
@@ -446,8 +496,8 @@ class Item extends Model
                             $compMoByLot[$lotKey]['targets'][] = $tgtName;
                         }
                         if ($isCorrected) {
-                            $compMoByLot[$lotKey]['status'] = 'DIKOREKSI';
-                            $compMoByLot[$lotKey]['corrected_by'] = $mo->correctedBy->name ?? $compMoByLot[$lotKey]['corrected_by'];
+                            $compMoByLot[$lotKey]['status']           = 'DIKOREKSI';
+                            $compMoByLot[$lotKey]['corrected_by']     = $mo->correctedBy->name ?? $compMoByLot[$lotKey]['corrected_by'];
                             $compMoByLot[$lotKey]['corrected_at_fmt'] = $mo->corrected_at
                                 ? Carbon::parse($mo->corrected_at)->format('d M Y, H:i')
                                 : $compMoByLot[$lotKey]['corrected_at_fmt'];
@@ -476,8 +526,8 @@ class Item extends Model
                     if ($restored <= 0) {
                         continue;
                     }
-                    $batchKey = !empty($mr->return_batch) ? $mr->return_batch : ('LEGACY-' . $mr->lot_number);
-                    $tgtName = $cb->outputItem->part_name ?? '-';
+                    $batchKey    = !empty($mr->return_batch) ? $mr->return_batch : ('LEGACY-' . $mr->lot_number);
+                    $tgtName     = $cb->outputItem->part_name ?? '-';
                     $isCorrected = $mr->qty_check === 'DIKOREKSI';
 
                     $origComp = null;
@@ -517,8 +567,8 @@ class Item extends Model
                             $compMrByBatch[$batchKey]['targets'][] = $tgtName;
                         }
                         if ($isCorrected) {
-                            $compMrByBatch[$batchKey]['status'] = 'DIKOREKSI';
-                            $compMrByBatch[$batchKey]['corrected_by'] = $mr->correctedBy->name ?? $compMrByBatch[$batchKey]['corrected_by'];
+                            $compMrByBatch[$batchKey]['status']           = 'DIKOREKSI';
+                            $compMrByBatch[$batchKey]['corrected_by']     = $mr->correctedBy->name ?? $compMrByBatch[$batchKey]['corrected_by'];
                             $compMrByBatch[$batchKey]['corrected_at_fmt'] = $mr->corrected_at
                                 ? Carbon::parse($mr->corrected_at)->format('d M Y, H:i')
                                 : $compMrByBatch[$batchKey]['corrected_at_fmt'];
@@ -629,7 +679,7 @@ class Item extends Model
             ];
         }
 
-        usort($events, fn($a, $b) => $b['timestamp'] <=> $a['timestamp']);
+        usort($events, fn ($a, $b) => $b['timestamp'] <=> $a['timestamp']);
 
         return array_values($events);
     }
@@ -658,10 +708,10 @@ class Item extends Model
                 'bom_group'     => $b->bom_group ?: ('SG-' . $b->id),
                 'group_type'    => $b->group_type,
                 'process'       => $b->process->process_name ?? '-',
-                'part_no'       => $inItem->part_no ?: '-',
-                'part_name'     => $inItem->part_name ?? '-',
-                'type'          => $inItem->type ?? '-',
-                'uom'           => $inItem->uom ?? '',
+                'part_no'       => $inItem?->part_no ?: '-',
+                'part_name'     => $inItem?->part_name ?? '-',
+                'type'          => $inItem?->type ?? '-',
+                'uom'           => $inItem?->uom ?? '',
                 'qty_usage'     => $b->formatted_qty_usage,
                 'is_trigger'    => (bool) $b->is_trigger,
                 'current_stock' => $inStock,
@@ -685,10 +735,10 @@ class Item extends Model
                 'bom_group'     => $b->bom_group ?: ('SG-' . $b->id),
                 'group_type'    => $b->group_type,
                 'process'       => $b->process->process_name ?? '-',
-                'part_no'       => $outItem->part_no ?: '-',
-                'part_name'     => $outItem->part_name ?? '-',
-                'type'          => $outItem->type ?? '-',
-                'uom'           => $outItem->uom ?? '',
+                'part_no'       => $outItem?->part_no ?: '-',
+                'part_name'     => $outItem?->part_name ?? '-',
+                'type'          => $outItem?->type ?? '-',
+                'uom'           => $outItem?->uom ?? '',
                 'qty_usage'     => $b->formatted_qty_usage,
                 'is_trigger'    => (bool) $b->is_trigger,
                 'current_stock' => $outStock,

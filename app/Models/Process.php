@@ -9,7 +9,9 @@ class Process extends Model
 {
     use HasFactory;
 
-    protected $guarded = ['id'];
+    protected $fillable = [
+        'process_name',
+    ];
 
     public function boms()
     {
