@@ -4,6 +4,25 @@
                        subtitle="Penyesuaian saldo stok fisik terhadap stok sistem (Stock Opname, Loss, Surplus, Found, & Repair)">
             <x-slot name="actions">
                 <span class="btn-group">
+                    <button type="button" class="btn" @click="$dispatch('export-stock-adj', 'xlsx')"
+                            title="Export data sesuai filter aktif ke Excel (.xlsx)">
+                        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="7 10 12 15 17 10"/>
+                            <line x1="12" y1="15" x2="12" y2="3"/>
+                        </svg>
+                        <span>Excel</span>
+                    </button>
+                    <button type="button" class="btn" @click="$dispatch('export-stock-adj', 'pdf')"
+                            title="Cetak Berita Acara Stock Adjustment (PDF) sesuai filter aktif">
+                        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                            <polyline points="14 2 14 8 20 8"/>
+                            <line x1="16" y1="13" x2="8" y2="13"/>
+                            <line x1="16" y1="17" x2="8" y2="17"/>
+                        </svg>
+                        <span>PDF</span>
+                    </button>
                     <a href="{{ route('stock_adjustments.index', ['mode' => 'scanner']) }}" class="btn">
                         <x-icon name="scan" />
                         <span>Scan</span>
@@ -30,8 +49,9 @@
     @endphp
 
     <div class="panel"
-         x-data="stockAdjPage({{ $adjustments->count() }}, {{ Js::from($itemsJs) }}, {{ $errors->any() ? 'true' : 'false' }})"
+         x-data="stockAdjPage({{ $adjustments->count() }}, {{ Js::from($itemsJs) }}, {{ $errors->any() ? 'true' : 'false' }}, {{ Js::from(route('exports.stock_adjustments')) }})"
          @open-add-adj.window="addOpen = true; addError = ''"
+         @export-stock-adj.window="exportData($event.detail)"
          x-init="recalc()"
          @table-refreshed.window="recalc()">
 
@@ -280,7 +300,7 @@
     </div>
 
     <script>
-        function stockAdjPage(initialCount, itemsList, openInitially) {
+        function stockAdjPage(initialCount, itemsList, openInitially, exportBase) {
             return {
                 q: '',
                 startDate: '',
@@ -288,6 +308,7 @@
                 startTime: '',
                 endTime: '',
                 fAdjType: '',
+                exportBase: exportBase,
                 visibleCount: initialCount,
                 itemsList: itemsList,
                 addOpen: openInitially,
@@ -299,6 +320,17 @@
                 rawDiff: '',
                 inputMode: 'actual',
 
+                exportData(format) {
+                    const params = new URLSearchParams();
+                    params.set('format', format || 'xlsx');
+                    if (this.q.trim()) params.set('q', this.q.trim());
+                    if (this.startDate) params.set('start_date', this.startDate);
+                    if (this.endDate) params.set('end_date', this.endDate);
+                    if (this.startTime) params.set('start_time', this.startTime);
+                    if (this.endTime) params.set('end_time', this.endTime);
+                    if (this.fAdjType) params.set('adjustment_type', this.fAdjType);
+                    window.location.href = `${this.exportBase}?${params.toString()}`;
+                },
                 get selectedItem() {
                     return this.itemsList.find(x => String(x.id) === String(this.selectedItemId)) || null;
                 },

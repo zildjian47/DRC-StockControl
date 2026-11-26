@@ -1,13 +1,38 @@
 <x-app-layout>
     <x-slot name="header">
         <x-page-header title="Inventory Stock"
-                       subtitle="Monitoring saldo stok fisik real-time, standar buffer harian (Std 1/2/3), Ratio Stock (Hari), dan status ketersediaan" />
+                       subtitle="Monitoring saldo stok fisik real-time, standar buffer harian (Std 1/2/3), Ratio Stock (Hari), dan status ketersediaan">
+            <x-slot name="actions">
+                <span class="btn-group">
+                    <button type="button" class="btn" @click="$dispatch('export-inv-stock', 'xlsx')"
+                            title="Export data sesuai filter aktif ke Excel (.xlsx)">
+                        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="7 10 12 15 17 10"/>
+                            <line x1="12" y1="15" x2="12" y2="3"/>
+                        </svg>
+                        <span>Excel</span>
+                    </button>
+                    <button type="button" class="btn" @click="$dispatch('export-inv-stock', 'pdf')"
+                            title="Export data sesuai filter aktif ke PDF">
+                        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                            <polyline points="14 2 14 8 20 8"/>
+                            <line x1="16" y1="13" x2="8" y2="13"/>
+                            <line x1="16" y1="17" x2="8" y2="17"/>
+                        </svg>
+                        <span>PDF</span>
+                    </button>
+                </span>
+            </x-slot>
+        </x-page-header>
     </x-slot>
 
     <x-flash />
 
     <div class="panel"
-         x-data="invStockPage({{ $stocks->count() }})"
+         x-data="invStockPage({{ $stocks->count() }}, {{ Js::from(route('exports.stock')) }})"
+         @export-inv-stock.window="exportData($event.detail)"
          x-init="recalc()"
          @table-refreshed.window="recalc()">
 
@@ -147,13 +172,25 @@
     <x-material-info-modal />
 
     <script>
-        function invStockPage(initialCount) {
+        function invStockPage(initialCount, exportBase) {
             return {
                 q: '',
                 fType: '',
                 fCompType: '',
                 fStatus: '',
                 visibleCount: initialCount,
+                exportBase: exportBase,
+
+                exportData(format) {
+                    const params = new URLSearchParams();
+                    params.set('format', format || 'xlsx');
+                    params.set('snapshot_mode', 'now');
+                    if (this.q.trim()) params.set('q', this.q.trim());
+                    if (this.fType) params.set('type', this.fType);
+                    if (this.fCompType) params.set('company_type', this.fCompType);
+                    if (this.fStatus) params.set('status', this.fStatus);
+                    window.location.href = `${this.exportBase}?${params.toString()}`;
+                },
                 matchRow(el) {
                     const s = (el.dataset.search || '').toLowerCase();
                     const t = el.dataset.type || '';

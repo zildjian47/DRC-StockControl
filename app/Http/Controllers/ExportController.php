@@ -33,34 +33,52 @@ class ExportController extends Controller
     }
 
     /**
-     * 1. Export Dashboard / Inventory Stock (Stock 07:00 & Stock Saat Ini) — .xlsx & .pdf
+     * 1. Export Dashboard (Prioritas Stock / Detail Stock) & Inventory Stock — .xlsx & .pdf
      */
     public function stock(Request $request)
     {
         $format       = strtolower((string) $request->query('format', 'xlsx'));
         $snapshotMode = (string) $request->query('snapshot_mode', 'now') === '07' ? '07' : 'now';
+        $priorityOnly = $request->boolean('priority_only');
+        $group        = trim((string) $request->query('group', ''));
 
         $built    = $this->snapshot->buildAll();
         $filtered = $this->snapshot->applyFilters($built['items'], [
             'q'             => $request->query('q', ''),
             'type'          => $request->query('type', ''),
+            'group'         => $group,
             'company_type'  => $request->query('company_type', ''),
             'company_id'    => $request->query('company_id', ''),
             'status'        => $request->query('status', ''),
             'material_id'   => $request->query('material_id', ''),
             'snapshot_mode' => $snapshotMode,
+            'priority_only' => $priorityOnly,
         ]);
 
         $filterParts = [];
-        $filterParts[] = $snapshotMode === '07'
-            ? 'Mode: Stock 07:00 (' . $built['cutoff_label'] . ')'
-            : 'Mode: Stock Saat Ini (Real-Time)';
+        if ($priorityOnly) {
+            $filterParts[] = 'Prioritas Stock 07:00 (Empty / Very Low / Low)';
+        } else {
+            $filterParts[] = $snapshotMode === '07'
+                ? 'Mode: Stock 07:00 (' . $built['cutoff_label'] . ')'
+                : 'Mode: Stock Saat Ini (Real-Time)';
+        }
 
         if ($request->filled('q')) {
             $filterParts[] = 'Pencarian: "' . trim((string) $request->query('q')) . '"';
         }
         if ($request->filled('type')) {
             $filterParts[] = 'Tipe: ' . $request->query('type');
+        }
+        if ($group !== '' && $group !== 'ALL') {
+            $groupLabels = [
+                'TARGET_PROD'  => 'FG + FG/KOMPONEN',
+                'FG_FGK'       => 'FG + FG/KOMPONEN',
+                'MATERIAL'     => 'Material (RM + KOMPONEN + FG/KOMPONEN)',
+                'ALL_PROD'     => 'FG + FG/KOMPONEN + KOMPONEN (BOM)',
+                'KOMPONEN_BOM' => 'KOMPONEN (BOM)',
+            ];
+            $filterParts[] = 'Kelompok: ' . ($groupLabels[$group] ?? $group);
         }
         if ($request->filled('company_type')) {
             $filterParts[] = 'Kategori Perusahaan: ' . $request->query('company_type');
@@ -83,6 +101,7 @@ class ExportController extends Controller
 
         $filterSummary = $this->buildFilterSummary($filterParts);
         $stamp         = Carbon::now()->format('Ymd_His');
+        $filePrefix    = $priorityOnly ? 'DRC_PrioritasStock_07' : "DRC_Stock_{$snapshotMode}";
 
         if ($format === 'pdf') {
             $summary = [
@@ -94,10 +113,14 @@ class ExportController extends Controller
                 'overstock' => $filtered->filter(fn ($r) => ($snapshotMode === '07' ? $r['status_07'] : $r['status_stock']) === 'OVERSTOCK')->count(),
             ];
 
+            $pdfTitle = $priorityOnly
+                ? 'Laporan Prioritas Stock 07:00 (Kritis & Rendah)'
+                : ($snapshotMode === '07' ? 'Laporan Posisi Stock 07:00' : 'Laporan Posisi Stock Gudang');
+
             return $this->pdf->renderView(
                 'exports.pdf.stock-snapshot',
                 [
-                    'title'         => $snapshotMode === '07' ? 'Laporan Posisi Stock 07:00' : 'Laporan Posisi Stock Gudang',
+                    'title'         => $pdfTitle,
                     'filterSummary' => $filterSummary,
                     'cutoffLabel'   => $built['cutoff_label'],
                     'snapshotMode'  => $snapshotMode,
@@ -106,7 +129,7 @@ class ExportController extends Controller
                     'exportedAt'    => Carbon::now()->format('d M Y, H:i') . ' WIB',
                     'exportedBy'    => $request->user()?->name ?? 'PPIC',
                 ],
-                "DRC_Stock_{$snapshotMode}_{$stamp}.pdf",
+                "{$filePrefix}_{$stamp}.pdf",
                 'a4',
                 'landscape'
             );
@@ -173,9 +196,9 @@ class ExportController extends Controller
         ];
 
         return $this->excel->downloadSingleSheet(
-            "DRC_Stock_{$snapshotMode}_{$stamp}.xlsx",
-            'Posisi Stock',
-            'Laporan Posisi Stock & Snapshot 07:00',
+            "{$filePrefix}_{$stamp}.xlsx",
+            $priorityOnly ? 'Prioritas Stock' : 'Posisi Stock',
+            $priorityOnly ? 'Laporan Prioritas Stock 07:00' : 'Laporan Posisi Stock & Snapshot 07:00',
             $filterSummary,
             $columns,
             $rows,
@@ -258,8 +281,8 @@ class ExportController extends Controller
             ['label' => 'Komponen Pendamping', 'type' => 'text', 'width' => 34],
         ];
 
-        $rows = [];
-        $sumTopEnd = 0.0;
+        $rows         = [];
+        $sumTopEnd    = 0.0;
         $seenCoilLots = [];
 
         foreach ($records as $idx => $lt) {
@@ -325,10 +348,7 @@ class ExportController extends Controller
     {
         $query = Inbound::with(['item.company', 'user', 'correctedBy'])->orderByDesc('date_time');
         $this->applySqlDateRange($query, 'date_time', $request);
-
-        if ($request->filled('qty_check')) {
-            $query->where('qty_check', $request->query('qty_check'));
-        }
+        $this->applyQtyCheckFilter($query, $request);
 
         $records = $this->applyTimeRangeFilter($query->get(), 'date_time', $request);
         $records = $this->applySimpleItemTxFilters($records, $request);
@@ -365,7 +385,7 @@ class ExportController extends Controller
                 (float) $r->qty,
                 $r->item?->uom ?? '-',
                 $r->user?->name ?? '-',
-                $r->qty_check ?? '-',
+                $r->qty_check === 'DIKOREKSI' ? 'DIKOREKSI' : 'TERCATAT',
                 $r->qty_original !== null ? (float) $r->qty_original : '-',
                 $r->correctedBy?->name ?? '-',
                 $r->corrected_at ? Carbon::parse($r->corrected_at)->format('Y-m-d H:i') : '-',
@@ -397,10 +417,7 @@ class ExportController extends Controller
     {
         $query = MaterialOut::with(['materialItem', 'targetItem', 'user', 'correctedBy'])->orderByDesc('date_time');
         $this->applySqlDateRange($query, 'date_time', $request);
-
-        if ($request->filled('qty_check')) {
-            $query->where('qty_check', $request->query('qty_check'));
-        }
+        $this->applyQtyCheckFilter($query, $request);
 
         $records = $this->applyTimeRangeFilter($query->get(), 'date_time', $request);
         $records = $this->applyMaterialLotTxFilters($records, $request);
@@ -440,14 +457,13 @@ class ExportController extends Controller
                 $r->targetItem?->part_no ?: '-',
                 $r->targetItem?->part_name ?? '-',
                 $r->user?->name ?? '-',
-                $r->qty_check ?? '-',
+                $r->qty_check === 'DIKOREKSI' ? 'DIKOREKSI' : 'TERCATAT',
                 $r->qty_original !== null ? (float) $r->qty_original : '-',
                 $r->correctedBy?->name ?? '-',
                 $r->correction_notes ?: '-',
             ];
         }
 
-        // Hitung total fisik per Lot unik (agar Multi-Output tidak dijumlah ganda)
         $uniqueLotQty = $records->groupBy('lot_number')->sum(fn ($grp) => (float) $grp->first()->qty);
 
         $totals = [
@@ -474,10 +490,7 @@ class ExportController extends Controller
     {
         $query = MaterialReturn::with(['materialItem', 'targetItem', 'user', 'correctedBy'])->orderByDesc('date_time');
         $this->applySqlDateRange($query, 'date_time', $request);
-
-        if ($request->filled('qty_check')) {
-            $query->where('qty_check', $request->query('qty_check'));
-        }
+        $this->applyQtyCheckFilter($query, $request);
 
         $records = $this->applyTimeRangeFilter($query->get(), 'date_time', $request);
         $records = $this->applyMaterialLotTxFilters($records, $request);
@@ -517,7 +530,7 @@ class ExportController extends Controller
                 $r->targetItem?->part_no ?: '-',
                 $r->targetItem?->part_name ?? '-',
                 $r->user?->name ?? '-',
-                $r->qty_check ?? '-',
+                $r->qty_check === 'DIKOREKSI' ? 'DIKOREKSI' : 'TERCATAT',
                 $r->qty_original !== null ? (float) $r->qty_original : '-',
                 $r->correctedBy?->name ?? '-',
                 $r->correction_notes ?: '-',
@@ -552,10 +565,7 @@ class ExportController extends Controller
     {
         $query = Production::with(['item.company', 'user', 'correctedBy'])->orderByDesc('date_time');
         $this->applySqlDateRange($query, 'date_time', $request);
-
-        if ($request->filled('qty_check')) {
-            $query->where('qty_check', $request->query('qty_check'));
-        }
+        $this->applyQtyCheckFilter($query, $request);
 
         $records = $this->applyTimeRangeFilter($query->get(), 'date_time', $request);
         $records = $this->applySimpleItemTxFilters($records, $request, true);
@@ -592,7 +602,7 @@ class ExportController extends Controller
                 (float) $r->qty,
                 $r->item?->uom ?? '-',
                 $r->user?->name ?? '-',
-                $r->qty_check ?? '-',
+                $r->qty_check === 'DIKOREKSI' ? 'DIKOREKSI' : 'TERCATAT',
                 $r->qty_original !== null ? (float) $r->qty_original : '-',
                 $r->correctedBy?->name ?? '-',
                 $r->corrected_at ? Carbon::parse($r->corrected_at)->format('Y-m-d H:i') : '-',
@@ -624,10 +634,7 @@ class ExportController extends Controller
     {
         $query = Delivery::with(['item.company', 'user', 'correctedBy'])->orderByDesc('date_time');
         $this->applySqlDateRange($query, 'date_time', $request);
-
-        if ($request->filled('qty_check')) {
-            $query->where('qty_check', $request->query('qty_check'));
-        }
+        $this->applyQtyCheckFilter($query, $request);
 
         $records = $this->applyTimeRangeFilter($query->get(), 'date_time', $request);
         $records = $this->applySimpleItemTxFilters($records, $request);
@@ -664,7 +671,7 @@ class ExportController extends Controller
                 (float) $r->qty,
                 $r->item?->uom ?? '-',
                 $r->user?->name ?? '-',
-                $r->qty_check ?? '-',
+                $r->qty_check === 'DIKOREKSI' ? 'DIKOREKSI' : 'TERCATAT',
                 $r->qty_original !== null ? (float) $r->qty_original : '-',
                 $r->correctedBy?->name ?? '-',
                 $r->corrected_at ? Carbon::parse($r->corrected_at)->format('Y-m-d H:i') : '-',
@@ -696,10 +703,7 @@ class ExportController extends Controller
     {
         $query = ReturnToSupplier::with(['item.company', 'user', 'correctedBy'])->orderByDesc('date_time');
         $this->applySqlDateRange($query, 'date_time', $request);
-
-        if ($request->filled('qty_check')) {
-            $query->where('qty_check', $request->query('qty_check'));
-        }
+        $this->applyQtyCheckFilter($query, $request);
 
         $records = $this->applyTimeRangeFilter($query->get(), 'date_time', $request);
         $records = $this->applySimpleItemTxFilters($records, $request);
@@ -736,7 +740,7 @@ class ExportController extends Controller
                 (float) $r->qty,
                 $r->item?->uom ?? '-',
                 $r->user?->name ?? '-',
-                $r->qty_check ?? '-',
+                $r->qty_check === 'DIKOREKSI' ? 'DIKOREKSI' : 'TERCATAT',
                 $r->qty_original !== null ? (float) $r->qty_original : '-',
                 $r->correctedBy?->name ?? '-',
                 $r->corrected_at ? Carbon::parse($r->corrected_at)->format('Y-m-d H:i') : '-',
@@ -871,12 +875,10 @@ class ExportController extends Controller
 
         $query = ProductionNg::with(['item.company', 'user', 'correctedBy'])->orderByDesc('date_time');
         $this->applySqlDateRange($query, 'date_time', $request);
+        $this->applyQtyCheckFilter($query, $request);
 
         if ($request->filled('problem_reason')) {
             $query->where('problem_reason', $request->query('problem_reason'));
-        }
-        if ($request->filled('qty_check')) {
-            $query->where('qty_check', $request->query('qty_check'));
         }
 
         $records = $this->applyTimeRangeFilter($query->get(), 'date_time', $request);
@@ -889,7 +891,7 @@ class ExportController extends Controller
         $filterSummary = $this->buildTxFilterSummary($request, $filterParts);
         $stamp         = Carbon::now()->format('Ymd_His');
 
-        $totalNgQty = round((float) $records->sum('qty_ng'), 2);
+        $totalNgQty  = round((float) $records->sum('qty_ng'), 2);
         $rekapReason = $records->groupBy('problem_reason')
             ->map(function ($grp, $reason) use ($totalNgQty) {
                 $qty = round((float) $grp->sum('qty_ng'), 2);
@@ -953,7 +955,7 @@ class ExportController extends Controller
                 $r->item?->uom ?? '-',
                 $r->problem_reason ?: '-',
                 $r->user?->name ?? '-',
-                $r->qty_check ?? '-',
+                $r->qty_check === 'DIKOREKSI' ? 'DIKOREKSI' : 'TERCATAT',
                 $r->qty_original !== null ? (float) $r->qty_original : '-',
                 $r->correctedBy?->name ?? '-',
                 $r->correction_notes ?: '-',
@@ -1013,15 +1015,39 @@ class ExportController extends Controller
 
         $startDate = trim((string) $request->query('start_date', ''));
         $endDate   = trim((string) $request->query('end_date', ''));
+        $startTime = trim((string) $request->query('start_time', ''));
+        $endTime   = trim((string) $request->query('end_time', ''));
         $year      = trim((string) $request->query('year', ''));
         $month     = trim((string) $request->query('month', ''));
+        $monthsRaw = trim((string) $request->query('months', ''));
+        $monthsArr = [];
+        if ($monthsRaw !== '') {
+            $monthsArr = array_values(array_unique(array_filter(
+                array_map('intval', explode(',', $monthsRaw)),
+                fn ($m) => $m >= 1 && $m <= 12
+            )));
+        }
+
         $companyId = trim((string) $request->query('company_id', ''));
         $reason    = trim((string) $request->query('problem_reason', ''));
         $q         = mb_strtolower(trim((string) $request->query('q', '')), 'UTF-8');
 
-        $records = $records->filter(function ($d) use ($startDate, $endDate, $year, $month, $companyId, $reason, $q) {
-            $dt   = $d->incident_date ? Carbon::parse($d->incident_date) : Carbon::parse($d->date_time);
-            $dStr = $dt->format('Y-m-d');
+        $records = $records->filter(function ($d) use (
+            $startDate,
+            $endDate,
+            $startTime,
+            $endTime,
+            $year,
+            $month,
+            $monthsArr,
+            $companyId,
+            $reason,
+            $q
+        ) {
+            $incDt = $d->incident_date ? Carbon::parse($d->incident_date) : Carbon::parse($d->date_time);
+            $recDt = Carbon::parse($d->date_time);
+            $dStr  = $incDt->format('Y-m-d');
+            $tStr  = $recDt->format('H:i');
 
             if ($startDate !== '' && $dStr < $startDate) {
                 return false;
@@ -1029,10 +1055,19 @@ class ExportController extends Controller
             if ($endDate !== '' && $dStr > $endDate) {
                 return false;
             }
-            if ($year !== '' && $dt->format('Y') !== $year) {
+            if ($startTime !== '' && $tStr < $startTime) {
                 return false;
             }
-            if ($month !== '' && (int) $dt->format('n') !== (int) $month) {
+            if ($endTime !== '' && $tStr > $endTime) {
+                return false;
+            }
+            if ($year !== '' && $incDt->format('Y') !== $year) {
+                return false;
+            }
+            if ($month !== '' && (int) $incDt->format('n') !== (int) $month) {
+                return false;
+            }
+            if (!empty($monthsArr) && !in_array((int) $incDt->format('n'), $monthsArr, true)) {
                 return false;
             }
             if ($companyId !== '' && (string) $d->company_id !== $companyId) {
@@ -1057,18 +1092,29 @@ class ExportController extends Controller
             return true;
         })->values();
 
+        $monthNames = [
+            1 => 'Jan', 2 => 'Feb', 3 => 'Mar', 4 => 'Apr',
+            5 => 'Mei', 6 => 'Jun', 7 => 'Jul', 8 => 'Agu',
+            9 => 'Sep', 10 => 'Okt', 11 => 'Nov', 12 => 'Des',
+        ];
+
         $filterParts = [];
         if ($q !== '') {
             $filterParts[] = 'Pencarian: "' . trim((string) $request->query('q')) . '"';
         }
         if ($startDate !== '' || $endDate !== '') {
-            $filterParts[] = 'Tanggal: ' . ($startDate ?: 'Awal') . ' s/d ' . ($endDate ?: 'Sekarang');
+            $filterParts[] = 'Tgl Kejadian: ' . ($startDate ?: 'Awal') . ' s/d ' . ($endDate ?: 'Sekarang');
+        }
+        if ($startTime !== '' || $endTime !== '') {
+            $filterParts[] = 'Jam Catat: ' . ($startTime ?: '00:00') . '–' . ($endTime ?: '23:59');
         }
         if ($year !== '') {
             $filterParts[] = 'Tahun: ' . $year;
         }
         if ($month !== '') {
-            $filterParts[] = 'Bulan: ' . $month;
+            $filterParts[] = 'Bulan: ' . ($monthNames[(int) $month] ?? $month);
+        } elseif (!empty($monthsArr) && count($monthsArr) < 12) {
+            $filterParts[] = 'Bulan: ' . implode(', ', array_map(fn ($m) => $monthNames[$m] ?? (string) $m, $monthsArr));
         }
         if ($companyId !== '' && is_numeric($companyId)) {
             $comp = Company::find((int) $companyId);
@@ -1485,6 +1531,25 @@ class ExportController extends Controller
     // =========================================================================
     // HELPER FILTER KONSISTEN (KOMPATIBEL MYSQL & SQLITE)
     // =========================================================================
+
+    private function applyQtyCheckFilter($query, Request $request): void
+    {
+        $status = strtoupper(trim((string) $request->query('qty_check', '')));
+        if ($status === '') {
+            return;
+        }
+
+        if ($status === 'DIKOREKSI') {
+            $query->where('qty_check', 'DIKOREKSI');
+        } elseif ($status === 'TERCATAT') {
+            $query->where(function ($q) {
+                $q->whereNull('qty_check')
+                  ->orWhere('qty_check', '!=', 'DIKOREKSI');
+            });
+        } else {
+            $query->where('qty_check', $status);
+        }
+    }
 
     private function applySqlDateRange($query, string $column, Request $request): void
     {

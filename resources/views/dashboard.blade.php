@@ -1,7 +1,33 @@
 <x-app-layout>
     <x-slot name="header">
         <x-page-header title="Dashboard Produksi"
-                       subtitle="{{ \Carbon\Carbon::now()->translatedFormat('l, d F Y') }} · Monitoring real-time" />
+                       subtitle="{{ \Carbon\Carbon::now()->translatedFormat('l, d F Y') }} · Monitoring real-time">
+            <x-slot name="actions">
+                <span class="btn-group">
+                    <a href="{{ route('exports.stock', ['format' => 'xlsx', 'snapshot_mode' => '07']) }}"
+                       class="btn"
+                       title="Export seluruh posisi Stock 07:00 ke Excel (.xlsx)">
+                        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="7 10 12 15 17 10"/>
+                            <line x1="12" y1="15" x2="12" y2="3"/>
+                        </svg>
+                        <span>Stock 07:00 Excel</span>
+                    </a>
+                    <a href="{{ route('exports.stock', ['format' => 'pdf', 'snapshot_mode' => '07']) }}"
+                       class="btn"
+                       title="Export seluruh posisi Stock 07:00 ke PDF">
+                        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                            <polyline points="14 2 14 8 20 8"/>
+                            <line x1="16" y1="13" x2="8" y2="13"/>
+                            <line x1="16" y1="17" x2="8" y2="17"/>
+                        </svg>
+                        <span>Stock 07:00 PDF</span>
+                    </a>
+                </span>
+            </x-slot>
+        </x-page-header>
     </x-slot>
 
     {{-- 1. KPI UTAMA --}}
@@ -223,7 +249,7 @@
 
             {{-- 4. PRIORITAS STOCK (10 BARIS DATA & HEADER TIDAK DI-FREEZE) --}}
             <section class="panel"
-                     x-data="morningPriorityTable({{ Js::from($dashboardItems) }}, {{ Js::from($allCompaniesList) }})">
+                     x-data="morningPriorityTable({{ Js::from($dashboardItems) }}, {{ Js::from($allCompaniesList) }}, {{ Js::from(route('exports.stock')) }})">
                 <div class="panel-head" style="position: static;">
                     <div class="panel-title">
                         <span>Prioritas Stock</span>
@@ -259,6 +285,28 @@
                                 class="btn btn-sm">
                             Reset
                         </button>
+
+                        <span class="btn-group">
+                            <button type="button" class="btn btn-sm" @click="exportPriority('xlsx')"
+                                    title="Export Prioritas Stock 07:00 sesuai filter aktif ke Excel (.xlsx)">
+                                <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                    <polyline points="7 10 12 15 17 10"/>
+                                    <line x1="12" y1="15" x2="12" y2="3"/>
+                                </svg>
+                                <span>Excel</span>
+                            </button>
+                            <button type="button" class="btn btn-sm" @click="exportPriority('pdf')"
+                                    title="Export Prioritas Stock 07:00 sesuai filter aktif ke PDF">
+                                <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                    <polyline points="14 2 14 8 20 8"/>
+                                    <line x1="16" y1="13" x2="8" y2="13"/>
+                                    <line x1="16" y1="17" x2="8" y2="17"/>
+                                </svg>
+                                <span>PDF</span>
+                            </button>
+                        </span>
                     </div>
                 </div>
 
@@ -340,7 +388,7 @@
 
             {{-- 5. DETAIL STOCK (FG, FG/KOMPONEN, & KOMPONEN BERUNTUN YANG MEMILIKI BOM) --}}
             <section class="panel"
-                     x-data="dashboardStockVerticalChart({{ Js::from($dashboardItems) }}, {{ Js::from($sharedMaterialsList) }}, '{{ $defaultStockCompanyId }}')">
+                     x-data="dashboardStockVerticalChart({{ Js::from($dashboardItems) }}, {{ Js::from($sharedMaterialsList) }}, '{{ $defaultStockCompanyId }}', {{ Js::from(route('exports.stock')) }})">
                 <div class="panel-head" style="position: static;">
                     <div class="panel-title">
                         <span>Detail Stock</span>
@@ -378,6 +426,28 @@
                                 class="btn btn-sm">
                             Reset
                         </button>
+
+                        <span class="btn-group">
+                            <button type="button" class="btn btn-sm" @click="exportChart('xlsx')"
+                                    title="Export Detail Stock sesuai filter aktif ke Excel (.xlsx)">
+                                <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                    <polyline points="7 10 12 15 17 10"/>
+                                    <line x1="12" y1="15" x2="12" y2="3"/>
+                                </svg>
+                                <span>Excel</span>
+                            </button>
+                            <button type="button" class="btn btn-sm" @click="exportChart('pdf')"
+                                    title="Export Detail Stock sesuai filter aktif ke PDF">
+                                <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                    <polyline points="14 2 14 8 20 8"/>
+                                    <line x1="16" y1="13" x2="8" y2="13"/>
+                                    <line x1="16" y1="17" x2="8" y2="17"/>
+                                </svg>
+                                <span>PDF</span>
+                            </button>
+                        </span>
                     </div>
                 </div>
 
@@ -571,7 +641,7 @@
         <div id="pane-delay" role="tabpanel" aria-labelledby="tab-delay"
              x-show="tab === 'delay'" x-cloak class="space-y-[18px]">
 
-            <div x-data="dashboardDelayVerticalCharts({{ Js::from($allDelays) }}, {{ Js::from($allCompaniesList) }}, {{ Js::from($delayReasonsList) }}, '{{ $delayYears[0] ?? date('Y') }}')"
+            <div x-data="dashboardDelayVerticalCharts({{ Js::from($allDelays) }}, {{ Js::from($allCompaniesList) }}, {{ Js::from($delayReasonsList) }}, '{{ $delayYears[0] ?? date('Y') }}', {{ Js::from(route('exports.problem_delays')) }})"
                  class="space-y-[18px]">
 
                 {{-- FILTER ANALITIK DELAY DELIVERY --}}
@@ -599,6 +669,28 @@
 
                             <button type="button" class="btn btn-sm" @click="selectAllMonths()">Semua Bulan</button>
                             <button type="button" class="btn btn-sm" @click="resetDelayFilter()">Reset</button>
+
+                            <span class="btn-group">
+                                <button type="button" class="btn btn-sm" @click="exportDelays('xlsx')"
+                                        title="Export Delay Delivery sesuai filter aktif ke Excel (.xlsx)">
+                                    <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                        <polyline points="7 10 12 15 17 10"/>
+                                        <line x1="12" y1="15" x2="12" y2="3"/>
+                                    </svg>
+                                    <span>Excel</span>
+                                </button>
+                                <button type="button" class="btn btn-sm" @click="exportDelays('pdf')"
+                                        title="Export Delay Delivery sesuai filter aktif ke PDF">
+                                    <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                        <polyline points="14 2 14 8 20 8"/>
+                                        <line x1="16" y1="13" x2="8" y2="13"/>
+                                        <line x1="16" y1="17" x2="8" y2="17"/>
+                                    </svg>
+                                    <span>PDF</span>
+                                </button>
+                            </span>
                         </div>
                     </div>
 
@@ -833,14 +925,25 @@
     <x-material-info-modal />
 
     <script>
-        function morningPriorityTable(items, companies) {
+        function morningPriorityTable(items, companies, exportBase) {
             return {
                 items: items || [],
                 companies: companies || [],
+                exportBase: exportBase,
                 q: '',
                 fGroup: 'TARGET_PROD',
                 fCompany: '',
 
+                exportPriority(format) {
+                    const params = new URLSearchParams();
+                    params.set('format', format || 'xlsx');
+                    params.set('snapshot_mode', '07');
+                    params.set('priority_only', '1');
+                    if (this.q.trim()) params.set('q', this.q.trim());
+                    if (this.fGroup && this.fGroup !== 'ALL') params.set('group', this.fGroup);
+                    if (this.fCompany) params.set('company_id', this.fCompany);
+                    window.location.href = `${this.exportBase}?${params.toString()}`;
+                },
                 tyClass(t) {
                     return 'ty-' + (t === 'FG/KOMPONEN' ? 'FGK' : t);
                 },
@@ -893,16 +996,28 @@
             };
         }
 
-        function dashboardStockVerticalChart(items, sharedMaterials, defaultCompanyId) {
+        function dashboardStockVerticalChart(items, sharedMaterials, defaultCompanyId, exportBase) {
             return {
                 items: items || [],
                 sharedMaterials: sharedMaterials || [],
                 defaultCompanyId: defaultCompanyId || '',
+                exportBase: exportBase,
                 fCompany: defaultCompanyId || '',
                 fCategory: 'FG_FGK',
                 fSharedMat: '',
                 hoveredItem: null,
 
+                exportChart(format) {
+                    const params = new URLSearchParams();
+                    params.set('format', format || 'xlsx');
+                    params.set('snapshot_mode', 'now');
+                    if (this.fCompany) params.set('company_id', this.fCompany);
+                    if (this.fCategory) {
+                        params.set('group', this.fCategory === 'KOMPONEN' ? 'KOMPONEN_BOM' : this.fCategory);
+                    }
+                    if (this.fSharedMat) params.set('material_id', this.fSharedMat);
+                    window.location.href = `${this.exportBase}?${params.toString()}`;
+                },
                 init() {
                     const hasDefault = this.items.some(
                         it => ['FG', 'FG/KOMPONEN'].includes(it.type) && String(it.company_id) === String(this.fCompany)
@@ -1040,7 +1155,7 @@
             };
         }
 
-        function dashboardDelayVerticalCharts(delays, companies, reasons, defaultYear) {
+        function dashboardDelayVerticalCharts(delays, companies, reasons, defaultYear, exportBase) {
             const ALL_MONTHS = [
                 { num: 1, short: 'Jan', full: 'Januari' },
                 { num: 2, short: 'Feb', full: 'Februari' },
@@ -1061,11 +1176,22 @@
                 companies: companies || [],
                 reasons: reasons || [],
                 defaultYear: defaultYear || '',
+                exportBase: exportBase,
                 allMonths: ALL_MONTHS,
                 fYear: defaultYear || '',
                 fCompany: '',
                 selectedMonths: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
 
+                exportDelays(format) {
+                    const params = new URLSearchParams();
+                    params.set('format', format || 'xlsx');
+                    if (this.fYear) params.set('year', this.fYear);
+                    if (this.fCompany) params.set('company_id', this.fCompany);
+                    if (Array.isArray(this.selectedMonths) && this.selectedMonths.length > 0 && this.selectedMonths.length < 12) {
+                        params.set('months', this.selectedMonths.join(','));
+                    }
+                    window.location.href = `${this.exportBase}?${params.toString()}`;
+                },
                 toggleMonth(mNum) {
                     if (this.selectedMonths.includes(mNum)) {
                         if (this.selectedMonths.length > 1) {

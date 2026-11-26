@@ -43,11 +43,6 @@ class StockSnapshotService
 
         $allBomsFlat = Bom::with(['inputItem.inventoryStock', 'outputItem'])->get();
 
-        $outputCountByInputId = $allBomsFlat
-            ->groupBy('input_item_id')
-            ->map(fn ($rows) => $rows->pluck('output_item_id')->unique()->count())
-            ->all();
-
         $allRunningLots = LotTracer::with('process')
             ->where('status_lot', 'ON PROGRESS')
             ->orderBy('id', 'desc')
@@ -199,8 +194,7 @@ class StockSnapshotService
         $items = $allActiveItems->map(function ($itm) use (
             $wipByTargetItem,
             $matInMachineByItem,
-            $netAfter07,
-            $outputCountByInputId
+            $netAfter07
         ) {
             $st        = $itm->inventoryStock;
             $currStock = $st ? (float) $st->current_stock : 0.0;
@@ -263,31 +257,31 @@ class StockSnapshotService
             $inputIds = $outBoms->pluck('input_item_id')->unique()->values()->all();
 
             return [
-                'id'            => $itm->id,
-                'part_no'       => $itm->part_no ?: '-',
-                'part_name'     => $itm->part_name,
-                'type'          => $itm->type,
-                'uom'           => $itm->uom,
-                'company_id'    => $itm->company_id,
-                'company_code'  => $itm->company->company_code ?? 'INTERNAL',
-                'company_name'  => $itm->company->company_name ?? 'PT. Dian Raya Cipta',
-                'company_type'  => $itm->company->type_company ?? 'INTERNAL',
-                'qty_po'        => (float) $itm->qty_po,
-                'working_days'  => (int) $itm->working_days,
-                'qty_kanban'    => (float) $itm->qty_kanban,
-                'current_stock' => $currStock,
-                'stock_07'      => $stock07,
-                'status_07'     => $status07,
-                'ratio_07'      => $ratio07,
-                'wip_active'    => $wipActive,
-                'has_bom_inputs'=> $hasBomInputs,
-                'pot_max'       => $potMax,
-                'input_ids'     => $inputIds,
-                'std_day_1'     => $std1,
-                'std_day_2'     => $std2,
-                'std_day_3'     => $std3,
-                'ratio_stock'   => $ratioFg,
-                'status_stock'  => $statusNow,
+                'id'             => $itm->id,
+                'part_no'        => $itm->part_no ?: '-',
+                'part_name'      => $itm->part_name,
+                'type'           => $itm->type,
+                'uom'            => $itm->uom,
+                'company_id'     => $itm->company_id,
+                'company_code'   => $itm->company->company_code ?? 'INTERNAL',
+                'company_name'   => $itm->company->company_name ?? 'PT. Dian Raya Cipta',
+                'company_type'   => $itm->company->type_company ?? 'INTERNAL',
+                'qty_po'         => (float) $itm->qty_po,
+                'working_days'   => (int) $itm->working_days,
+                'qty_kanban'     => (float) $itm->qty_kanban,
+                'current_stock'  => $currStock,
+                'stock_07'       => $stock07,
+                'status_07'      => $status07,
+                'ratio_07'       => $ratio07,
+                'wip_active'     => $wipActive,
+                'has_bom_inputs' => $hasBomInputs,
+                'pot_max'        => $potMax,
+                'input_ids'      => $inputIds,
+                'std_day_1'      => $std1,
+                'std_day_2'      => $std2,
+                'std_day_3'      => $std3,
+                'ratio_stock'    => $ratioFg,
+                'status_stock'   => $statusNow,
             ];
         })->values();
 
@@ -299,7 +293,7 @@ class StockSnapshotService
     }
 
     /**
-     * Terapkan filter aktif dari Dashboard / Inventory Stock pada koleksi snapshot.
+     * Terapkan filter aktif dari Dashboard (Prioritas Stock / Detail Stock) maupun Inventory Stock.
      *
      * @param  Collection<int, array<string, mixed>>  $items
      * @param  array<string, mixed>  $filters
@@ -309,21 +303,31 @@ class StockSnapshotService
     {
         $q            = mb_strtolower(trim((string) ($filters['q'] ?? '')), 'UTF-8');
         $type         = trim((string) ($filters['type'] ?? ''));
+        $group        = trim((string) ($filters['group'] ?? ''));
         $companyType  = trim((string) ($filters['company_type'] ?? ''));
         $companyId    = trim((string) ($filters['company_id'] ?? ''));
         $status       = trim((string) ($filters['status'] ?? ''));
         $materialId   = trim((string) ($filters['material_id'] ?? ''));
         $snapshotMode = trim((string) ($filters['snapshot_mode'] ?? 'now'));
+        $priorityOnly = !empty($filters['priority_only']);
 
-        return $items->filter(function (array $row) use (
+        $filtered = $items->filter(function (array $row) use (
             $q,
             $type,
+            $group,
             $companyType,
             $companyId,
             $status,
             $materialId,
-            $snapshotMode
+            $snapshotMode,
+            $priorityOnly
         ) {
+            if ($priorityOnly) {
+                if (!in_array($row['status_07'] ?? '', ['EMPTY STOCK', 'VERY LOW', 'LOW STOCK'], true)) {
+                    return false;
+                }
+            }
+
             if ($q !== '') {
                 $haystack = mb_strtolower(
                     ($row['part_no'] ?? '') . ' ' . ($row['part_name'] ?? '') . ' ' . ($row['company_code'] ?? '') . ' ' . ($row['company_name'] ?? ''),
@@ -336,6 +340,31 @@ class StockSnapshotService
 
             if ($type !== '' && ($row['type'] ?? '') !== $type) {
                 return false;
+            }
+
+            if ($group !== '' && $group !== 'ALL') {
+                $rowType = (string) ($row['type'] ?? '');
+                $hasBom  = !empty($row['has_bom_inputs']);
+
+                if (in_array($group, ['TARGET_PROD', 'FG_FGK'], true)) {
+                    if (!in_array($rowType, ['FG', 'FG/KOMPONEN'], true)) {
+                        return false;
+                    }
+                } elseif ($group === 'MATERIAL') {
+                    if (!in_array($rowType, ['RM', 'KOMPONEN', 'FG/KOMPONEN'], true)) {
+                        return false;
+                    }
+                } elseif ($group === 'ALL_PROD') {
+                    if (!(in_array($rowType, ['FG', 'FG/KOMPONEN'], true) || ($rowType === 'KOMPONEN' && $hasBom))) {
+                        return false;
+                    }
+                } elseif ($group === 'KOMPONEN_BOM') {
+                    if (!($rowType === 'KOMPONEN' && $hasBom)) {
+                        return false;
+                    }
+                } elseif ($rowType !== $group) {
+                    return false;
+                }
             }
 
             if ($companyType !== '' && ($row['company_type'] ?? '') !== $companyType) {
@@ -362,6 +391,32 @@ class StockSnapshotService
 
             return true;
         })->values();
+
+        if ($priorityOnly) {
+            $rank = fn (string $st): int => match ($st) {
+                'EMPTY STOCK' => 1,
+                'VERY LOW'    => 2,
+                'LOW STOCK'   => 3,
+                default       => 99,
+            };
+
+            $filtered = $filtered->sort(function (array $a, array $b) use ($rank) {
+                $rA = $rank((string) ($a['status_07'] ?? ''));
+                $rB = $rank((string) ($b['status_07'] ?? ''));
+                if ($rA !== $rB) {
+                    return $rA <=> $rB;
+                }
+                if ($a['stock_07'] !== $b['stock_07']) {
+                    return $a['stock_07'] <=> $b['stock_07'];
+                }
+                if ($a['ratio_07'] !== $b['ratio_07']) {
+                    return $a['ratio_07'] <=> $b['ratio_07'];
+                }
+                return $b['std_day_1'] <=> $a['std_day_1'];
+            })->values();
+        }
+
+        return $filtered;
     }
 
     private function resolveBomContext(

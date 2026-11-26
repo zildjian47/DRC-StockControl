@@ -1,7 +1,19 @@
 <x-app-layout>
     <x-slot name="header">
         <x-page-header title="Lot Tracer"
-                       subtitle="Pemantauan progres Lot produksi, sisa material di mesin, komponen pendamping, WIP, Act FG, dan Top/End Coil" />
+                       subtitle="Pemantauan progres Lot produksi, sisa material di mesin, komponen pendamping, WIP, Act FG, dan Top/End Coil">
+            <x-slot name="actions">
+                <button type="button" class="btn" @click="$dispatch('export-lot-tracers')"
+                        title="Export Lot Tracer sesuai filter aktif ke Excel (.xlsx)">
+                    <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="7 10 12 15 17 10"/>
+                        <line x1="12" y1="15" x2="12" y2="3"/>
+                    </svg>
+                    <span>Export Excel</span>
+                </button>
+            </x-slot>
+        </x-page-header>
     </x-slot>
 
     <x-flash />
@@ -11,7 +23,8 @@
     @endphp
 
     <div class="panel"
-         x-data="lotTracerPage()"
+         x-data="lotTracerPage({{ Js::from(route('exports.lot_tracers')) }})"
+         @export-lot-tracers.window="exportData()"
          x-init="recalc()"
          @table-refreshed.window="recalc()">
 
@@ -367,14 +380,23 @@
     </div>
 
     <script>
-        function lotTracerPage() {
+        function lotTracerPage(exportBase) {
             return {
                 q: '',
                 fProcess: '',
                 fStatus: '',
+                exportBase: exportBase,
                 visibleGroups: {{ $groupedLots->count() }},
                 visibleTargets: {{ $totalTargetRows }},
 
+                exportData() {
+                    const params = new URLSearchParams();
+                    if (this.q.trim()) params.set('q', this.q.trim());
+                    if (this.fProcess) params.set('process_id', this.fProcess);
+                    if (this.fStatus) params.set('status', this.fStatus);
+                    const qs = params.toString();
+                    window.location.href = qs ? `${this.exportBase}?${qs}` : this.exportBase;
+                },
                 matchGroup(el) {
                     if (this.fProcess && String(el.dataset.process) !== String(this.fProcess)) {
                         return false;

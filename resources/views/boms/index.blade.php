@@ -3,10 +3,21 @@
         <x-page-header title="Bill of Materials (BOM)"
                        subtitle="Struktur resep kebutuhan material & komponen per proses produksi (Single, Multi-Input, Multi-Output, & Kombinasi)">
             <x-slot name="actions">
-                <button type="button" class="btn btn-primary" @click="$dispatch('open-add-bom')">
-                    <x-icon name="plus" />
-                    <span>Input BOM</span>
-                </button>
+                <span class="btn-group">
+                    <button type="button" class="btn" @click="$dispatch('export-boms')"
+                            title="Export struktur BOM sesuai filter aktif ke Excel (.xlsx)">
+                        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="7 10 12 15 17 10"/>
+                            <line x1="12" y1="15" x2="12" y2="3"/>
+                        </svg>
+                        <span>Export Excel</span>
+                    </button>
+                    <button type="button" class="btn btn-primary" @click="$dispatch('open-add-bom')">
+                        <x-icon name="plus" />
+                        <span>Input BOM</span>
+                    </button>
+                </span>
             </x-slot>
         </x-page-header>
     </x-slot>
@@ -33,8 +44,9 @@
     @endphp
 
     <div class="panel"
-         x-data="bomPage({{ $groupedBoms->count() }}, {{ $boms->count() }}, {{ Js::from($inputItemsJs) }}, {{ Js::from($outputItemsJs) }}, {{ $errors->any() ? 'true' : 'false' }})"
+         x-data="bomPage({{ $groupedBoms->count() }}, {{ $boms->count() }}, {{ Js::from($inputItemsJs) }}, {{ Js::from($outputItemsJs) }}, {{ $errors->any() ? 'true' : 'false' }}, {{ Js::from(route('exports.boms')) }})"
          @open-add-bom.window="addOpen = true; addError = ''"
+         @export-boms.window="exportData()"
          x-init="recalc()"
          @table-refreshed.window="recalc()">
 
@@ -364,11 +376,12 @@
     </div>
 
     <script>
-        function bomPage(initialGroups, initialRows, inputItemsList, outputItemsList, openInitially) {
+        function bomPage(initialGroups, initialRows, inputItemsList, outputItemsList, openInitially, exportBase) {
             return {
                 q: '',
                 fProcess: '',
                 fBomType: '',
+                exportBase: exportBase,
                 addOpen: openInitially,
                 addProcessId: '',
                 addError: '',
@@ -380,6 +393,14 @@
                 formInputs: [{ item_id: '', qty_usage: '1' }],
                 formOutputs: [{ item_id: '', usages: { 0: '1' } }],
 
+                exportData() {
+                    const params = new URLSearchParams();
+                    if (this.q.trim()) params.set('q', this.q.trim());
+                    if (this.fProcess) params.set('process_id', this.fProcess);
+                    if (this.fBomType) params.set('group_type', this.fBomType);
+                    const qs = params.toString();
+                    window.location.href = qs ? `${this.exportBase}?${qs}` : this.exportBase;
+                },
                 init() {
                     this.$watch('addOpen', (open) => {
                         if (open) this.$nextTick(() => this.drawLinks());
@@ -608,4 +629,4 @@
             };
         }
     </script>
-</x-app-layout>
+</x-app-layout> 

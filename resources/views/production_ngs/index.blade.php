@@ -4,6 +4,25 @@
                        subtitle="Pencatatan temuan barang cacat (Reject QC) per Nomor Lot aktif beserta koreksi PPIC & pemotongan otomatis Act FG">
             <x-slot name="actions">
                 <span class="btn-group">
+                    <button type="button" class="btn" @click="$dispatch('export-prod-ng', 'xlsx')"
+                            title="Export data Form NG sesuai filter aktif ke Excel (.xlsx)">
+                        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="7 10 12 15 17 10"/>
+                            <line x1="12" y1="15" x2="12" y2="3"/>
+                        </svg>
+                        <span>Excel</span>
+                    </button>
+                    <button type="button" class="btn" @click="$dispatch('export-prod-ng', 'pdf')"
+                            title="Export laporan Form NG sesuai filter aktif ke PDF">
+                        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                            <polyline points="14 2 14 8 20 8"/>
+                            <line x1="16" y1="13" x2="8" y2="13"/>
+                            <line x1="16" y1="17" x2="8" y2="17"/>
+                        </svg>
+                        <span>PDF</span>
+                    </button>
                     <a href="{{ route('production_ngs.index', ['mode' => 'scanner']) }}" class="btn">
                         <x-icon name="scan" />
                         <span>Scan</span>
@@ -35,8 +54,9 @@
     @endphp
 
     <div class="panel"
-         x-data="prodNgPage({{ $ngs->count() }}, {{ Js::from($lotsJs) }}, {{ Js::from($reasons[0] ?? 'MATERIAL') }}, {{ $errors->any() ? 'true' : 'false' }})"
+         x-data="prodNgPage({{ $ngs->count() }}, {{ Js::from($lotsJs) }}, {{ Js::from($reasons[0] ?? 'MATERIAL') }}, {{ $errors->any() ? 'true' : 'false' }}, {{ Js::from(route('exports.production_ngs')) }})"
          @open-add-ng.window="addOpen = true; addError = ''"
+         @export-prod-ng.window="exportData($event.detail)"
          x-init="recalc()"
          @table-refreshed.window="recalc()">
 
@@ -418,7 +438,7 @@
     </div>
 
     <script>
-        function prodNgPage(initialCount, lotsList, defaultReason, openInitially) {
+        function prodNgPage(initialCount, lotsList, defaultReason, openInitially, exportBase) {
             return {
                 q: '',
                 startDate: '',
@@ -427,6 +447,7 @@
                 endTime: '',
                 fReason: '',
                 fStatus: '',
+                exportBase: exportBase,
                 visibleCount: initialCount,
                 lotsList: lotsList,
                 addOpen: openInitially,
@@ -460,6 +481,18 @@
                     correction_notes: null
                 },
 
+                exportData(format) {
+                    const params = new URLSearchParams();
+                    params.set('format', format || 'xlsx');
+                    if (this.q.trim()) params.set('q', this.q.trim());
+                    if (this.startDate) params.set('start_date', this.startDate);
+                    if (this.endDate) params.set('end_date', this.endDate);
+                    if (this.startTime) params.set('start_time', this.startTime);
+                    if (this.endTime) params.set('end_time', this.endTime);
+                    if (this.fReason) params.set('problem_reason', this.fReason);
+                    if (this.fStatus) params.set('qty_check', this.fStatus);
+                    window.location.href = `${this.exportBase}?${params.toString()}`;
+                },
                 get selectedLot() {
                     return this.lotsList.find(x => String(x.id) === String(this.selectedLotId)) || null;
                 },
