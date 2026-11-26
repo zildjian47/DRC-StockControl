@@ -13,7 +13,7 @@ class LotTracerController extends Controller
     public function index(Request $request)
     {
         $processes = Process::orderBy('process_name', 'asc')->get();
-        $allBoms = Bom::with('inputItem')->get();
+        $allBoms   = Bom::with('inputItem')->get();
 
         $lotTracers = LotTracer::with(['process', 'materialItem.company', 'targetItem.company'])
             ->orderByRaw("CASE WHEN status_lot = 'ON PROGRESS' THEN 0 ELSE 1 END")
@@ -21,7 +21,7 @@ class LotTracerController extends Controller
             ->get();
 
         $groupedLots = $lotTracers->groupBy('lot_number')->map(function ($rows, $lotNo) use ($allBoms) {
-            $first = $rows->first();
+            $first    = $rows->first();
             $groupKey = $first->bom_group;
 
             if (!empty($groupKey)) {
@@ -42,13 +42,13 @@ class LotTracerController extends Controller
                     $groupBoms = $allBoms->where('bom_group', $groupKey);
                 } elseif ($triggerBom) {
                     $groupBoms = $allBoms->where('process_id', $triggerBom->process_id)
-                                         ->where('output_item_id', $triggerBom->output_item_id);
+                        ->where('output_item_id', $triggerBom->output_item_id);
                 } else {
                     $groupBoms = collect();
                 }
             }
 
-            $uIn = $groupBoms->pluck('input_item_id')->unique()->count();
+            $uIn  = $groupBoms->pluck('input_item_id')->unique()->count();
             $uOut = $groupBoms->pluck('output_item_id')->unique()->count();
 
             if (($groupKey && str_starts_with($groupKey, 'CB-')) || ($uIn > 1 && $uOut > 1)) {
@@ -61,8 +61,8 @@ class LotTracerController extends Controller
                 $bomType = 'SINGLE';
             }
 
-            $lotStatus = $rows->contains('status_lot', 'ON PROGRESS') ? 'ON PROGRESS' : 'FINISH';
-            $companionsMap = [];
+            $lotStatus       = $rows->contains('status_lot', 'ON PROGRESS') ? 'ON PROGRESS' : 'FINISH';
+            $companionsMap   = [];
             $maxUsedMaterial = 0.0;
 
             foreach ($rows as $r) {
@@ -105,16 +105,16 @@ class LotTracerController extends Controller
                     if (!$cBom->inputItem) {
                         continue;
                     }
-                    $cId = $cBom->input_item_id;
-                    $u = (float) $cBom->qty_usage;
-                    $cOut = round($estInitial * $u, 2);
-                    $cRet = round($estReturn * $u, 2);
+                    $cId   = $cBom->input_item_id;
+                    $u     = (float) $cBom->qty_usage;
+                    $cOut  = round($estInitial * $u, 2);
+                    $cRet  = round($estReturn * $u, 2);
                     $cUsed = round($actProd * $u, 2);
                     $cCurr = $r->status_lot === 'FINISH' ? 0.0 : max(0, round($cOut - $cRet - $cUsed, 2));
 
                     if (!isset($companionsMap[$cId])) {
                         $companionsMap[$cId] = [
-                            'part_no'      => $cBom->inputItem->part_no ?: '-',
+                            'part_no'      => $cBom->inputItem?->part_no ?: '-',
                             'part_name'    => $cBom->inputItem->part_name,
                             'uom'          => $cBom->inputItem->uom,
                             'qty_out'      => $cOut,
@@ -122,8 +122,8 @@ class LotTracerController extends Controller
                             'qty_saat_ini' => $cCurr,
                         ];
                     } else {
-                        $companionsMap[$cId]['qty_out'] = round($companionsMap[$cId]['qty_out'] + $cOut, 2);
-                        $companionsMap[$cId]['qty_return'] = round($companionsMap[$cId]['qty_return'] + $cRet, 2);
+                        $companionsMap[$cId]['qty_out']      = round($companionsMap[$cId]['qty_out'] + $cOut, 2);
+                        $companionsMap[$cId]['qty_return']   = round($companionsMap[$cId]['qty_return'] + $cRet, 2);
                         $companionsMap[$cId]['qty_saat_ini'] = round($companionsMap[$cId]['qty_saat_ini'] + $cCurr, 2);
                     }
                 }
@@ -134,19 +134,19 @@ class LotTracerController extends Controller
                 2
             );
             $materialSaatIni = $lotStatus === 'FINISH' ? 0.0 : $rawRemaining;
-            $topEndCoil = ($first->is_coil && $lotStatus === 'FINISH') ? $rawRemaining : null;
+            $topEndCoil      = ($first->is_coil && $lotStatus === 'FINISH') ? $rawRemaining : null;
 
-            $first->bom_type = $bomType;
+            $first->bom_type          = $bomType;
             $first->companion_details = array_values($companionsMap);
 
             $searchStr = strtolower(
                 $lotNo . ' ' .
                 $bomType . ' ' .
-                ($first->process->process_name ?? '') . ' ' .
-                ($first->materialItem->part_no ?? '') . ' ' .
-                ($first->materialItem->part_name ?? '') . ' ' .
+                ($first->process?->process_name ?? '') . ' ' .
+                ($first->materialItem?->part_no ?? '') . ' ' .
+                ($first->materialItem?->part_name ?? '') . ' ' .
                 collect($companionsMap)->pluck('part_name')->implode(' ') . ' ' .
-                $rows->map(fn ($r) => ($r->targetItem->part_no ?? '') . ' ' . ($r->targetItem->part_name ?? ''))->implode(' ')
+                $rows->map(fn ($r) => ($r->targetItem?->part_no ?? '') . ' ' . ($r->targetItem?->part_name ?? ''))->implode(' ')
             );
 
             return [
@@ -155,7 +155,7 @@ class LotTracerController extends Controller
                 'first'             => $first,
                 'rows'              => $rows,
                 'process_id'        => $first->process_id,
-                'process_name'      => $first->process->process_name ?? '-',
+                'process_name'      => $first->process?->process_name ?? '-',
                 'status_lot'        => $lotStatus,
                 'material_saat_ini' => $materialSaatIni,
                 'top_end_coil'      => $topEndCoil,
@@ -171,10 +171,16 @@ class LotTracerController extends Controller
     public function finish(LotTracer $lotTracer)
     {
         DB::transaction(function () use ($lotTracer) {
-            LotTracer::where('lot_number', $lotTracer->lot_number)->update([
-                'qty_wip'    => 0,
-                'status_lot' => 'FINISH',
-            ]);
+            $lockedRows = LotTracer::where('lot_number', $lotTracer->lot_number)
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($lockedRows as $row) {
+                $row->qty_wip    = 0;
+                $row->status_lot = 'FINISH';
+                $row->save();
+            }
         });
 
         return redirect()->route('lot_tracers.index')

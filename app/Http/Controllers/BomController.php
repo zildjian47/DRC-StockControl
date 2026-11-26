@@ -12,9 +12,13 @@ use App\Models\Process;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 
 class BomController extends Controller
 {
+    private const ALLOWED_INPUT_TYPES  = ['RM', 'KOMPONEN', 'FG/KOMPONEN'];
+    private const ALLOWED_OUTPUT_TYPES = ['FG', 'FG/KOMPONEN', 'KOMPONEN'];
+
     public static function evaluateMath($expr): float
     {
         if (is_numeric($expr)) {
@@ -31,12 +35,12 @@ class BomController extends Controller
         $processes = Process::orderBy('process_name', 'asc')->get();
 
         $outputItems = Item::with('company')
-            ->whereIn('type', ['FG', 'FG/KOMPONEN', 'KOMPONEN'])
+            ->whereIn('type', self::ALLOWED_OUTPUT_TYPES)
             ->orderBy('part_name', 'asc')
             ->get();
 
         $inputItems = Item::with('company')
-            ->whereIn('type', ['RM', 'KOMPONEN', 'FG/KOMPONEN'])
+            ->whereIn('type', self::ALLOWED_INPUT_TYPES)
             ->orderBy('part_name', 'asc')
             ->get();
 
@@ -51,8 +55,8 @@ class BomController extends Controller
                 : ('LEGACY-' . $b->process_id . '-' . $b->output_item_id);
         })->map(function ($rows, $groupKey) {
             $first = $rows->first();
-            $uIn = $rows->pluck('input_item_id')->unique()->count();
-            $uOut = $rows->pluck('output_item_id')->unique()->count();
+            $uIn   = $rows->pluck('input_item_id')->unique()->count();
+            $uOut  = $rows->pluck('output_item_id')->unique()->count();
 
             if (str_starts_with($groupKey, 'CB-') || ($uIn > 1 && $uOut > 1)) {
                 $bomType = 'KOMBINASI';
@@ -70,9 +74,9 @@ class BomController extends Controller
                     'item'       => $f->inputItem,
                     'is_trigger' => (bool) $inRows->contains('is_trigger', true),
                     'usages'     => $inRows->map(fn ($r) => [
-                        'output_part_no'    => $r->outputItem->part_no ?: '-',
-                        'output_part_name'  => $r->outputItem->part_name ?? '-',
-                        'output_uom'        => $r->outputItem->uom ?? 'PCS',
+                        'output_part_no'    => $r->outputItem?->part_no ?: '-',
+                        'output_part_name'  => $r->outputItem?->part_name ?? '-',
+                        'output_uom'        => $r->outputItem?->uom ?? 'PCS',
                         'qty_usage'         => (float) $r->qty_usage,
                         'qty_usage_display' => $r->formatted_qty_usage,
                     ])->values(),
@@ -84,9 +88,9 @@ class BomController extends Controller
                 return [
                     'item'   => $f->outputItem,
                     'inputs' => $outRows->map(fn ($r) => [
-                        'input_part_no'     => $r->inputItem->part_no ?: '-',
-                        'input_part_name'   => $r->inputItem->part_name ?? '-',
-                        'input_uom'         => $r->inputItem->uom ?? '',
+                        'input_part_no'     => $r->inputItem?->part_no ?: '-',
+                        'input_part_name'   => $r->inputItem?->part_name ?? '-',
+                        'input_uom'         => $r->inputItem?->uom ?? '',
                         'is_trigger'        => (bool) $r->is_trigger,
                         'qty_usage'         => (float) $r->qty_usage,
                         'qty_usage_display' => $r->formatted_qty_usage,
@@ -97,8 +101,8 @@ class BomController extends Controller
             $searchStr = strtolower(
                 $groupKey . ' ' .
                 $bomType . ' ' .
-                ($first->process->process_name ?? '') . ' ' .
-                $rows->map(fn ($r) => ($r->inputItem->part_no ?? '') . ' ' . ($r->inputItem->part_name ?? '') . ' ' . ($r->outputItem->part_no ?? '') . ' ' . ($r->outputItem->part_name ?? ''))->implode(' ')
+                ($first->process?->process_name ?? '') . ' ' .
+                $rows->map(fn ($r) => ($r->inputItem?->part_no ?? '') . ' ' . ($r->inputItem?->part_name ?? '') . ' ' . ($r->outputItem?->part_no ?? '') . ' ' . ($r->outputItem?->part_name ?? ''))->implode(' ')
             );
 
             return [
@@ -106,7 +110,7 @@ class BomController extends Controller
                 'bom_type'     => $bomType,
                 'first_id'     => $first->id,
                 'process_id'   => $first->process_id,
-                'process_name' => $first->process->process_name ?? '-',
+                'process_name' => $first->process?->process_name ?? '-',
                 'rows'         => $rows,
                 'inputs'       => $inputsSummary,
                 'outputs'      => $outputsSummary,
@@ -122,9 +126,14 @@ class BomController extends Controller
     public function store(Request $request)
     {
         $request->validate([
-            'process_id' => 'required|exists:processes,id',
-            'inputs'     => 'required|array|min:1',
-            'outputs'    => 'required|array|min:1',
+            'process_id'        => 'required|exists:processes,id',
+            'inputs'            => 'required|array|min:1',
+            'inputs.*.item_id'  => ['required', 'integer', Rule::exists('items', 'id')->whereNull('deleted_at')],
+            'outputs'           => 'required|array|min:1',
+            'outputs.*.item_id' => ['required', 'integer', Rule::exists('items', 'id')->whereNull('deleted_at')],
+        ], [
+            'inputs.*.item_id.exists'  => 'Material Input tidak ditemukan atau sudah dinonaktifkan.',
+            'outputs.*.item_id.exists' => 'Target Output tidak ditemukan atau sudah dinonaktifkan.',
         ]);
 
         $processId = (int) $request->process_id;
@@ -140,12 +149,36 @@ class BomController extends Controller
             return back()->withInput()->with('error', 'Minimal wajib memilih 1 Material Input dan 1 Target Output.');
         }
 
-        if ($rawInputs->pluck('item_id')->unique()->count() !== $rawInputs->count()) {
+        $inputIds  = $rawInputs->pluck('item_id')->map(fn ($v) => (int) $v);
+        $outputIds = $rawOutputs->pluck('item_id')->map(fn ($v) => (int) $v);
+
+        if ($inputIds->unique()->count() !== $rawInputs->count()) {
             return back()->withInput()->with('error', 'Terdapat Material Input yang dipilih ganda dalam 1 resep.');
         }
 
-        if ($rawOutputs->pluck('item_id')->unique()->count() !== $rawOutputs->count()) {
+        if ($outputIds->unique()->count() !== $rawOutputs->count()) {
             return back()->withInput()->with('error', 'Terdapat Target Output yang dipilih ganda dalam 1 resep.');
+        }
+
+        // Validasi keaktifan dan kesesuaian tipe item Input vs Output di backend
+        $itemsById = Item::whereIn('id', $inputIds->merge($outputIds)->unique()->all())
+            ->get()
+            ->keyBy('id');
+
+        foreach ($inputIds as $inId) {
+            $inItem = $itemsById->get($inId);
+            if (!$inItem || !in_array($inItem->type, self::ALLOWED_INPUT_TYPES, true)) {
+                $label = $inItem ? "{$inItem->part_name} ({$inItem->type})" : "ID #{$inId}";
+                return back()->withInput()->with('error', "Item {$label} tidak dapat dijadikan Material Input (wajib RM, KOMPONEN, atau FG/KOMPONEN aktif).");
+            }
+        }
+
+        foreach ($outputIds as $outId) {
+            $outItem = $itemsById->get($outId);
+            if (!$outItem || !in_array($outItem->type, self::ALLOWED_OUTPUT_TYPES, true)) {
+                $label = $outItem ? "{$outItem->part_name} ({$outItem->type})" : "ID #{$outId}";
+                return back()->withInput()->with('error', "Item {$label} tidak dapat dijadikan Target Output (wajib FG, FG/KOMPONEN, atau KOMPONEN aktif).");
+            }
         }
 
         $triggerIndex = (int) $request->input('trigger_index', 0);
@@ -153,7 +186,7 @@ class BomController extends Controller
             $triggerIndex = 0;
         }
 
-        $inCount = $rawInputs->count();
+        $inCount  = $rawInputs->count();
         $outCount = $rawOutputs->count();
 
         if ($inCount === 1 && $outCount === 1) {
@@ -166,7 +199,7 @@ class BomController extends Controller
             $prefix = 'CB';
         }
 
-        $bomGroup = $prefix . '-' . $processId . '-' . strtoupper(Str::random(5));
+        $bomGroup     = $prefix . '-' . $processId . '-' . strtoupper(Str::random(5));
         $rowsToInsert = [];
 
         if ($outCount === 1) {
@@ -178,9 +211,9 @@ class BomController extends Controller
                 }
 
                 $rawExpr = $inData['qty_usage'] ?? 0;
-                $qtyVal = self::evaluateMath($rawExpr);
-                if ($qtyVal <= 0) {
-                    return back()->withInput()->with('error', 'Qty Usage pada setiap Material Input wajib lebih besar dari 0.');
+                $qtyVal  = self::evaluateMath($rawExpr);
+                if ($qtyVal <= 0 || $qtyVal > Item::MAX_QTY) {
+                    return back()->withInput()->with('error', 'Qty Usage pada setiap Material Input wajib valid (> 0 dan maksimal 99.999.999,99).');
                 }
 
                 $rowsToInsert[] = [
@@ -207,11 +240,15 @@ class BomController extends Controller
                     }
 
                     $isTrigger = ($iIdx === $triggerIndex);
-                    $rawExpr = $usagesMap[$iIdx] ?? ($inData['qty_usage'] ?? 0);
-                    $qtyVal = self::evaluateMath($rawExpr);
+                    $rawExpr   = $usagesMap[$iIdx] ?? ($inData['qty_usage'] ?? 0);
+                    $qtyVal    = self::evaluateMath($rawExpr);
 
-                    if ($isTrigger && $qtyVal <= 0) {
-                        return back()->withInput()->with('error', 'Qty Usage untuk Material Trigger wajib lebih besar dari 0 pada setiap Target Output.');
+                    if ($isTrigger && ($qtyVal <= 0 || $qtyVal > Item::MAX_QTY)) {
+                        return back()->withInput()->with('error', 'Qty Usage untuk Material Trigger wajib valid (> 0 dan maksimal 99.999.999,99) pada setiap Target Output.');
+                    }
+
+                    if ($qtyVal > Item::MAX_QTY) {
+                        return back()->withInput()->with('error', 'Qty Usage pada Material Pendamping melebihi batas maksimal 99.999.999,99.');
                     }
 
                     if ($qtyVal > 0) {
@@ -229,6 +266,10 @@ class BomController extends Controller
                     }
                 }
             }
+        }
+
+        if ($this->hasCircularDependency($rowsToInsert)) {
+            return back()->withInput()->with('error', 'Resep BOM ditolak karena membentuk siklus melingkar (Circular BOM) antar item.');
         }
 
         DB::transaction(function () use ($rowsToInsert) {
@@ -291,5 +332,50 @@ class BomController extends Controller
         });
 
         return redirect()->route('boms.index')->with('success', 'Kelompok resep BOM berhasil dihapus.');
+    }
+
+    /**
+     * Deteksi apakah penambahan baris BOM baru membentuk siklus melingkar (langsung maupun tak langsung, mis. A -> B -> A).
+     *
+     * @param  array<int, array<string, mixed>>  $candidateRows
+     */
+    private function hasCircularDependency(array $candidateRows): bool
+    {
+        $adj = [];
+
+        foreach (Bom::select('input_item_id', 'output_item_id')->get() as $edge) {
+            $adj[(int) $edge->input_item_id][] = (int) $edge->output_item_id;
+        }
+
+        foreach ($candidateRows as $row) {
+            $adj[(int) $row['input_item_id']][] = (int) $row['output_item_id'];
+        }
+
+        foreach ($candidateRows as $row) {
+            $inId  = (int) $row['input_item_id'];
+            $outId = (int) $row['output_item_id'];
+
+            $visited = [];
+            $queue   = [$outId];
+
+            while (!empty($queue)) {
+                $curr = array_shift($queue);
+                if ($curr === $inId) {
+                    return true;
+                }
+                if (isset($visited[$curr])) {
+                    continue;
+                }
+                $visited[$curr] = true;
+
+                foreach ($adj[$curr] ?? [] as $next) {
+                    if (!isset($visited[$next])) {
+                        $queue[] = $next;
+                    }
+                }
+            }
+        }
+
+        return false;
     }
 }
