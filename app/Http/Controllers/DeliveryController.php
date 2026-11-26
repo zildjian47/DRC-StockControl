@@ -3,12 +3,14 @@
 namespace App\Http\Controllers;
 
 use App\Models\Delivery;
-use App\Models\Item;
 use App\Models\InventoryStock;
+use App\Models\Item;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\Rule;
 
 class DeliveryController extends Controller
 {
@@ -27,12 +29,12 @@ class DeliveryController extends Controller
                         'date'      => $dt->format('Y-m-d'),
                         'time'      => $dt->format('H:i'),
                         'date_fmt'  => $dt->format('d M Y, H:i'),
-                        'part_no'   => $s->item->part_no ?: '-',
-                        'part_name' => $s->item->part_name ?? '-',
-                        'uom'       => $s->item->uom ?? 'PCS',
-                        'company'   => $s->item->company->company_code ?? '-',
+                        'part_no'   => $s->item?->part_no ?: '-',
+                        'part_name' => $s->item?->part_name ?? '-',
+                        'uom'       => $s->item?->uom ?? 'PCS',
+                        'company'   => $s->item?->company?->company_code ?? '-',
                         'qty'       => (float) $s->qty,
-                        'user_name' => $s->user->name ?? 'Operator',
+                        'user_name' => $s->user?->name ?? 'Operator',
                     ];
                 })->values();
 
@@ -53,19 +55,15 @@ class DeliveryController extends Controller
     public function lookup(Request $request)
     {
         $rawCode = trim((string) $request->query('code', ''));
-        $code    = strtoupper($rawCode);
 
-        if ($code === '') {
+        if ($rawCode === '') {
             return response()->json([
                 'ok'      => false,
                 'message' => 'Kode QR / Part wajib diisi.',
             ]);
         }
 
-        $item = Item::with(['company', 'inventoryStock'])
-            ->where('part_no', $code)
-            ->orWhere('part_name', $code)
-            ->first();
+        $item = Item::findActiveByScanCode($rawCode, ['company', 'inventoryStock']);
 
         if (!$item) {
             return response()->json([
@@ -128,21 +126,25 @@ class DeliveryController extends Controller
     public function store(Request $request)
     {
         if (!$request->filled('item_id') && $request->filled('scanned_code')) {
-            $code = strtoupper(trim((string) $request->scanned_code));
-            $found = Item::where('part_no', $code)->orWhere('part_name', $code)->first();
+            $found = Item::findActiveByScanCode((string) $request->scanned_code);
             if ($found) {
                 $request->merge(['item_id' => $found->id]);
             }
         }
 
         $request->validate([
-            'item_id' => 'required|exists:items,id',
+            'item_id' => ['required', 'integer', Rule::exists('items', 'id')->whereNull('deleted_at')],
             'qty'     => 'required',
+        ], [
+            'item_id.exists' => 'Item tidak ditemukan atau sudah dinonaktifkan.',
         ]);
 
         $qty = round(BomController::evaluateMath($request->qty), 2);
         if ($qty <= 0) {
             return back()->withInput()->with('error', 'Qty harus lebih dari 0.');
+        }
+        if ($qty > Item::MAX_QTY) {
+            return back()->withInput()->with('error', 'Qty melebihi batas maksimal 99.999.999,99.');
         }
 
         $item = Item::with('company')->findOrFail($request->item_id);
@@ -183,7 +185,7 @@ class DeliveryController extends Controller
                     'qty_check' => 'TERCATAT',
                 ]);
 
-                $stock->current_stock = (float) $stock->current_stock - $qty;
+                $stock->current_stock = round((float) $stock->current_stock - $qty, 2);
                 $stock->status_stock  = $stock->calculateDynamicStatus();
                 $stock->save();
             });
@@ -202,36 +204,48 @@ class DeliveryController extends Controller
 
     public function verifyBatch(Request $request)
     {
-        $items = $request->input('items', []);
+        $items     = $request->input('items', []);
         $processed = 0;
 
         try {
             DB::transaction(function () use ($items, &$processed) {
                 foreach ($items as $id => $data) {
                     $rawActual = $data['actual_qty'] ?? null;
-                    $newQty = StockAdjustmentController::parseSignedCalculatorValue($rawActual);
+                    $newQty    = StockAdjustmentController::parseSignedCalculatorValue($rawActual);
                     if ($newQty === null || $newQty <= 0) {
                         throw new \RuntimeException('Format Qty koreksi tidak valid (wajib > 0).');
+                    }
+                    if ($newQty > Item::MAX_QTY) {
+                        throw new \RuntimeException('Qty koreksi melebihi batas maksimal 99.999.999,99.');
                     }
 
                     $notesRaw = trim((string) ($data['correction_notes'] ?? ''));
                     $notes    = $notesRaw !== '' ? mb_substr($notesRaw, 0, 500) : null;
 
-                    $delivery = Delivery::with('item')->lockForUpdate()->findOrFail($id);
+                    $delivery = Delivery::with('item')->lockForUpdate()->find($id);
+                    if (!$delivery) {
+                        throw new \RuntimeException('Data transaksi Delivery tidak ditemukan.');
+                    }
+
                     $oldQty   = (float) $delivery->qty;
-                    $diff     = $newQty - $oldQty;
+                    $diff     = round($newQty - $oldQty, 2);
+                    $partName = $delivery->item?->part_name ?? 'Item';
 
                     InventoryStock::firstOrCreate(
                         ['item_id' => $delivery->item_id],
                         ['current_stock' => 0, 'status_stock' => 'EMPTY STOCK']
                     );
-                    $stock = InventoryStock::where('item_id', $delivery->item_id)->lockForUpdate()->first();
+                    $stock     = InventoryStock::where('item_id', $delivery->item_id)->lockForUpdate()->first();
+                    $nextStock = round((float) $stock->current_stock - $diff, 2);
 
-                    if ($diff > 0 && $diff > (float) $stock->current_stock) {
-                        throw new \RuntimeException("Stok {$delivery->item->part_name} tidak cukup untuk koreksi.");
+                    if ($diff > 0 && $nextStock < 0) {
+                        throw new \RuntimeException("Stok {$partName} tidak cukup untuk koreksi.");
+                    }
+                    if ($nextStock > Item::MAX_QTY) {
+                        throw new \RuntimeException("Stok {$partName} melebihi batas maksimal 99.999.999,99.");
                     }
 
-                    $stock->current_stock = (float) $stock->current_stock - $diff;
+                    $stock->current_stock = $nextStock;
                     $stock->status_stock  = $stock->calculateDynamicStatus();
                     $stock->save();
 
@@ -248,8 +262,15 @@ class DeliveryController extends Controller
                     $processed++;
                 }
             });
-        } catch (\Throwable $e) {
+        } catch (\RuntimeException $e) {
             return back()->with('error', $e->getMessage());
+        } catch (\Throwable $e) {
+            Log::error('Gagal menyimpan koreksi Delivery.', [
+                'user_id' => Auth::id(),
+                'error'   => $e->getMessage(),
+            ]);
+
+            return back()->with('error', 'Terjadi kesalahan sistem saat menyimpan koreksi Delivery. Silakan coba lagi.');
         }
 
         if ($processed === 0) {

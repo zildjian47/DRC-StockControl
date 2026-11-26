@@ -2,11 +2,12 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\ProblemDelay;
 use App\Models\Company;
 use App\Models\Item;
+use App\Models\ProblemDelay;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Validation\Rule;
 
 class ProblemDelayController extends Controller
 {
@@ -83,9 +84,12 @@ class ProblemDelayController extends Controller
     {
         $request->validate([
             'incident_date'  => 'required|date',
-            'company_id'     => 'required|exists:companies,id',
-            'item_id'        => 'required|exists:items,id',
+            'company_id'     => ['required', 'integer', Rule::exists('companies', 'id')->whereNull('deleted_at')],
+            'item_id'        => ['required', 'integer', Rule::exists('items', 'id')->whereNull('deleted_at')],
             'problem_reason' => 'required|in:' . implode(',', self::REASONS),
+        ], [
+            'company_id.exists' => 'Perusahaan tidak ditemukan atau sudah dinonaktifkan.',
+            'item_id.exists'    => 'Item tidak ditemukan atau sudah dinonaktifkan.',
         ]);
 
         $company = Company::findOrFail($request->company_id);
@@ -121,9 +125,12 @@ class ProblemDelayController extends Controller
     {
         $request->validate([
             'incident_date'  => 'required|date',
-            'company_id'     => 'required|exists:companies,id',
-            'item_id'        => 'required|exists:items,id',
+            'company_id'     => ['required', 'integer', Rule::exists('companies', 'id')->whereNull('deleted_at')],
+            'item_id'        => ['required', 'integer', Rule::exists('items', 'id')->whereNull('deleted_at')],
             'problem_reason' => 'required|in:' . implode(',', self::REASONS),
+        ], [
+            'company_id.exists' => 'Perusahaan tidak ditemukan atau sudah dinonaktifkan.',
+            'item_id.exists'    => 'Item tidak ditemukan atau sudah dinonaktifkan.',
         ]);
 
         $company = Company::findOrFail($request->company_id);
@@ -155,7 +162,7 @@ class ProblemDelayController extends Controller
 
     public function destroy(ProblemDelay $problemDelay)
     {
-        $partName = $problemDelay->item->part_name ?? 'Item';
+        $partName = $problemDelay->item?->part_name ?? 'Item';
         $problemDelay->delete();
 
         return redirect()->route('problem_delays.index')
