@@ -11,7 +11,9 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 
 class MaterialReturnController extends Controller
 {
@@ -57,10 +59,10 @@ class MaterialReturnController extends Controller
             $groupRows = $allBoms->where('bom_group', $groupKey);
         } else {
             $groupRows = $allBoms->where('process_id', $triggerBom->process_id)
-                                 ->where('output_item_id', $triggerBom->output_item_id);
+                ->where('output_item_id', $triggerBom->output_item_id);
         }
 
-        $uIn = $groupRows->pluck('input_item_id')->unique()->count();
+        $uIn  = $groupRows->pluck('input_item_id')->unique()->count();
         $uOut = $groupRows->pluck('output_item_id')->unique()->count();
 
         if (($groupKey && str_starts_with($groupKey, 'CB-')) || ($uIn > 1 && $uOut > 1)) {
@@ -95,11 +97,11 @@ class MaterialReturnController extends Controller
                 ->get()
                 ->groupBy(fn ($r) => !empty($r->return_batch) ? $r->return_batch : ('LEGACY-' . $r->lot_number))
                 ->map(function ($rows, $batchKey) {
-                    $s = $rows->first();
-                    $dt = Carbon::parse($s->date_time);
+                    $s       = $rows->first();
+                    $dt      = Carbon::parse($s->date_time);
                     $targets = $rows->map(function ($r) {
-                        $no = $r->targetItem->part_no ?? '';
-                        $nm = $r->targetItem->part_name ?? '-';
+                        $no = $r->targetItem?->part_no ?? '';
+                        $nm = $r->targetItem?->part_name ?? '-';
                         return $no ? "{$no} — {$nm}" : $nm;
                     })->unique()->values()->implode(', ');
 
@@ -110,12 +112,12 @@ class MaterialReturnController extends Controller
                         'time'       => $dt->format('H:i'),
                         'date_fmt'   => $dt->format('d M Y, H:i'),
                         'lot_number' => $s->lot_number,
-                        'mat_no'     => $s->materialItem->part_no ?: '-',
-                        'mat_name'   => $s->materialItem->part_name ?? '-',
-                        'mat_uom'    => $s->materialItem->uom ?? '',
+                        'mat_no'     => $s->materialItem?->part_no ?: '-',
+                        'mat_name'   => $s->materialItem?->part_name ?? '-',
+                        'mat_uom'    => $s->materialItem?->uom ?? '',
                         'targets'    => $targets,
                         'qty'        => (float) $s->qty,
-                        'user_name'  => $s->user->name ?? 'Operator',
+                        'user_name'  => $s->user?->name ?? 'Operator',
                     ];
                 })->values();
 
@@ -130,10 +132,10 @@ class MaterialReturnController extends Controller
             ->get();
 
         foreach ($materialReturns as $row) {
-            $meta = $this->resolveBomMeta((int) $row->material_item_id, (int) $row->target_item_id, $allBoms, $row->bom_group);
+            $meta          = $this->resolveBomMeta((int) $row->material_item_id, (int) $row->target_item_id, $allBoms, $row->bom_group);
             $row->bom_type = $meta['bom_type'];
-            $rawEst = $meta['qty_usage'] > 0 ? ((float) $row->qty / $meta['qty_usage']) : 0;
-            $estRet = abs($rawEst - round($rawEst)) < 0.001 ? round($rawEst) : $rawEst;
+            $rawEst        = $meta['qty_usage'] > 0 ? ((float) $row->qty / $meta['qty_usage']) : 0;
+            $estRet        = abs($rawEst - round($rawEst)) < 0.001 ? round($rawEst) : $rawEst;
 
             $compList = [];
             foreach ($meta['companions'] as $comp) {
@@ -174,7 +176,7 @@ class MaterialReturnController extends Controller
             $lotFinishMap[$k]    = $lRows->contains('status_lot', 'FINISH');
         }
 
-        $maxAllowedMap = [];
+        $maxAllowedMap  = [];
         $groupedReturns = $materialReturns
             ->groupBy(fn ($r) => !empty($r->return_batch) ? $r->return_batch : ('LEGACY-' . $r->lot_number))
             ->map(function ($rows, $batchKey) use ($lotRemainingMap, $lotFinishMap, &$maxAllowedMap) {
@@ -196,28 +198,28 @@ class MaterialReturnController extends Controller
 
                 $outputs = $rows->map(fn ($r) => [
                     'id'        => $r->id,
-                    'part_no'   => $r->targetItem->part_no ?: '-',
-                    'part_name' => $r->targetItem->part_name ?? '-',
-                    'type'      => $r->targetItem->type ?? '-',
-                    'uom'       => $r->targetItem->uom ?? 'PCS',
+                    'part_no'   => $r->targetItem?->part_no ?: '-',
+                    'part_name' => $r->targetItem?->part_name ?? '-',
+                    'type'      => $r->targetItem?->type ?? '-',
+                    'uom'       => $r->targetItem?->uom ?? 'PCS',
                 ])->values();
 
                 $searchStr = strtolower(
                     $lotNo . ' ' .
                     $bomType . ' ' .
-                    ($first->user->name ?? 'Operator') . ' ' .
-                    ($first->materialItem->part_no ?? '') . ' ' .
-                    ($first->materialItem->part_name ?? '') . ' ' .
+                    ($first->user?->name ?? 'Operator') . ' ' .
+                    ($first->materialItem?->part_no ?? '') . ' ' .
+                    ($first->materialItem?->part_name ?? '') . ' ' .
                     collect($companionsMerged)->pluck('part_name')->implode(' ') . ' ' .
                     $outputs->pluck('part_no')->implode(' ') . ' ' .
                     $outputs->pluck('part_name')->implode(' ')
                 );
 
-                $isCorrected = $rows->contains('qty_check', 'DIKOREKSI');
-                $auditRow    = $rows->first(fn ($r) => $r->qty_check === 'DIKOREKSI') ?? $first;
-                $lotKey      = $lotNo . '|' . $first->material_item_id;
-                $thisQty     = (float) $first->qty;
-                $maxAllowed  = round($thisQty + (float) ($lotRemainingMap[$lotKey] ?? 0.0), 2);
+                $isCorrected              = $rows->contains('qty_check', 'DIKOREKSI');
+                $auditRow                 = $rows->first(fn ($r) => $r->qty_check === 'DIKOREKSI') ?? $first;
+                $lotKey                   = $lotNo . '|' . $first->material_item_id;
+                $thisQty                  = (float) $first->qty;
+                $maxAllowed               = round($thisQty + (float) ($lotRemainingMap[$lotKey] ?? 0.0), 2);
                 $maxAllowedMap[$batchKey] = $maxAllowed;
 
                 return [
@@ -233,7 +235,7 @@ class MaterialReturnController extends Controller
                     'max_allowed'       => $maxAllowed,
                     'lot_is_finish'     => (bool) ($lotFinishMap[$lotKey] ?? false),
                     'qty_original'      => $auditRow->qty_original !== null ? floatval($auditRow->qty_original) : null,
-                    'corrected_by_name' => $auditRow->correctedBy->name ?? null,
+                    'corrected_by_name' => $auditRow->correctedBy?->name ?? null,
                     'corrected_at_fmt'  => $auditRow->corrected_at ? Carbon::parse($auditRow->corrected_at)->format('d M Y, H:i') : null,
                     'correction_notes'  => $auditRow->correction_notes ?: null,
                     'search_index'      => $searchStr,
@@ -251,19 +253,15 @@ class MaterialReturnController extends Controller
     {
         $step    = (int) $request->query('step', 1);
         $rawCode = trim((string) $request->query('code', ''));
-        $code    = strtoupper($rawCode);
 
-        if ($code === '') {
+        if ($rawCode === '') {
             return response()->json([
                 'ok'      => false,
                 'message' => 'Kode QR / Part wajib diisi.',
             ]);
         }
 
-        $item = Item::with(['company', 'inventoryStock'])
-            ->where('part_no', $code)
-            ->orWhere('part_name', $code)
-            ->first();
+        $item = Item::findActiveByScanCode($rawCode, ['company', 'inventoryStock']);
 
         if (!$item) {
             return response()->json([
@@ -298,7 +296,7 @@ class MaterialReturnController extends Controller
                 ]);
             }
 
-            $allLotRows = LotTracer::whereIn('lot_number', $candidateLotNos)->get();
+            $allLotRows    = LotTracer::whereIn('lot_number', $candidateLotNos)->get();
             $hasReturnable = false;
 
             foreach ($allLotRows->groupBy('lot_number') as $lotRows) {
@@ -383,7 +381,7 @@ class MaterialReturnController extends Controller
                 continue;
             }
 
-            $targetRow = $lotRows->firstWhere('target_item_id', $item->id) ?? $first;
+            $targetRow     = $lotRows->firstWhere('target_item_id', $item->id) ?? $first;
             $lotsPayload[] = [
                 'id'               => $targetRow->id,
                 'lot_number'       => $lotNo,
@@ -391,8 +389,8 @@ class MaterialReturnController extends Controller
                 'target_item_id'   => $targetRow->target_item_id,
                 'mat_out'          => (float) $targetRow->qty_material_out,
                 'mat_saat_ini'     => $remMat,
-                'target_name'      => $targetRow->targetItem->part_name ?? $item->part_name,
-                'mat_uom'          => $targetRow->materialItem->uom ?? $materialItem->uom ?? '',
+                'target_name'      => $targetRow->targetItem?->part_name ?? $item->part_name,
+                'mat_uom'          => $targetRow->materialItem?->uom ?? $materialItem->uom ?? '',
             ];
         }
 
@@ -418,25 +416,32 @@ class MaterialReturnController extends Controller
         ]);
 
         $request->validate([
-            'material_item_id' => 'required|exists:items,id',
-            'target_item_id'   => 'required|exists:items,id',
+            'material_item_id' => ['required', 'integer', Rule::exists('items', 'id')->whereNull('deleted_at')],
+            'target_item_id'   => ['required', 'integer', Rule::exists('items', 'id')->whereNull('deleted_at')],
             'lot_number'       => 'required|string',
             'qty'              => 'required',
+        ], [
+            'material_item_id.exists' => 'Material Retur tidak ditemukan atau sudah dinonaktifkan.',
+            'target_item_id.exists'   => 'Target Output tidak ditemukan atau sudah dinonaktifkan.',
         ]);
 
         $qtyReturn = round(BomController::evaluateMath($request->qty), 2);
         if ($qtyReturn <= 0) {
             return back()->withInput()->with('error', 'Qty harus lebih dari 0.');
         }
+        if ($qtyReturn > Item::MAX_QTY) {
+            return back()->withInput()->with('error', 'Qty melebihi batas maksimal 99.999.999,99.');
+        }
 
         $allBoms = Bom::with('inputItem')->get();
-        $matUom = '';
+        $matUom  = '';
 
         try {
             DB::transaction(function () use ($request, $qtyReturn, $allBoms, &$matUom) {
                 $lotRows = LotTracer::with('materialItem')
                     ->where('lot_number', $request->lot_number)
                     ->where('material_item_id', $request->material_item_id)
+                    ->orderBy('id')
                     ->lockForUpdate()
                     ->get();
 
@@ -452,34 +457,82 @@ class MaterialReturnController extends Controller
                     throw new \RuntimeException('Target Output tidak sesuai dengan Lot yang dipilih.');
                 }
 
-                $matUom = $lotRows->first()?->materialItem?->uom ?? '';
+                // Preload konteks sibling & BOM di atas baris yang sudah terkunci (anti-N+1)
+                foreach ($lotRows as $lr) {
+                    $lr->setPreloadedContext($lotRows, $allBoms);
+                }
+
+                $matUom        = $lotRows->first()?->materialItem?->uom ?? '';
                 $maxReturnable = $lotRows->min(fn ($lt) => (float) $lt->material_saat_ini);
                 if ($qtyReturn > $maxReturnable + 0.0001) {
                     $availTxt = trim(floatval($maxReturnable) . ' ' . $matUom);
                     throw new \RuntimeException("Qty melebihi sisa material di mesin (tersedia {$availTxt}).");
                 }
 
-                InventoryStock::firstOrCreate(['item_id' => $request->material_item_id], ['current_stock' => 0]);
-                $matStock = InventoryStock::where('item_id', $request->material_item_id)->lockForUpdate()->first();
-                $matStock->increment('current_stock', $qtyReturn);
-                $matStock->refresh()->updateDynamicStatus();
-
-                $returnBatch = 'MR-' . now()->format('YmdHis') . '-' . strtoupper(Str::random(4));
+                // Hitung total penambahan komponen pendamping lintas target terlebih dahulu
+                $companionAdditions = [];
+                $lotMetas           = [];
 
                 foreach ($lotRows as $lot) {
-                    $meta = $this->resolveBomMeta((int) $lot->material_item_id, (int) $lot->target_item_id, $allBoms, $lot->bom_group);
-                    $rawEstRet = $meta['qty_usage'] > 0 ? ($qtyReturn / $meta['qty_usage']) : 0;
-                    $estReturnedTarget = abs($rawEstRet - round($rawEstRet)) < 0.001 ? round($rawEstRet) : $rawEstRet;
+                    $meta                = $this->resolveBomMeta((int) $lot->material_item_id, (int) $lot->target_item_id, $allBoms, $lot->bom_group);
+                    $lotMetas[$lot->id]  = $meta;
+                    $rawEstRet           = $meta['qty_usage'] > 0 ? ($qtyReturn / $meta['qty_usage']) : 0;
+                    $estReturnedTarget   = abs($rawEstRet - round($rawEstRet)) < 0.001 ? round($rawEstRet) : $rawEstRet;
 
                     foreach ($meta['companions'] as $compBom) {
                         $cAdd = round($estReturnedTarget * (float) $compBom->qty_usage, 2);
                         if ($cAdd > 0) {
-                            InventoryStock::firstOrCreate(['item_id' => $compBom->input_item_id], ['current_stock' => 0]);
-                            $cStock = InventoryStock::where('item_id', $compBom->input_item_id)->lockForUpdate()->first();
-                            $cStock->increment('current_stock', $cAdd);
-                            $cStock->refresh()->updateDynamicStatus();
+                            $cId                      = (int) $compBom->input_item_id;
+                            $companionAdditions[$cId] = round(($companionAdditions[$cId] ?? 0.0) + $cAdd, 2);
                         }
                     }
+                }
+
+                // Urutkan ID item sebelum lockForUpdate() untuk mencegah deadlock
+                $lockItemIds = array_values(array_unique(array_merge(
+                    [(int) $request->material_item_id],
+                    array_map('intval', array_keys($companionAdditions))
+                )));
+                sort($lockItemIds, SORT_NUMERIC);
+
+                $lockedStocks = [];
+                foreach ($lockItemIds as $itemId) {
+                    InventoryStock::firstOrCreate(
+                        ['item_id' => $itemId],
+                        ['current_stock' => 0, 'status_stock' => 'EMPTY STOCK']
+                    );
+                    $lockedStocks[$itemId] = InventoryStock::where('item_id', $itemId)->lockForUpdate()->first();
+                }
+
+                $matStock     = $lockedStocks[(int) $request->material_item_id];
+                $nextMatStock = round((float) $matStock->current_stock + $qtyReturn, 2);
+                if ($nextMatStock > Item::MAX_QTY) {
+                    throw new \RuntimeException('Total stok Material Trigger melebihi batas maksimal 99.999.999,99.');
+                }
+
+                foreach ($companionAdditions as $cId => $cAdd) {
+                    $cStock        = $lockedStocks[(int) $cId];
+                    $nextCompStock = round((float) $cStock->current_stock + $cAdd, 2);
+                    if ($nextCompStock > Item::MAX_QTY) {
+                        throw new \RuntimeException('Total stok komponen pendamping melebihi batas maksimal 99.999.999,99.');
+                    }
+                }
+
+                $matStock->current_stock = $nextMatStock;
+                $matStock->status_stock  = $matStock->calculateDynamicStatus();
+                $matStock->save();
+
+                foreach ($companionAdditions as $cId => $cAdd) {
+                    $cStock                = $lockedStocks[(int) $cId];
+                    $cStock->current_stock = round((float) $cStock->current_stock + $cAdd, 2);
+                    $cStock->status_stock  = $cStock->calculateDynamicStatus();
+                    $cStock->save();
+                }
+
+                $returnBatch = 'MR-' . now()->format('YmdHis') . '-' . strtoupper(Str::random(4));
+
+                foreach ($lotRows as $lot) {
+                    $meta = $lotMetas[$lot->id];
 
                     MaterialReturn::create([
                         'date_time'        => now(),
@@ -494,10 +547,10 @@ class MaterialReturnController extends Controller
                     ]);
 
                     $newTotalReturn = round((float) $lot->qty_material_return + $qtyReturn, 2);
-                    $newNetMat = max(0, (float) $lot->qty_material_out - $newTotalReturn);
-                    $rawEst = $meta['qty_usage'] > 0 ? ($newNetMat / $meta['qty_usage']) : 0;
-                    $newEst = abs($rawEst - round($rawEst)) < 0.001 ? round($rawEst) : round($rawEst, 2);
-                    $newWip = $lot->status_lot === 'FINISH' ? 0 : round(max(0, $newEst - (float) $lot->actual_qty_prod), 2);
+                    $newNetMat      = max(0, (float) $lot->qty_material_out - $newTotalReturn);
+                    $rawEst         = $meta['qty_usage'] > 0 ? ($newNetMat / $meta['qty_usage']) : 0;
+                    $newEst         = abs($rawEst - round($rawEst)) < 0.001 ? round($rawEst) : round($rawEst, 2);
+                    $newWip         = $lot->status_lot === 'FINISH' ? 0 : round(max(0, $newEst - (float) $lot->actual_qty_prod), 2);
 
                     $lot->update([
                         'qty_material_return' => $newTotalReturn,
@@ -510,7 +563,7 @@ class MaterialReturnController extends Controller
             return back()->withInput()->with('error', $e->getMessage());
         }
 
-        $qtyTxt = trim('+' . floatval($qtyReturn) . ' ' . $matUom);
+        $qtyTxt         = trim('+' . floatval($qtyReturn) . ' ' . $matUom);
         $redirectParams = $request->input('mode') === 'scanner' ? ['mode' => 'scanner'] : [];
         return redirect()->route('material_returns.index', $redirectParams)
             ->with('success', "Material Return Lot {$request->lot_number} ({$qtyTxt}) tersimpan.");
@@ -523,144 +576,194 @@ class MaterialReturnController extends Controller
             return back()->with('error', 'Tidak ada koreksi yang disimpan.');
         }
 
-        $allBoms = Bom::all();
+        $allBoms   = Bom::all();
         $processed = 0;
 
         try {
             DB::transaction(function () use ($items, $allBoms, &$processed) {
                 foreach ($items as $id => $data) {
-                    $status = $data['qty_check'] ?? null;
-                    if (!$status) {
-                        continue;
+                    $newQty = StockAdjustmentController::parseSignedCalculatorValue($data['actual_qty'] ?? null);
+                    if ($newQty === null || $newQty <= 0) {
+                        throw new \RuntimeException('Format Qty koreksi tidak valid (wajib > 0).');
+                    }
+                    if ($newQty > Item::MAX_QTY) {
+                        throw new \RuntimeException('Qty koreksi melebihi batas maksimal 99.999.999,99.');
                     }
 
-                    $matRet = MaterialReturn::lockForUpdate()->findOrFail($id);
+                    $notesRaw = trim((string) ($data['correction_notes'] ?? ''));
+                    $notes    = $notesRaw !== '' ? mb_substr($notesRaw, 0, 500) : null;
 
-                    if ($status === 'DIKOREKSI') {
-                        $newQty = StockAdjustmentController::parseSignedCalculatorValue($data['actual_qty'] ?? null);
-                        if ($newQty === null || $newQty <= 0) {
-                            throw new \RuntimeException('Format Qty koreksi tidak valid (wajib > 0).');
+                    $matRet = MaterialReturn::lockForUpdate()->find($id);
+                    if (!$matRet) {
+                        throw new \RuntimeException('Data transaksi Material Return tidak ditemukan.');
+                    }
+
+                    $lotRows = LotTracer::where('lot_number', $matRet->lot_number)
+                        ->where('material_item_id', $matRet->material_item_id)
+                        ->orderBy('id')
+                        ->lockForUpdate()
+                        ->get();
+
+                    if ($lotRows->contains('status_lot', 'FINISH')) {
+                        throw new \RuntimeException("Lot {$matRet->lot_number} sudah berstatus FINISH sehingga Material Return tidak dapat dikoreksi.");
+                    }
+
+                    $oldQty      = (float) $matRet->qty;
+                    $diffTrigger = round($newQty - $oldQty, 2);
+
+                    foreach ($lotRows as $lt) {
+                        $meta         = $this->resolveBomMeta((int) $lt->material_item_id, (int) $lt->target_item_id, $allBoms, $lt->bom_group);
+                        $usedByProd   = (float) $lt->actual_qty_prod * $meta['qty_usage'];
+                        $otherReturns = max(0, (float) $lt->qty_material_return - $oldQty);
+                        $maxAllowed   = max(0, round((float) $lt->qty_material_out - $usedByProd - $otherReturns, 2));
+                        if ($newQty > $maxAllowed + 0.0001) {
+                            throw new \RuntimeException('Qty koreksi melebihi sisa material belum diproduksi (maksimal ' . floatval($maxAllowed) . ').');
                         }
+                    }
 
-                        $notesRaw = trim((string) ($data['correction_notes'] ?? ''));
-                        $notes    = $notesRaw !== '' ? mb_substr($notesRaw, 0, 500) : null;
-
-                        $lotRows = LotTracer::where('lot_number', $matRet->lot_number)
-                            ->where('material_item_id', $matRet->material_item_id)
-                            ->lockForUpdate()
-                            ->get();
-
-                        if ($lotRows->contains('status_lot', 'FINISH')) {
-                            throw new \RuntimeException("Lot {$matRet->lot_number} sudah berstatus FINISH sehingga Material Return tidak dapat dikoreksi.");
-                        }
-
-                        $oldQty = (float) $matRet->qty;
-                        $diffTrigger = round($newQty - $oldQty, 2);
-
-                        foreach ($lotRows as $lt) {
-                            $meta         = $this->resolveBomMeta((int) $lt->material_item_id, (int) $lt->target_item_id, $allBoms, $lt->bom_group);
-                            $usedByProd   = (float) $lt->actual_qty_prod * $meta['qty_usage'];
-                            $otherReturns = max(0, (float) $lt->qty_material_return - $oldQty);
-                            $maxAllowed   = max(0, round((float) $lt->qty_material_out - $usedByProd - $otherReturns, 2));
-                            if ($newQty > $maxAllowed + 0.0001) {
-                                throw new \RuntimeException('Qty koreksi melebihi sisa material belum diproduksi (maksimal ' . floatval($maxAllowed) . ').');
-                            }
-                        }
-
-                        $siblingQuery = MaterialReturn::where('lot_number', $matRet->lot_number)
-                            ->where('material_item_id', $matRet->material_item_id);
-                        if (!empty($matRet->return_batch)) {
-                            $siblingQuery->where('return_batch', $matRet->return_batch);
-                        } else {
-                            $siblingQuery->whereNull('return_batch');
-                        }
-                        $siblingRets = $siblingQuery->lockForUpdate()->get();
-
-                        if ($diffTrigger != 0) {
-                            InventoryStock::firstOrCreate(['item_id' => $matRet->material_item_id], ['current_stock' => 0]);
-                            $matStock = InventoryStock::where('item_id', $matRet->material_item_id)->lockForUpdate()->first();
-                            if ($diffTrigger < 0 && (float) $matStock->current_stock < abs($diffTrigger)) {
-                                throw new \RuntimeException('Stok gudang tidak cukup untuk koreksi return.');
-                            }
-
-                            foreach ($siblingRets as $sib) {
-                                $meta      = $this->resolveBomMeta((int) $sib->material_item_id, (int) $sib->target_item_id, $allBoms, $sib->bom_group);
-                                $rawOldEst = $meta['qty_usage'] > 0 ? ($oldQty / $meta['qty_usage']) : 0;
-                                $oldEst    = abs($rawOldEst - round($rawOldEst)) < 0.001 ? round($rawOldEst) : $rawOldEst;
-                                $rawNewEst = $meta['qty_usage'] > 0 ? ($newQty / $meta['qty_usage']) : 0;
-                                $newEst    = abs($rawNewEst - round($rawNewEst)) < 0.001 ? round($rawNewEst) : $rawNewEst;
-
-                                foreach ($meta['companions'] as $compBom) {
-                                    $oldComp  = round($oldEst * (float) $compBom->qty_usage, 2);
-                                    $newComp  = round($newEst * (float) $compBom->qty_usage, 2);
-                                    $diffComp = round($newComp - $oldComp, 2);
-
-                                    if ($diffComp != 0) {
-                                        InventoryStock::firstOrCreate(['item_id' => $compBom->input_item_id], ['current_stock' => 0]);
-                                        $cStock = InventoryStock::where('item_id', $compBom->input_item_id)->lockForUpdate()->first();
-                                        if ($diffComp < 0 && (float) $cStock->current_stock < abs($diffComp)) {
-                                            throw new \RuntimeException('Stok komponen pendamping di gudang tidak cukup untuk koreksi return.');
-                                        }
-                                        $cStock->increment('current_stock', $diffComp);
-                                        $cStock->refresh()->updateDynamicStatus();
-                                    }
-                                }
-
-                                $updatePayload = [
-                                    'qty'              => $newQty,
-                                    'qty_check'        => 'DIKOREKSI',
-                                    'corrected_by'     => Auth::id(),
-                                    'corrected_at'     => now(),
-                                    'correction_notes' => $notes,
-                                ];
-                                if ($sib->qty_original === null) {
-                                    $updatePayload['qty_original'] = (float) $sib->qty;
-                                }
-                                $sib->update($updatePayload);
-
-                                $lot = $lotRows->firstWhere('target_item_id', $sib->target_item_id);
-
-                                if ($lot) {
-                                    $newTotalReturn = max(0, round((float) $lot->qty_material_return + $diffTrigger, 2));
-                                    $netMat         = max(0, (float) $lot->qty_material_out - $newTotalReturn);
-                                    $rawEst         = $meta['qty_usage'] > 0 ? ($netMat / $meta['qty_usage']) : 0;
-                                    $estTarget      = abs($rawEst - round($rawEst)) < 0.001 ? round($rawEst) : round($rawEst, 2);
-                                    $wip            = $lot->status_lot === 'FINISH' ? 0 : round(max(0, $estTarget - (float) $lot->actual_qty_prod), 2);
-
-                                    $lot->update([
-                                        'qty_material_return' => $newTotalReturn,
-                                        'target_qty_estimasi' => $estTarget,
-                                        'qty_wip'             => $wip,
-                                    ]);
-                                }
-                            }
-
-                            $matStock->increment('current_stock', $diffTrigger);
-                            $matStock->refresh()->updateDynamicStatus();
-                        } else {
-                            foreach ($siblingRets as $sib) {
-                                $updatePayload = [
-                                    'qty_check'        => 'DIKOREKSI',
-                                    'corrected_by'     => Auth::id(),
-                                    'corrected_at'     => now(),
-                                    'correction_notes' => $notes,
-                                ];
-                                if ($sib->qty_original === null) {
-                                    $updatePayload['qty_original'] = (float) $sib->qty;
-                                }
-                                $sib->update($updatePayload);
-                            }
-                        }
-
-                        $processed++;
+                    $siblingQuery = MaterialReturn::where('lot_number', $matRet->lot_number)
+                        ->where('material_item_id', $matRet->material_item_id);
+                    if (!empty($matRet->return_batch)) {
+                        $siblingQuery->where('return_batch', $matRet->return_batch);
                     } else {
-                        $matRet->update(['qty_check' => 'TERCATAT']);
-                        $processed++;
+                        $siblingQuery->whereNull('return_batch');
                     }
+                    $siblingRets = $siblingQuery->orderBy('id')->lockForUpdate()->get();
+
+                    if ($diffTrigger != 0) {
+                        $companionDiffs = [];
+                        $siblingMetas   = [];
+
+                        foreach ($siblingRets as $sib) {
+                            $meta                   = $this->resolveBomMeta((int) $sib->material_item_id, (int) $sib->target_item_id, $allBoms, $sib->bom_group);
+                            $siblingMetas[$sib->id] = $meta;
+
+                            $rawOldEst = $meta['qty_usage'] > 0 ? ($oldQty / $meta['qty_usage']) : 0;
+                            $oldEst    = abs($rawOldEst - round($rawOldEst)) < 0.001 ? round($rawOldEst) : $rawOldEst;
+                            $rawNewEst = $meta['qty_usage'] > 0 ? ($newQty / $meta['qty_usage']) : 0;
+                            $newEst    = abs($rawNewEst - round($rawNewEst)) < 0.001 ? round($rawNewEst) : $rawNewEst;
+
+                            foreach ($meta['companions'] as $compBom) {
+                                $oldComp  = round($oldEst * (float) $compBom->qty_usage, 2);
+                                $newComp  = round($newEst * (float) $compBom->qty_usage, 2);
+                                $diffComp = round($newComp - $oldComp, 2);
+                                if ($diffComp != 0) {
+                                    $cId                  = (int) $compBom->input_item_id;
+                                    $companionDiffs[$cId] = round(($companionDiffs[$cId] ?? 0.0) + $diffComp, 2);
+                                }
+                            }
+                        }
+
+                        // Urutkan ID item sebelum lockForUpdate() untuk mencegah deadlock
+                        $lockItemIds = array_values(array_unique(array_merge(
+                            [(int) $matRet->material_item_id],
+                            array_map('intval', array_keys($companionDiffs))
+                        )));
+                        sort($lockItemIds, SORT_NUMERIC);
+
+                        $lockedStocks = [];
+                        foreach ($lockItemIds as $itemId) {
+                            InventoryStock::firstOrCreate(
+                                ['item_id' => $itemId],
+                                ['current_stock' => 0, 'status_stock' => 'EMPTY STOCK']
+                            );
+                            $lockedStocks[$itemId] = InventoryStock::where('item_id', $itemId)->lockForUpdate()->first();
+                        }
+
+                        $matStock     = $lockedStocks[(int) $matRet->material_item_id];
+                        $nextMatStock = round((float) $matStock->current_stock + $diffTrigger, 2);
+                        if ($diffTrigger < 0 && $nextMatStock < 0) {
+                            throw new \RuntimeException('Stok gudang tidak cukup untuk koreksi return.');
+                        }
+                        if ($nextMatStock > Item::MAX_QTY) {
+                            throw new \RuntimeException('Stok gudang melebihi batas maksimal 99.999.999,99.');
+                        }
+
+                        foreach ($companionDiffs as $cId => $diffComp) {
+                            if ($diffComp == 0) {
+                                continue;
+                            }
+                            $cStock        = $lockedStocks[(int) $cId];
+                            $nextCompStock = round((float) $cStock->current_stock + $diffComp, 2);
+                            if ($diffComp < 0 && $nextCompStock < 0) {
+                                throw new \RuntimeException('Stok komponen pendamping di gudang tidak cukup untuk koreksi return.');
+                            }
+                            if ($nextCompStock > Item::MAX_QTY) {
+                                throw new \RuntimeException('Stok komponen pendamping di gudang melebihi batas maksimal 99.999.999,99.');
+                            }
+                        }
+
+                        $matStock->current_stock = $nextMatStock;
+                        $matStock->status_stock  = $matStock->calculateDynamicStatus();
+                        $matStock->save();
+
+                        foreach ($companionDiffs as $cId => $diffComp) {
+                            if ($diffComp == 0) {
+                                continue;
+                            }
+                            $cStock                = $lockedStocks[(int) $cId];
+                            $cStock->current_stock = round((float) $cStock->current_stock + $diffComp, 2);
+                            $cStock->status_stock  = $cStock->calculateDynamicStatus();
+                            $cStock->save();
+                        }
+
+                        foreach ($siblingRets as $sib) {
+                            $meta = $siblingMetas[$sib->id];
+
+                            $updatePayload = [
+                                'qty'              => $newQty,
+                                'qty_check'        => 'DIKOREKSI',
+                                'corrected_by'     => Auth::id(),
+                                'corrected_at'     => now(),
+                                'correction_notes' => $notes,
+                            ];
+                            if ($sib->qty_original === null) {
+                                $updatePayload['qty_original'] = (float) $sib->qty;
+                            }
+                            $sib->update($updatePayload);
+
+                            $lot = $lotRows->firstWhere('target_item_id', $sib->target_item_id);
+                            if ($lot) {
+                                $newTotalReturn = max(0, round((float) $lot->qty_material_return + $diffTrigger, 2));
+                                $netMat         = max(0, (float) $lot->qty_material_out - $newTotalReturn);
+                                $rawEst         = $meta['qty_usage'] > 0 ? ($netMat / $meta['qty_usage']) : 0;
+                                $estTarget      = abs($rawEst - round($rawEst)) < 0.001 ? round($rawEst) : round($rawEst, 2);
+                                $wip            = $lot->status_lot === 'FINISH' ? 0 : round(max(0, $estTarget - (float) $lot->actual_qty_prod), 2);
+
+                                $lot->update([
+                                    'qty_material_return' => $newTotalReturn,
+                                    'target_qty_estimasi' => $estTarget,
+                                    'qty_wip'             => $wip,
+                                ]);
+                            }
+                        }
+                    } else {
+                        foreach ($siblingRets as $sib) {
+                            $updatePayload = [
+                                'qty_check'        => 'DIKOREKSI',
+                                'corrected_by'     => Auth::id(),
+                                'corrected_at'     => now(),
+                                'correction_notes' => $notes,
+                            ];
+                            if ($sib->qty_original === null) {
+                                $updatePayload['qty_original'] = (float) $sib->qty;
+                            }
+                            $sib->update($updatePayload);
+                        }
+                    }
+
+                    $processed++;
                 }
             });
-        } catch (\Throwable $e) {
+        } catch (\RuntimeException $e) {
             return back()->with('error', $e->getMessage());
+        } catch (\Throwable $e) {
+            Log::error('Gagal menyimpan koreksi Material Return.', [
+                'user_id' => Auth::id(),
+                'error'   => $e->getMessage(),
+            ]);
+
+            return back()->with('error', 'Terjadi kesalahan sistem saat menyimpan koreksi Material Return. Silakan coba lagi.');
         }
 
         if ($processed === 0) {
