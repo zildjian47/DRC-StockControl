@@ -32,6 +32,7 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
+            gap: 8px;
             height: 54px;
             padding: 0 14px;
             background: var(--side);
@@ -82,16 +83,16 @@
             </div>
         </div>
 
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 flex-none">
             @if ($user->isPpic())
                 <a href="{{ route('dashboard') }}"
-                   class="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded bg-white/10 text-white hover:bg-white/20">
+                   class="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded bg-white/10 text-white hover:bg-white/20 whitespace-nowrap">
                     <x-icon name="grid" />
                     <span>Desktop</span>
                 </a>
             @endif
             <a href="{{ route('profile.edit') }}"
-               class="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded bg-white/10 text-slate-100 hover:bg-white/20">
+               class="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded bg-white/10 text-slate-100 hover:bg-white/20 whitespace-nowrap">
                 <span>Profil</span>
             </a>
         </div>

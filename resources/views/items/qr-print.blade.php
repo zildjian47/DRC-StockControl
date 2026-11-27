@@ -148,6 +148,10 @@
             border-top: 1px dashed #CBD5E1;
         }
 
+        @page {
+            margin: 8mm;
+        }
+
         @media print {
             body {
                 background: #FFFFFF !important;
@@ -246,7 +250,7 @@
                 <x-icon name="alert" />
                 <div>
                     Anda sedang mencetak dari alamat lokal / tunnel sementara (<b class="num">{{ $currentUrl }}</b>).
-                    Stiker QR ini <b>tetap kebal ganti domain</b> saat dipindai lewat menu <b>Cek Info Stok</b> di dalam aplikasi,
+                    Stiker QR ini <b>tetap kebal ganti domain</b> saat dipindai lewat menu <b>Cek Info Stok</b> maupun seluruh modul scanner di dalam aplikasi,
                     namun untuk scan langsung lewat kamera bawaan HP, cetak ulang setelah domain permanen pabrik aktif.
                 </div>
             </div>

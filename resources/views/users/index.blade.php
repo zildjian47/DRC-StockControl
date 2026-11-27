@@ -3,11 +3,11 @@
         <x-page-header title="Manajemen User"
                        subtitle="Verifikasi & ACC pendaftar akun baru, pengaturan role divisi (PPIC, Staff Material, Staff FG), penonaktifan akun, dan kirim tautan reset password">
             <x-slot name="actions">
-                <span class="btn-group">
+                <div class="flex flex-wrap items-center gap-1.5">
                     <span class="pill pill-warn">{{ $pendingCount }} MENUNGGU ACC</span>
                     <span class="pill pill-good">{{ $activeCount }} AKTIF</span>
                     <span class="pill pill-neu">{{ $inactiveCount }} NONAKTIF</span>
-                </span>
+                </div>
             </x-slot>
         </x-page-header>
     </x-slot>
@@ -66,10 +66,10 @@
                     </tr>
                 </thead>
                 <tbody>
-                    @forelse($users as $idx =>$usr)
+                    @forelse($users as $idx => $usr)
                         @php
-                            $isSelf       = (int)$usr->id === (int) Auth::id();
-                            $status       =$usr->status ?? 'ACTIVE';
+                            $isSelf       = (int) $usr->id === (int) Auth::id();
+                            $status       = $usr->status ?? 'ACTIVE';
                             $reqRoleLabel = match ($usr->requested_role) {
                                 'STAFF_MATERIAL' => 'Staff Material',
                                 'STAFF_FG'       => 'Staff FG',
@@ -94,7 +94,7 @@
                             ];
                         @endphp
                         <tr data-row
-                            data-search="{{ strtolower($usr->name . ' ' . ($usr->username ?? '') . ' ' . $usr->email . ' ' .$usr->role_label) }}"
+                            data-search="{{ strtolower($usr->name . ' ' . ($usr->username ?? '') . ' ' . $usr->email . ' ' . $usr->role_label) }}"
                             data-status="{{ $status }}"
                             data-role="{{ $usr->role }}"
                             x-show="matchRow($el)">
@@ -160,7 +160,7 @@
                                         </button>
 
                                         <form action="{{ route('users.destroy', $usr->id) }}" method="POST" class="inline"
-                                              @submit.prevent="$dispatch('open-confirm', { form:$el, title: 'Tolak Pendaftaran Akun', message: {{ Js::from('Tolak dan hapus pendaftaran atas nama ' . $usr->name . ' (' .$usr->email . ')?') }} })">
+                                              @submit.prevent="$dispatch('open-confirm', { form: $el, title: 'Tolak Pendaftaran Akun', message: {{ Js::from('Tolak dan hapus pendaftaran atas nama ' . $usr->name . ' (' . $usr->email . ')?') }} })">
                                             @csrf
                                             @method('DELETE')
                                             <button type="submit" class="act-btn danger" title="Tolak & Hapus Pendaftar">
@@ -175,7 +175,7 @@
 
                                         @if($status === 'ACTIVE')
                                             <form action="{{ route('users.send_reset_link', $usr->id) }}" method="POST" class="inline"
-                                                  @submit.prevent="$dispatch('open-confirm', { form:$el, title: 'Kirim Tautan Reset Password', message: {{ Js::from('Kirim email tautan reset password ke ' . $usr->email . ' atas nama ' .$usr->name . '?') }} })">
+                                                  @submit.prevent="$dispatch('open-confirm', { form: $el, title: 'Kirim Tautan Reset Password', message: {{ Js::from('Kirim email tautan reset password ke ' . $usr->email . ' atas nama ' . $usr->name . '?') }} })">
                                                 @csrf
                                                 <button type="submit" class="btn btn-sm whitespace-nowrap" title="Kirim tautan reset password ke Gmail pengguna">
                                                     <span>Reset PW</span>
@@ -214,7 +214,7 @@
                             <div class="sumc">
                                 <span class="pill pill-warn w-fit">MENUNGGU ACC</span>
                                 <div class="dlg-name mt-2" x-text="approveData.name"></div>
-                                <div class="num text-xs text-slate-600 mt-0.5" x-text="'@' + approveData.username"></div>
+                                <div class="num text-xs text-slate-600 mt-0.5" x-text="approveData.username ? '@' + approveData.username : '-'"></div>
                                 <div class="text-xs text-slate-500 break-all mt-1" x-text="approveData.email"></div>
                             </div>
                             <div class="dlg-list">

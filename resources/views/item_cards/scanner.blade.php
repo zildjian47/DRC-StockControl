@@ -90,9 +90,6 @@
                     if (window.DRCScanner && window.DRCScanner.isPermitted()) {
                         this.startCamera();
                     }
-                    window.addEventListener('beforeunload', () => {
-                        if (window.DRCScanner) window.DRCScanner.stop();
-                    });
                 },
 
                 async startCamera() {
@@ -144,6 +141,23 @@
                                 'X-Requested-With': 'XMLHttpRequest'
                             }
                         });
+
+                        if (res.redirected || res.status === 401 || res.status === 419) {
+                            if (window.DRCToast) {
+                                window.DRCToast.show('Sesi habis, silakan muat ulang halaman untuk masuk kembali.', 'crit');
+                            }
+                            this.loading = false;
+                            return;
+                        }
+
+                        const contentType = res.headers.get('content-type') || '';
+                        if (!contentType.includes('application/json')) {
+                            if (window.DRCToast) {
+                                window.DRCToast.show('Sesi habis atau respons server tidak valid. Silakan muat ulang halaman.', 'crit');
+                            }
+                            this.loading = false;
+                            return;
+                        }
 
                         const data = await res.json();
                         if (!res.ok || !data.ok || !data.url) {

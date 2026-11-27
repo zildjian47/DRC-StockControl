@@ -18,10 +18,13 @@
             'id'   => $p->id,
             'name' => strtoupper(trim((string) $p->process_name)),
         ])->values();
+
+        $reopenAdd  = $errors->any() && old('_modal') === 'add';
+        $oldAddName = $reopenAdd ? strtoupper((string) old('process_name', '')) : '';
     @endphp
 
     <div class="panel"
-         x-data="processPage({{ $processes->count() }}, {{ Js::from($processesJs) }}, {{ $errors->any() ? 'true' : 'false' }})"
+         x-data="processPage({{ $processes->count() }}, {{ Js::from($processesJs) }}, {{ $reopenAdd ? 'true' : 'false' }}, {{ Js::from($oldAddName) }})"
          @open-add-process.window="addOpen = true; addError = ''"
          x-init="recalc()"
          @table-refreshed.window="recalc()">
@@ -98,6 +101,7 @@
                       @submit.prevent="submitAdd($el)"
                       class="flex flex-col min-h-0 flex-1">
                     @csrf
+                    <input type="hidden" name="_modal" value="add">
                     <div class="dlg-split">
                         <aside class="dlg-side">
                             <div class="dlg-k">Proses terdaftar ({{ $processes->count() }})</div>
@@ -186,12 +190,12 @@
     </div>
 
     <script>
-        function processPage(initialCount, existingProcesses, openInitially) {
+        function processPage(initialCount, existingProcesses, openInitially, oldAddName) {
             return {
                 q: '',
                 existingProcesses: existingProcesses || [],
                 addOpen: openInitially,
-                addName: '',
+                addName: oldAddName || '',
                 addError: '',
                 editOpen: false,
                 editId: null,

@@ -19,10 +19,17 @@
             'code' => strtoupper(trim((string) $c->company_code)),
             'type' => strtoupper(trim((string) $c->type_company)),
         ])->values();
+
+        $reopenAdd = $errors->any() && old('_modal') === 'add';
+        $oldAddPayload = [
+            'code' => $reopenAdd ? strtoupper((string) old('company_code', '')) : '',
+            'name' => $reopenAdd ? (string) old('company_name', '') : '',
+            'type' => $reopenAdd ? strtoupper((string) old('type_company', 'SUPPLIER')) : 'SUPPLIER',
+        ];
     @endphp
 
     <div class="panel"
-         x-data="companyPage({{ $companies->count() }}, {{ Js::from($companiesJs) }}, {{ $errors->any() ? 'true' : 'false' }})"
+         x-data="companyPage({{ $companies->count() }}, {{ Js::from($companiesJs) }}, {{ $reopenAdd ? 'true' : 'false' }}, {{ Js::from($oldAddPayload) }})"
          @open-add-company.window="addOpen = true; addError = ''"
          x-init="recalc()"
          @table-refreshed.window="recalc()">
@@ -119,12 +126,13 @@
                       @submit.prevent="submitAdd($el)"
                       class="flex flex-col min-h-0 flex-1">
                     @csrf
+                    <input type="hidden" name="_modal" value="add">
                     <div class="dlg-split">
                         <aside class="dlg-side">
                             <div class="dlg-k">Pratinjau</div>
-                            <div class="mono-tile num" x-text="(addCode || '?').slice(0, 3)"></div>
+                            <div class="mono-tile num uppercase" x-text="(addCode || '?').slice(0, 3)"></div>
                             <div>
-                                <div class="dlg-code num" x-text="addCode || '–'"></div>
+                                <div class="dlg-code num uppercase" x-text="addCode || '–'"></div>
                                 <div class="dlg-name" x-text="addName || 'Nama perusahaan'"></div>
                             </div>
                             <div>
@@ -138,26 +146,26 @@
                                 <span x-text="addError"></span>
                             </div>
 
-                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <div>
-                                    <label class="lbl" for="add_co_code">Kode Perusahaan (Otomatis Kapital)</label>
-                                    <input id="add_co_code" type="text" name="company_code" x-model="addCode" required
-                                           placeholder="Contoh: DPM"
-                                           oninput="this.value = this.value.toUpperCase()"
-                                           class="num uppercase w-full h-9">
-                                </div>
-                                <div>
-                                    <span class="lbl">Tipe Perusahaan</span>
-                                    <div class="opt-chips">
-                                        @foreach(['SUPPLIER', 'INTERNAL', 'CUSTOMER'] as $t)
-                                            <label>
-                                                <input type="radio" name="type_company" value="{{ $t }}" x-model="addType" required>
-                                                <span>{{ $t }}</span>
-                                            </label>
-                                        @endforeach
-                                    </div>
+                            <div>
+                                <label class="lbl" for="add_co_code">Kode Perusahaan (Otomatis Kapital)</label>
+                                <input id="add_co_code" type="text" name="company_code" x-model="addCode" required
+                                       placeholder="Contoh: DPM"
+                                       oninput="this.value = this.value.toUpperCase()"
+                                       class="num uppercase w-full h-9">
+                            </div>
+
+                            <div>
+                                <span class="lbl">Tipe Perusahaan</span>
+                                <div class="opt-chips">
+                                    @foreach(['SUPPLIER', 'INTERNAL', 'CUSTOMER'] as $t)
+                                        <label>
+                                            <input type="radio" name="type_company" value="{{ $t }}" x-model="addType" required>
+                                            <span>{{ $t }}</span>
+                                        </label>
+                                    @endforeach
                                 </div>
                             </div>
+
                             <div>
                                 <label class="lbl" for="add_co_name">Nama Lengkap Perusahaan</label>
                                 <input id="add_co_name" type="text" name="company_name" x-model="addName" required
@@ -193,9 +201,9 @@
                     <div class="dlg-split">
                         <aside class="dlg-side">
                             <div class="dlg-k">Pratinjau</div>
-                            <div class="mono-tile num" x-text="(editCode || '?').slice(0, 3)"></div>
+                            <div class="mono-tile num uppercase" x-text="(editCode || '?').slice(0, 3)"></div>
                             <div>
-                                <div class="dlg-code num" x-text="editCode || '–'"></div>
+                                <div class="dlg-code num uppercase" x-text="editCode || '–'"></div>
                                 <div class="dlg-name" x-text="editName || 'Nama perusahaan'"></div>
                             </div>
                             <div>
@@ -209,25 +217,25 @@
                                 <span x-text="editError"></span>
                             </div>
 
-                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <div>
-                                    <label class="lbl" for="edit_co_code">Kode Perusahaan</label>
-                                    <input id="edit_co_code" type="text" name="company_code" x-model="editCode" required
-                                           oninput="this.value = this.value.toUpperCase()"
-                                           class="num uppercase w-full h-9">
-                                </div>
-                                <div>
-                                    <span class="lbl">Tipe Perusahaan</span>
-                                    <div class="opt-chips">
-                                        @foreach(['SUPPLIER', 'INTERNAL', 'CUSTOMER'] as $t)
-                                            <label>
-                                                <input type="radio" name="type_company" value="{{ $t }}" x-model="editType" required>
-                                                <span>{{ $t }}</span>
-                                            </label>
-                                        @endforeach
-                                    </div>
+                            <div>
+                                <label class="lbl" for="edit_co_code">Kode Perusahaan</label>
+                                <input id="edit_co_code" type="text" name="company_code" x-model="editCode" required
+                                       oninput="this.value = this.value.toUpperCase()"
+                                       class="num uppercase w-full h-9">
+                            </div>
+
+                            <div>
+                                <span class="lbl">Tipe Perusahaan</span>
+                                <div class="opt-chips">
+                                    @foreach(['SUPPLIER', 'INTERNAL', 'CUSTOMER'] as $t)
+                                        <label>
+                                            <input type="radio" name="type_company" value="{{ $t }}" x-model="editType" required>
+                                            <span>{{ $t }}</span>
+                                        </label>
+                                    @endforeach
                                 </div>
                             </div>
+
                             <div>
                                 <label class="lbl" for="edit_co_name">Nama Lengkap Perusahaan</label>
                                 <input id="edit_co_name" type="text" name="company_name" x-model="editName" required class="w-full h-9">
@@ -245,15 +253,15 @@
     </div>
 
     <script>
-        function companyPage(initialCount, existingCompanies, openInitially) {
+        function companyPage(initialCount, existingCompanies, openInitially, oldAdd) {
             return {
                 q: '',
                 fType: '',
                 existingCompanies: existingCompanies || [],
                 addOpen: openInitially,
-                addCode: '',
-                addName: '',
-                addType: 'SUPPLIER',
+                addCode: (oldAdd && oldAdd.code) ? oldAdd.code : '',
+                addName: (oldAdd && oldAdd.name) ? oldAdd.name : '',
+                addType: (oldAdd && oldAdd.type) ? oldAdd.type : 'SUPPLIER',
                 addError: '',
                 editOpen: false,
                 editId: null,
