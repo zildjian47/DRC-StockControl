@@ -34,6 +34,7 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
+            gap: 8px;
             height: 52px;
             padding: 0 14px;
             background: var(--side);
@@ -43,11 +44,18 @@
         .scanner-header .ttl {
             font: 600 14.5px var(--font-head);
             letter-spacing: -0.01em;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            text-align: right;
         }
         .scanner-header a {
             display: inline-flex;
             align-items: center;
             gap: 5px;
+            flex-shrink: 0;
+            white-space: nowrap;
             font-size: 12.5px;
             font-weight: 600;
             color: var(--side-ink);
@@ -57,6 +65,12 @@
         .scanner-header a:hover {
             background: var(--side-hover);
             color: #fff;
+        }
+
+        /* Nonaktifkan sticky .panel-head di layar HP agar tidak bertabrakan dengan .scanner-header */
+        .panel-head {
+            position: static;
+            z-index: auto;
         }
 
         /* Area Kamera Persegi (1:1 Square Scope) Tanpa Animasi Laser Biru */
@@ -341,6 +355,14 @@
                 }
             }
         };
+
+        // Matikan kamera otomatis saat pengguna meninggalkan atau menutup halaman scanner
+        window.addEventListener('pagehide', () => {
+            if (window.DRCScanner) window.DRCScanner.stop();
+        });
+        window.addEventListener('beforeunload', () => {
+            if (window.DRCScanner) window.DRCScanner.stop();
+        });
     </script>
 </head>
 <body class="min-h-screen pb-10">

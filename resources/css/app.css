@@ -275,44 +275,47 @@
     border-top: 1px solid rgba(255, 255, 255, 0.06);
   }
 
-  html.sb-collapsed .sidebar {
-    width: 60px;
-  }
+  /* Mode sidebar ringkas hanya aktif di desktop (>= 1024px) agar drawer HP tetap penuh */
+  @media (min-width: 1024px) {
+    html.sb-collapsed .sidebar {
+      width: 60px;
+    }
 
-  html.sb-collapsed .sb-name,
-  html.sb-collapsed .sb-item span {
-    display: none !important;
-  }
+    html.sb-collapsed .sb-name,
+    html.sb-collapsed .sb-item span {
+      display: none !important;
+    }
 
-  html.sb-collapsed .sb-title {
-    font-size: 0 !important;
-    color: transparent !important;
-    justify-content: center;
-    padding: 0;
-  }
+    html.sb-collapsed .sb-title {
+      font-size: 0 !important;
+      color: transparent !important;
+      justify-content: center;
+      padding: 0;
+    }
 
-  html.sb-collapsed .sb-title::after {
-    content: "";
-    display: block;
-    width: 16px;
-    height: 2px;
-    border-radius: 1px;
-    background-color: rgba(170, 183, 201, 0.32);
-  }
+    html.sb-collapsed .sb-title::after {
+      content: "";
+      display: block;
+      width: 16px;
+      height: 2px;
+      border-radius: 1px;
+      background-color: rgba(170, 183, 201, 0.32);
+    }
 
-  html.sb-collapsed .sb-brand {
-    justify-content: center;
-    padding: 0 4px;
-  }
+    html.sb-collapsed .sb-brand {
+      justify-content: center;
+      padding: 0 4px;
+    }
 
-  html.sb-collapsed .sb-mark {
-    display: none;
-  }
+    html.sb-collapsed .sb-mark {
+      display: none;
+    }
 
-  html.sb-collapsed .sb-item {
-    justify-content: center;
-    padding: 0;
-    gap: 0;
+    html.sb-collapsed .sb-item {
+      justify-content: center;
+      padding: 0;
+      gap: 0;
+    }
   }
 
   .topbar {
@@ -1653,6 +1656,12 @@
     color: var(--good);
     background: var(--good-bg);
     border-color: rgba(23, 101, 63, 0.25);
+  }
+
+  .alert-warn {
+    color: var(--warn);
+    background: var(--warn-bg);
+    border-color: rgba(138, 90, 0, 0.28);
   }
 
   .alert-crit {

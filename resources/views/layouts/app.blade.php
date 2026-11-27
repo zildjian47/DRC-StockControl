@@ -151,13 +151,14 @@
     }"
     @open-confirm.window="show($event.detail)"
     @keydown.escape.window="open = false"
+    @click.self="open = false"
     x-show="open"
     x-cloak
     class="modal-backdrop">
-    <div class="panel w-full max-w-md" @click.away="open = false">
+    <div class="panel w-full max-w-md" role="dialog" aria-label="Konfirmasi Tindakan">
         <div class="panel-head">
             <h3 class="panel-title" x-text="title"></h3>
-            <button type="button" class="act-btn" @click="open = false">
+            <button type="button" class="act-btn" @click="open = false" aria-label="Tutup">
                 <x-icon name="x" />
             </button>
         </div>
@@ -184,6 +185,7 @@
         <input type="text"
                x-ref="searchInput"
                x-model="q"
+               @input="activeIndex = 0"
                @keydown.down.prevent="move(1)"
                @keydown.up.prevent="move(-1)"
                @keydown.enter.prevent="chooseActive()"
@@ -221,7 +223,7 @@
             initEngine() {
                 document.addEventListener('mousedown', (e) => {
                     const sel = e.target.closest('select');
-                    if (!sel || sel.disabled || sel.dataset.nativeSelect === '1') return;
+                    if (!sel || sel.disabled || sel.dataset.nativeSelect === '1' || sel.hasAttribute('data-native-select')) return;
 
                     e.preventDefault();
                     sel.focus();
@@ -230,7 +232,7 @@
 
                 document.addEventListener('keydown', (e) => {
                     const sel = document.activeElement;
-                    if (!sel || sel.tagName !== 'SELECT' || sel.disabled) return;
+                    if (!sel || sel.tagName !== 'SELECT' || sel.disabled || sel.dataset.nativeSelect === '1' || sel.hasAttribute('data-native-select')) return;
                     if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
                         e.preventDefault();
                         this.openFor(sel);
@@ -304,7 +306,7 @@
             },
 
             chooseActive() {
-                const opt = this.filteredOptions[this.activeIndex];
+                const opt = this.filteredOptions[this.activeIndex] || this.filteredOptions[0];
                 if (opt) this.selectOption(opt);
             },
 
@@ -419,9 +421,6 @@
                     if (newNorm !== currentNorm) {
                         currentTbl.innerHTML = newTbl.innerHTML;
                         currentTbl._drcNormHtml = newNorm;
-                        if (window.Alpine) {
-                            window.Alpine.initTree(currentTbl);
-                        }
                         anyUpdated = true;
                     } else if (currentTbl._drcNormHtml === undefined) {
                         currentTbl._drcNormHtml = newNorm;
@@ -429,7 +428,9 @@
                 });
 
                 if (anyUpdated) {
-                    window.dispatchEvent(new CustomEvent('table-refreshed'));
+                    requestAnimationFrame(() => {
+                        window.dispatchEvent(new CustomEvent('table-refreshed'));
+                    });
                 }
             } catch (e) {}
         }, 15000);
