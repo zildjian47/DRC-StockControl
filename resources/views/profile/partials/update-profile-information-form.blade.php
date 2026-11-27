@@ -6,21 +6,15 @@
         </p>
     </header>
 
-    <form id="send-verification" method="post" action="{{ route('verification.send') }}">
-        @csrf
-    </form>
+    @if ($user instanceof \Illuminate\Contracts\Auth\MustVerifyEmail && ! $user->hasVerifiedEmail())
+        <form id="send-verification" method="post" action="{{ route('verification.send') }}">
+            @csrf
+        </form>
+    @endif
 
     <form method="post" action="{{ route('profile.update') }}" class="mt-5 space-y-4">
         @csrf
         @method('patch')
-
-        <div class="p-3 rounded border border-slate-200 bg-slate-50 flex items-center justify-between gap-4">
-            <div>
-                <div class="dlg-k">Hak Akses / Role Sistem</div>
-                <div class="text-xs text-slate-600 mt-0.5">Otorisasi modul ditentukan berdasarkan role akun Anda.</div>
-            </div>
-            <span class="pill {{ $user->role === 'PPIC' ? 'pill-info' : 'pill-good' }}">{{ $user->role }}</span>
-        </div>
 
         <div>
             <x-input-label for="name" value="Nama Lengkap Petugas" />
@@ -51,15 +45,13 @@
             @endif
         </div>
 
-        <div class="flex items-center gap-4 pt-1">
+        <div class="flex items-center gap-3 pt-1">
             <x-primary-button>Simpan Profil</x-primary-button>
 
             @if (session('status') === 'profile-updated')
-                <p x-data="{ show: true }"
-                   x-show="show"
-                   x-transition
-                   x-init="setTimeout(() => show = false, 2500)"
-                   class="text-xs font-semibold text-emerald-700">Profil berhasil diperbarui.</p>
+                <span x-data="{ show: true }" x-show="show" x-transition x-init="setTimeout(() => show = false, 2500)" class="pill pill-good">
+                    Profil Diperbarui
+                </span>
             @endif
         </div>
     </form>

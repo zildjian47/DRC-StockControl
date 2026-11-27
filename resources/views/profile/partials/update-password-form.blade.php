@@ -8,21 +8,39 @@
         @csrf
         @method('put')
 
-        <div>
+        <div x-data="{ show: false }">
             <x-input-label for="update_password_current_password" value="Password Saat Ini" />
-            <x-text-input id="update_password_current_password" name="current_password" type="password" class="block w-full" autocomplete="current-password" />
+            <div class="relative">
+                <input id="update_password_current_password" name="current_password" :type="show ? 'text' : 'password'" class="block w-full pr-11" autocomplete="current-password" />
+                <button type="button" @click="show = !show" class="absolute inset-y-0 right-0 w-10 grid place-items-center" style="color:var(--mut)" aria-label="Tampilkan atau sembunyikan password saat ini">
+                    <x-icon x-show="!show" name="eye" />
+                    <x-icon x-show="show" x-cloak name="eye-off" />
+                </button>
+            </div>
             <x-input-error :messages="$errors->updatePassword->get('current_password')" class="mt-1.5" />
         </div>
 
-        <div>
+        <div x-data="{ show: false }">
             <x-input-label for="update_password_password" value="Password Baru" />
-            <x-text-input id="update_password_password" name="password" type="password" class="block w-full" autocomplete="new-password" />
+            <div class="relative">
+                <input id="update_password_password" name="password" :type="show ? 'text' : 'password'" class="block w-full pr-11" autocomplete="new-password" />
+                <button type="button" @click="show = !show" class="absolute inset-y-0 right-0 w-10 grid place-items-center" style="color:var(--mut)" aria-label="Tampilkan atau sembunyikan password baru">
+                    <x-icon x-show="!show" name="eye" />
+                    <x-icon x-show="show" x-cloak name="eye-off" />
+                </button>
+            </div>
             <x-input-error :messages="$errors->updatePassword->get('password')" class="mt-1.5" />
         </div>
 
-        <div>
+        <div x-data="{ show: false }">
             <x-input-label for="update_password_password_confirmation" value="Konfirmasi Password Baru" />
-            <x-text-input id="update_password_password_confirmation" name="password_confirmation" type="password" class="block w-full" autocomplete="new-password" />
+            <div class="relative">
+                <input id="update_password_password_confirmation" name="password_confirmation" :type="show ? 'text' : 'password'" class="block w-full pr-11" autocomplete="new-password" />
+                <button type="button" @click="show = !show" class="absolute inset-y-0 right-0 w-10 grid place-items-center" style="color:var(--mut)" aria-label="Tampilkan atau sembunyikan konfirmasi password baru">
+                    <x-icon x-show="!show" name="eye" />
+                    <x-icon x-show="show" x-cloak name="eye-off" />
+                </button>
+            </div>
             <x-input-error :messages="$errors->updatePassword->get('password_confirmation')" class="mt-1.5" />
         </div>
 

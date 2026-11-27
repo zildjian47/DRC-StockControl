@@ -14,15 +14,27 @@
             <x-input-error :messages="$errors->get('email')" class="mt-1.5" />
         </div>
 
-        <div>
+        <div x-data="{ show: false }">
             <x-input-label for="password" value="Password Baru" />
-            <x-text-input id="password" class="block w-full" type="password" name="password" required autocomplete="new-password" />
+            <div class="relative">
+                <input id="password" class="block w-full pr-11" :type="show ? 'text' : 'password'" name="password" required autocomplete="new-password" />
+                <button type="button" @click="show = !show" class="absolute inset-y-0 right-0 w-10 grid place-items-center" style="color:var(--mut)" aria-label="Tampilkan atau sembunyikan password baru">
+                    <x-icon x-show="!show" name="eye" />
+                    <x-icon x-show="show" x-cloak name="eye-off" />
+                </button>
+            </div>
             <x-input-error :messages="$errors->get('password')" class="mt-1.5" />
         </div>
 
-        <div>
+        <div x-data="{ show: false }">
             <x-input-label for="password_confirmation" value="Konfirmasi Password Baru" />
-            <x-text-input id="password_confirmation" class="block w-full" type="password" name="password_confirmation" required autocomplete="new-password" />
+            <div class="relative">
+                <input id="password_confirmation" class="block w-full pr-11" :type="show ? 'text' : 'password'" name="password_confirmation" required autocomplete="new-password" />
+                <button type="button" @click="show = !show" class="absolute inset-y-0 right-0 w-10 grid place-items-center" style="color:var(--mut)" aria-label="Tampilkan atau sembunyikan konfirmasi password baru">
+                    <x-icon x-show="!show" name="eye" />
+                    <x-icon x-show="show" x-cloak name="eye-off" />
+                </button>
+            </div>
             <x-input-error :messages="$errors->get('password_confirmation')" class="mt-1.5" />
         </div>
 

@@ -28,6 +28,6 @@ return [
         ['label' => 'BOM',                'route' => 'boms.index',                'match' => 'boms.*',                'icon' => 'layers',   'roles' => ['PPIC']],
     ]],
     ['group' => 'Pengaturan', 'items' => [
-        ['label' => 'Manajemen User',     'route' => 'users.index',               'match' => 'users.*',               'icon' => 'gear',     'roles' => ['PPIC']],
+        ['label' => 'Manajemen User',     'route' => 'users.index',               'match' => 'users.*',               'icon' => 'user',     'roles' => ['PPIC']],
     ]],
 ];
