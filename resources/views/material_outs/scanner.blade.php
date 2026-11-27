@@ -3,10 +3,11 @@
 
     <div x-data="matOutScanner({{ Js::from(route('material_outs.lookup')) }}, {{ Js::from($allScansData ?? []) }}, '{{ now()->format('Y-m-d') }}')"
          x-init="initScanner()"
-         @pageshow.window="isSubmitting = false">
+         @pageshow.window="isSubmitting = false"
+         class="space-y-3.5">
 
         {{-- VISUAL STEPPER --}}
-        <div class="scan-stepper mb-3">
+        <div class="scan-stepper">
             <div class="scan-step" :class="step === 1 ? 'active' : (step > 1 ? 'done' : '')">
                 <span class="scan-step-num" x-text="step > 1 ? '✓' : '1'"></span>
                 <span class="truncate">Material</span>
@@ -37,7 +38,7 @@
             <div class="panel-body space-y-4">
                 {{-- AREA KAMERA (AKTIF DI LANGKAH 1 & 2) --}}
                 <div x-show="step === 1 || step === 2">
-                    <div class="camera-box mb-3">
+                    <div class="camera-box mb-2.5">
                         <div id="qr-reader" x-show="cameraActive"></div>
                         <div class="scan-scope-guide" x-show="cameraActive"></div>
 
@@ -46,12 +47,20 @@
                                 <x-icon name="scan" class="w-6 h-6" />
                             </div>
                             <div class="text-xs text-slate-300 leading-relaxed">
-                                Aktifkan kamera untuk scan QR, atau ketik kode di bawah.
+                                Aktifkan kamera untuk scan QR Rak atau label part, lalu ketik manual jika diperlukan.
                             </div>
                             <button type="button" @click="activateCamera()" class="btn btn-primary">
                                 <x-icon name="scan" /> Aktifkan Kamera
                             </button>
                         </div>
+                    </div>
+
+                    <div class="flex items-center justify-between gap-2 mb-3">
+                        <span class="text-[11.5px] text-slate-500"
+                              x-text="isLookingUp ? 'Memeriksa kode...' : (cameraActive ? 'Kamera aktif — bidik QR Rak atau label part' : 'Kamera nonaktif')"></span>
+                        <button type="button" x-show="cameraActive" x-cloak @click="stopCamera()" class="btn btn-sm">
+                            Matikan Kamera
+                        </button>
                     </div>
 
                     {{-- RINGKASAN MATERIAL TERPILIH SAAT DI LANGKAH 2 --}}
@@ -73,7 +82,7 @@
 
                     {{-- INPUT MANUAL STEP 1 / STEP 2 --}}
                     <div>
-                        <label class="lbl" x-text="step === 1 ? 'Part No / Part Name Material' : 'Part No / Part Name Output'"></label>
+                        <label class="lbl" x-text="step === 1 ? 'Part No, Part Name, atau QR Rak Material' : 'Part No, Part Name, atau QR Rak Output'"></label>
                         <div class="flex gap-2">
                             <input type="text" x-model="manualCode"
                                    @keydown.enter.prevent="handleScan(manualCode)"
@@ -105,7 +114,7 @@
                         </div>
                     </div>
 
-                    {{-- Pilihan Kelompok Cetakan jika ada >1 Grup BOM untuk pasangan Material + Target yang sama --}}
+                    {{-- Pilihan Kelompok Cetakan jika ada lebih dari 1 Grup BOM untuk pasangan Material + Target yang sama --}}
                     <div x-show="candidateGroups.length > 1" class="p-3 rounded bg-amber-50/70 border border-amber-200 space-y-2">
                         <label class="lbl text-amber-900">Kelompok BOM</label>
                         <select x-model="selectedBomGroup" class="w-full h-10 text-xs font-semibold">
@@ -261,6 +270,7 @@
 
     <script>
         function matOutScanner(lookupUrl, allScans, todayStr) {
+            const MAX_QTY = 99999999.99;
             return {
                 lookupUrl: lookupUrl,
                 step: 1,
@@ -310,13 +320,20 @@
                     );
                     if (!ok) this.cameraActive = false;
                 },
+                async stopCamera() {
+                    if (window.DRCScanner) {
+                        await window.DRCScanner.stop();
+                    }
+                    this.cameraActive = false;
+                },
                 async handleScan(rawCode, fromCamera = false) {
-                    const c = String(rawCode || '').trim().toUpperCase();
+                    const c = String(rawCode || '').trim();
                     if (!c || this.isLookingUp) return;
+                    const key = c.toUpperCase();
                     if (fromCamera) {
                         const now = Date.now();
-                        if (this.lastCamCode === c && (now - this.lastCamAt) < 900) return;
-                        this.lastCamCode = c;
+                        if (this.lastCamCode === key && (now - this.lastCamAt) < 900) return;
+                        this.lastCamCode = key;
                         this.lastCamAt = now;
                     }
 
@@ -338,6 +355,15 @@
                                 'X-Requested-With': 'XMLHttpRequest'
                             }
                         });
+                        if (res.redirected || res.status === 401 || res.status === 419) {
+                            this.notifyError('Sesi habis, silakan muat ulang halaman untuk masuk kembali.');
+                            return;
+                        }
+                        const contentType = res.headers.get('content-type') || '';
+                        if (!contentType.includes('application/json')) {
+                            this.notifyError('Sesi habis atau respons server tidak valid. Silakan muat ulang halaman.');
+                            return;
+                        }
                         if (!res.ok) {
                             throw new Error(`Gagal memeriksa kode (HTTP ${res.status}).`);
                         }
@@ -352,7 +378,7 @@
                             this.materialItem = data.item;
                             this.manualCode = '';
                             if (fromCamera) {
-                                this.lastCamCode = c;
+                                this.lastCamCode = key;
                                 this.lastCamAt = Date.now() + 600;
                             }
                             this.step = 2;
@@ -369,8 +395,7 @@
                             this.lastCamCode = '';
                             this.lastCamAt = 0;
                             this.step = 3;
-                            window.DRCScanner.stop();
-                            this.cameraActive = false;
+                            await this.stopCamera();
                         }
                     } catch (err) {
                         this.notifyError((err && err.message) ? err.message : 'Gagal menghubungi server. Periksa koneksi jaringan.');
@@ -486,6 +511,14 @@
                     }
                     if (val <= 0) {
                         this.notifyError('Qty harus lebih dari 0.');
+                        return;
+                    }
+                    if (val > MAX_QTY) {
+                        this.notifyError('Qty melebihi batas maksimal 99.999.999,99.');
+                        return;
+                    }
+                    if (this.groupTargetOutputs.some(o => o.est_qty > MAX_QTY)) {
+                        this.notifyError('Target estimasi hasil produksi melebihi batas maksimal 99.999.999,99.');
                         return;
                     }
                     if (val > (this.materialItem.stock || 0) + 0.0001) {
