@@ -2,14 +2,15 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\ProductionNg;
-use App\Models\LotTracer;
-use App\Models\Item;
 use App\Models\InventoryStock;
+use App\Models\Item;
+use App\Models\LotTracer;
+use App\Models\ProductionNg;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class ProductionNgController extends Controller
 {
@@ -39,12 +40,12 @@ class ProductionNgController extends Controller
                         'time'       => $dt->format('H:i'),
                         'date_fmt'   => $dt->format('d M Y, H:i'),
                         'lot_number' => $s->lot_number,
-                        'part_no'    => $s->item->part_no ?: '-',
-                        'part_name'  => $s->item->part_name ?? '-',
-                        'uom'        => $s->item->uom ?? 'PCS',
+                        'part_no'    => $s->item?->part_no ?: '-',
+                        'part_name'  => $s->item?->part_name ?? '-',
+                        'uom'        => $s->item?->uom ?? 'PCS',
                         'reason'     => $s->problem_reason,
                         'qty_ng'     => (float) $s->qty_ng,
-                        'user_name'  => $s->user->name ?? 'QC',
+                        'user_name'  => $s->user?->name ?? 'QC',
                     ];
                 })->values();
 
@@ -105,19 +106,15 @@ class ProductionNgController extends Controller
     public function lookup(Request $request)
     {
         $rawCode = trim((string) $request->query('code', ''));
-        $code    = strtoupper($rawCode);
 
-        if ($code === '') {
+        if ($rawCode === '') {
             return response()->json([
                 'ok'      => false,
                 'message' => 'Kode QR / Part wajib diisi.',
             ]);
         }
 
-        $item = Item::with('inventoryStock')
-            ->where('part_no', $code)
-            ->orWhere('part_name', $code)
-            ->first();
+        $item = Item::findActiveByScanCode($rawCode, ['inventoryStock']);
 
         if (!$item) {
             return response()->json([
@@ -143,11 +140,11 @@ class ProductionNgController extends Controller
                 'id'             => $lt->id,
                 'lot_number'     => $lt->lot_number,
                 'target_item_id' => $lt->target_item_id,
-                'process_name'   => $lt->process->process_name ?? '-',
+                'process_name'   => $lt->process?->process_name ?? '-',
                 'actual_prod'    => (float) $lt->actual_qty_prod,
                 'qty_ng'         => (float) $lt->qty_ng,
                 'act_fg'         => (float) $lt->act_fg,
-                'uom'            => $lt->targetItem->uom ?? $item->uom ?? 'PCS',
+                'uom'            => $lt->targetItem?->uom ?? $item->uom ?? 'PCS',
             ])->values();
 
         if ($lots->isEmpty()) {
@@ -173,6 +170,13 @@ class ProductionNgController extends Controller
 
     public function store(Request $request)
     {
+        if (!$request->filled('item_id') && $request->filled('scanned_code')) {
+            $found = Item::findActiveByScanCode((string) $request->scanned_code);
+            if ($found) {
+                $request->merge(['item_id' => $found->id]);
+            }
+        }
+
         // Jika dikirim dari Mobile Scanner menggunakan item_id + lot_number
         if (!$request->filled('lot_tracer_id') && $request->filled('lot_number') && $request->filled('item_id')) {
             $foundLot = LotTracer::where('lot_number', strtoupper(trim((string) $request->lot_number)))
@@ -193,21 +197,28 @@ class ProductionNgController extends Controller
         if ($qtyNg <= 0) {
             return back()->withInput()->with('error', 'Qty NG harus lebih dari 0.');
         }
+        if ($qtyNg > Item::MAX_QTY) {
+            return back()->withInput()->with('error', 'Qty NG melebihi batas maksimal 99.999.999,99.');
+        }
 
         $lotNumber = '';
         $targetUom = '';
 
         try {
             DB::transaction(function () use ($request, $qtyNg, &$lotNumber, &$targetUom) {
-                $lot = LotTracer::with('targetItem')->lockForUpdate()->findOrFail($request->lot_tracer_id);
+                $lot = LotTracer::with('targetItem')->lockForUpdate()->find($request->lot_tracer_id);
+                if (!$lot) {
+                    throw new \RuntimeException('Data Lot Tracer tidak ditemukan.');
+                }
 
                 if ($lot->status_lot !== 'ON PROGRESS') {
                     throw new \RuntimeException("Lot {$lot->lot_number} sudah berstatus FINISH.");
                 }
 
-                $maxAllow = max(0, (float) $lot->actual_qty_prod - (float) $lot->qty_ng);
+                $targetUom = $lot->targetItem?->uom ?? '';
+                $maxAllow  = round(max(0, (float) $lot->actual_qty_prod - (float) $lot->qty_ng), 2);
                 if ($qtyNg > $maxAllow) {
-                    throw new \RuntimeException('Qty NG melebihi saldo Act FG (maksimal ' . floatval($maxAllow) . " {$lot->targetItem->uom}).");
+                    throw new \RuntimeException('Qty NG melebihi saldo Act FG (maksimal ' . floatval($maxAllow) . " {$targetUom}).");
                 }
 
                 InventoryStock::firstOrCreate(
@@ -217,7 +228,7 @@ class ProductionNgController extends Controller
                 $stock = InventoryStock::where('item_id', $lot->target_item_id)->lockForUpdate()->first();
 
                 if ($qtyNg > (float) $stock->current_stock) {
-                    throw new \RuntimeException('Stok gudang kurang. Tersedia: ' . floatval($stock->current_stock) . " {$lot->targetItem->uom}.");
+                    throw new \RuntimeException('Stok gudang kurang. Tersedia: ' . floatval($stock->current_stock) . " {$targetUom}.");
                 }
 
                 ProductionNg::create([
@@ -230,15 +241,14 @@ class ProductionNgController extends Controller
                     'qty_check'      => 'TERCATAT',
                 ]);
 
-                $lot->qty_ng = (float) $lot->qty_ng + $qtyNg;
+                $lot->qty_ng = round((float) $lot->qty_ng + $qtyNg, 2);
                 $lot->recalculateLotMetrics();
 
-                $stock->current_stock = (float) $stock->current_stock - $qtyNg;
+                $stock->current_stock = round((float) $stock->current_stock - $qtyNg, 2);
                 $stock->status_stock  = $stock->calculateDynamicStatus();
                 $stock->save();
 
                 $lotNumber = $lot->lot_number;
-                $targetUom = $lot->targetItem->uom ?? '';
             });
         } catch (\RuntimeException $e) {
             return back()->withInput()->with('error', $e->getMessage());
@@ -255,16 +265,19 @@ class ProductionNgController extends Controller
 
     public function verifyBatch(Request $request)
     {
-        $items = $request->input('items', []);
+        $items     = $request->input('items', []);
         $processed = 0;
 
         try {
             DB::transaction(function () use ($items, &$processed) {
                 foreach ($items as $id => $data) {
                     $rawActual = $data['actual_qty'] ?? null;
-                    $newQty = StockAdjustmentController::parseSignedCalculatorValue($rawActual);
+                    $newQty    = StockAdjustmentController::parseSignedCalculatorValue($rawActual);
                     if ($newQty === null || $newQty <= 0) {
                         throw new \RuntimeException('Format Qty NG koreksi tidak valid (wajib > 0).');
+                    }
+                    if ($newQty > Item::MAX_QTY) {
+                        throw new \RuntimeException('Qty NG koreksi melebihi batas maksimal 99.999.999,99.');
                     }
 
                     $newReason = isset($data['problem_reason'])
@@ -277,11 +290,19 @@ class ProductionNgController extends Controller
                     $notesRaw = trim((string) ($data['correction_notes'] ?? ''));
                     $notes    = $notesRaw !== '' ? mb_substr($notesRaw, 0, 500) : null;
 
-                    $ng  = ProductionNg::with('item')->lockForUpdate()->findOrFail($id);
+                    $ng = ProductionNg::with('item')->lockForUpdate()->find($id);
+                    if (!$ng) {
+                        throw new \RuntimeException('Data transaksi Production NG tidak ditemukan.');
+                    }
+
                     $lot = LotTracer::where('lot_number', $ng->lot_number)
                         ->where('target_item_id', $ng->item_id)
                         ->lockForUpdate()
-                        ->firstOrFail();
+                        ->first();
+
+                    if (!$lot) {
+                        throw new \RuntimeException("Data Lot Tracer untuk Lot {$ng->lot_number} tidak ditemukan.");
+                    }
 
                     if ($lot->status_lot === 'FINISH') {
                         throw new \RuntimeException("Lot {$lot->lot_number} sudah berstatus FINISH sehingga Production NG tidak dapat dikoreksi.");
@@ -290,6 +311,7 @@ class ProductionNgController extends Controller
                     $oldQty   = (float) $ng->qty_ng;
                     $diff     = round($newQty - $oldQty, 2);
                     $newLotNg = round((float) $lot->qty_ng + $diff, 2);
+                    $partName = $ng->item?->part_name ?? 'Item';
 
                     if ($newLotNg > (float) $lot->actual_qty_prod + 0.0001) {
                         $maxThisNg = max(0, round($oldQty + ((float) $lot->actual_qty_prod - (float) $lot->qty_ng), 2));
@@ -300,20 +322,24 @@ class ProductionNgController extends Controller
                         ['item_id' => $ng->item_id],
                         ['current_stock' => 0, 'status_stock' => 'EMPTY STOCK']
                     );
-                    $stock = InventoryStock::where('item_id', $ng->item_id)->lockForUpdate()->first();
+                    $stock     = InventoryStock::where('item_id', $ng->item_id)->lockForUpdate()->first();
+                    $nextStock = round((float) $stock->current_stock - $diff, 2);
 
-                    if ($diff > 0 && $diff > (float) $stock->current_stock + 0.0001) {
-                        throw new \RuntimeException("Stok gudang {$ng->item->part_name} tidak cukup untuk kenaikan Qty NG (tersedia " . floatval($stock->current_stock) . ').');
+                    if ($diff > 0 && $nextStock < -0.0001) {
+                        throw new \RuntimeException("Stok gudang {$partName} tidak cukup untuk kenaikan Qty NG (tersedia " . floatval($stock->current_stock) . ').');
+                    }
+                    if ($nextStock > Item::MAX_QTY) {
+                        throw new \RuntimeException("Stok gudang {$partName} melebihi batas maksimal 99.999.999,99.");
                     }
 
-                    $stock->current_stock = round((float) $stock->current_stock - $diff, 2);
+                    $stock->current_stock = max(0, $nextStock);
                     $stock->status_stock  = $stock->calculateDynamicStatus();
                     $stock->save();
 
                     if ($ng->qty_original === null) {
                         $ng->qty_original = $oldQty;
                     }
-                    $ng->qty_ng           = $newQty;
+                    $ng->qty_ng = $newQty;
                     if ($newReason !== null && $newReason !== '') {
                         $ng->problem_reason = $newReason;
                     }
@@ -329,8 +355,15 @@ class ProductionNgController extends Controller
                     $processed++;
                 }
             });
-        } catch (\Throwable $e) {
+        } catch (\RuntimeException $e) {
             return back()->with('error', $e->getMessage());
+        } catch (\Throwable $e) {
+            Log::error('Gagal menyimpan koreksi Production NG.', [
+                'user_id' => Auth::id(),
+                'error'   => $e->getMessage(),
+            ]);
+
+            return back()->with('error', 'Terjadi kesalahan sistem saat menyimpan koreksi Production NG. Silakan coba lagi.');
         }
 
         if ($processed === 0) {

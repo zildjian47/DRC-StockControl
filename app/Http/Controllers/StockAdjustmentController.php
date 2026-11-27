@@ -2,13 +2,14 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\StockAdjustment;
-use App\Models\Item;
 use App\Models\InventoryStock;
+use App\Models\Item;
+use App\Models\StockAdjustment;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class StockAdjustmentController extends Controller
 {
@@ -16,6 +17,7 @@ class StockAdjustmentController extends Controller
 
     /**
      * Evaluasi ekspresi kalkulator (+, -, *, /) dengan dukungan hasil positif, nol, maupun negatif (untuk Qty Diff).
+     * Tanda unary (+/-) hanya diizinkan di awal ekspresi atau tepat setelah '('; operator berurutan ilegal (mis. 10*-5) ditolak.
      */
     public static function parseSignedCalculatorValue($raw): ?float
     {
@@ -41,11 +43,22 @@ class StockAdjustmentController extends Controller
         $ops    = [];
 
         foreach ($tokens as $idx => $t) {
+            $prev = $idx > 0 ? $tokens[$idx - 1] : null;
+
             if (is_numeric($t)) {
+                if ($prev === ')') {
+                    return null;
+                }
                 $output[] = (float) $t;
             } elseif ($t === '(') {
+                if ($prev !== null && (is_numeric($prev) || $prev === ')')) {
+                    return null;
+                }
                 $ops[] = $t;
             } elseif ($t === ')') {
+                if ($prev === null || $prev === '(' || isset($prec[$prev])) {
+                    return null;
+                }
                 while (!empty($ops) && end($ops) !== '(') {
                     $output[] = array_pop($ops);
                 }
@@ -54,9 +67,20 @@ class StockAdjustmentController extends Controller
                 }
                 array_pop($ops);
             } elseif (isset($prec[$t])) {
-                if (($t === '-' || $t === '+') && ($idx === 0 || in_array($tokens[$idx - 1], ['(', '+', '-', '*', '/'], true))) {
-                    $output[] = 0.0;
+                // Tolak operator berurutan (misal 10*-5, 5++2, --5)
+                if ($prev !== null && isset($prec[$prev])) {
+                    return null;
                 }
+
+                $isStartOrAfterOpen = ($idx === 0 || $prev === '(');
+                if ($isStartOrAfterOpen) {
+                    if ($t === '+' || $t === '-') {
+                        $output[] = 0.0;
+                    } else {
+                        return null;
+                    }
+                }
+
                 while (!empty($ops) && end($ops) !== '(' && $prec[end($ops)] >= $prec[$t]) {
                     $output[] = array_pop($ops);
                 }
@@ -82,10 +106,13 @@ class StockAdjustmentController extends Controller
                 }
                 $b = array_pop($stack);
                 $a = array_pop($stack);
-                if ($token === '+') $stack[] = $a + $b;
-                elseif ($token === '-') $stack[] = $a - $b;
-                elseif ($token === '*') $stack[] = $a * $b;
-                elseif ($token === '/') {
+                if ($token === '+') {
+                    $stack[] = $a + $b;
+                } elseif ($token === '-') {
+                    $stack[] = $a - $b;
+                } elseif ($token === '*') {
+                    $stack[] = $a * $b;
+                } elseif ($token === '/') {
                     if (abs($b) < 1e-12) {
                         return null;
                     }
@@ -118,13 +145,13 @@ class StockAdjustmentController extends Controller
                         'date'       => $dt->format('Y-m-d'),
                         'time'       => $dt->format('H:i'),
                         'date_fmt'   => $dt->format('d M Y, H:i'),
-                        'part_no'    => $s->item->part_no ?: '-',
-                        'part_name'  => $s->item->part_name ?? '-',
-                        'uom'        => $s->item->uom ?? '',
+                        'part_no'    => $s->item?->part_no ?: '-',
+                        'part_name'  => $s->item?->part_name ?? '-',
+                        'uom'        => $s->item?->uom ?? '',
                         'adj_type'   => $s->adjustment_type,
                         'qty_actual' => (float) $s->qty_actual,
                         'qty_diff'   => (float) $s->qty_diff,
-                        'user_name'  => $s->user->name ?? 'PPIC',
+                        'user_name'  => $s->user?->name ?? 'PPIC',
                     ];
                 })->values();
 
@@ -170,19 +197,15 @@ class StockAdjustmentController extends Controller
     public function lookup(Request $request)
     {
         $rawCode = trim((string) $request->query('code', ''));
-        $code    = strtoupper($rawCode);
 
-        if ($code === '') {
+        if ($rawCode === '') {
             return response()->json([
                 'ok'      => false,
                 'message' => 'Kode QR / Part wajib diisi.',
             ]);
         }
 
-        $item = Item::with(['company', 'inventoryStock'])
-            ->where('part_no', $code)
-            ->orWhere('part_name', $code)
-            ->first();
+        $item = Item::findActiveByScanCode($rawCode, ['company', 'inventoryStock']);
 
         if (!$item) {
             return response()->json([
@@ -208,20 +231,21 @@ class StockAdjustmentController extends Controller
     public function store(Request $request)
     {
         if (!$request->filled('item_id') && $request->filled('scanned_code')) {
-            $code = strtoupper(trim((string) $request->scanned_code));
-            $found = Item::where('part_no', $code)->orWhere('part_name', $code)->first();
+            $found = Item::findActiveByScanCode((string) $request->scanned_code);
             if ($found) {
                 $request->merge(['item_id' => $found->id]);
             }
         }
 
         $request->validate([
-            'item_id'         => 'required|exists:items,id',
+            'item_id'         => ['required', 'integer', Rule::exists('items', 'id')->whereNull('deleted_at')],
             'adjustment_type' => 'required|in:LOSS,SURPLUS,STOCK OPNAME,FOUND,REPAIR',
             'qty_actual'      => 'nullable|string',
             'qty_diff'        => 'nullable|string',
             'input_mode'      => 'nullable|in:actual,diff',
             'notes'           => 'nullable|string|max:500',
+        ], [
+            'item_id.exists' => 'Item tidak ditemukan atau sudah dinonaktifkan.',
         ]);
 
         $item         = Item::findOrFail($request->item_id);
@@ -257,6 +281,9 @@ class StockAdjustmentController extends Controller
                 if ($qtyActual < 0) {
                     throw new \RuntimeException('Qty Actual tidak boleh minus.');
                 }
+                if ($qtyActual > Item::MAX_QTY || abs($qtyDiff) > Item::MAX_QTY) {
+                    throw new \RuntimeException('Nilai Qty Adjustment melebihi batas maksimal 99.999.999,99.');
+                }
 
                 if ($type === 'LOSS' && $qtyActual >= $qtySystem) {
                     throw new \RuntimeException('Kategori LOSS: Qty Actual harus lebih kecil dari Qty System (' . floatval($qtySystem) . ').');
@@ -281,7 +308,7 @@ class StockAdjustmentController extends Controller
                     'notes'           => $request->notes,
                 ]);
 
-                $stock->current_stock = $qtyActual;
+                $stock->current_stock = round($qtyActual, 2);
                 $stock->status_stock  = $stock->calculateDynamicStatus();
                 $stock->save();
             });
